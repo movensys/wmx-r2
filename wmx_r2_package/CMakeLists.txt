@@ -39,7 +39,7 @@ install(DIRECTORY
 add_executable(joint_state_broadcaster src/joint_state_broadcaster.cpp)
 ament_target_dependencies(joint_state_broadcaster rclcpp std_msgs sensor_msgs std_srvs wmx_r2_message)
 target_include_directories(joint_state_broadcaster PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
-target_link_libraries(joint_state_broadcaster coremotionapi ioapi wmx3api imdll)
+target_link_libraries(joint_state_broadcaster coremotionapi cyclicbufferapi ioapi wmx3api imdll)
 target_link_directories(joint_state_broadcaster PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(joint_state_broadcaster PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 
@@ -47,7 +47,7 @@ add_executable(joint_trajectory_controller src/joint_trajectory_controller.cpp)
 ament_target_dependencies(joint_trajectory_controller
   rclcpp rclcpp_action std_msgs std_srvs control_msgs trajectory_msgs wmx_r2_message)
 target_include_directories(joint_trajectory_controller PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
-target_link_libraries(joint_trajectory_controller coremotionapi advancedmotionapi ioapi wmx3api imdll)
+target_link_libraries(joint_trajectory_controller coremotionapi cyclicbufferapi advancedmotionapi ioapi wmx3api imdll)
 target_link_directories(joint_trajectory_controller PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(joint_trajectory_controller PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 
@@ -56,14 +56,14 @@ ament_target_dependencies(differential_drive_controller
   rclcpp std_msgs std_srvs geometry_msgs nav_msgs
   tf2 tf2_ros wmx_r2_message)
 target_include_directories(differential_drive_controller PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
-target_link_libraries(differential_drive_controller coremotionapi wmx3api imdll)
+target_link_libraries(differential_drive_controller coremotionapi cyclicbufferapi wmx3api imdll)
 target_link_directories(differential_drive_controller PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(differential_drive_controller PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 
 add_executable(gripper_controller src/gripper_controller.cpp)
 ament_target_dependencies(gripper_controller rclcpp std_msgs sensor_msgs std_srvs wmx_r2_message)
 target_include_directories(gripper_controller PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
-target_link_libraries(gripper_controller coremotionapi ioapi wmx3api imdll)
+target_link_libraries(gripper_controller coremotionapi cyclicbufferapi ioapi wmx3api imdll)
 target_link_directories(gripper_controller PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(gripper_controller PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 
@@ -77,7 +77,7 @@ target_compile_definitions(wmx_engine_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PAT
 add_executable(wmx_core_motion_node src/wmx_core_motion_node.cpp)
 ament_target_dependencies(wmx_core_motion_node rclcpp std_msgs std_srvs wmx_r2_message)
 target_include_directories(wmx_core_motion_node PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
-target_link_libraries(wmx_core_motion_node coremotionapi wmx3api imdll)
+target_link_libraries(wmx_core_motion_node coremotionapi cyclicbufferapi wmx3api imdll)
 target_link_directories(wmx_core_motion_node PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(wmx_core_motion_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 

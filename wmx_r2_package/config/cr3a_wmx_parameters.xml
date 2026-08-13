@@ -625,7 +625,7 @@
 		</EmergencyStopParam>
 		<AxisParam>
 			<AxisCommandMode>0</AxisCommandMode>
-			<AxisGearRatioNumerator>42467328.000000</AxisGearRatioNumerator>
+			<AxisGearRatioNumerator>52953088.000000</AxisGearRatioNumerator>
 			<AxisGearRatioDenominator>6.283185307179586</AxisGearRatioDenominator>
 			<SingleTurnMode>0</SingleTurnMode>
 			<SingleTurnEncoderCount>65536</SingleTurnEncoderCount>
@@ -637,7 +637,7 @@
 			<PositiveTrqLimit>300.000000</PositiveTrqLimit>
 			<AxisUnit>0.000000</AxisUnit>
 			<VelocityFeedforwardGain>0.000000</VelocityFeedforwardGain>
-			<AxisPolarity>1</AxisPolarity>
+			<AxisPolarity>-1</AxisPolarity>
 			<MaxMotorSpeed>3000.000000</MaxMotorSpeed>
 			<MaxMotorSpeedUnitNumerator>1.000000</MaxMotorSpeedUnitNumerator>
 			<MaxMotorSpeedUnitDenominator>1.000000</MaxMotorSpeedUnitDenominator>
@@ -845,7 +845,7 @@
 			<PositiveTrqLimit>300.000000</PositiveTrqLimit>
 			<AxisUnit>0.000000</AxisUnit>
 			<VelocityFeedforwardGain>0.000000</VelocityFeedforwardGain>
-			<AxisPolarity>-1</AxisPolarity>
+			<AxisPolarity>1</AxisPolarity>
 			<MaxMotorSpeed>3000.000000</MaxMotorSpeed>
 			<MaxMotorSpeedUnitNumerator>1.000000</MaxMotorSpeedUnitNumerator>
 			<MaxMotorSpeedUnitDenominator>1.000000</MaxMotorSpeedUnitDenominator>
@@ -1457,8 +1457,8 @@
 		</EmergencyStopParam>
 		<AxisParam>
 			<AxisCommandMode>0</AxisCommandMode>
-			<AxisGearRatioNumerator>1.000000</AxisGearRatioNumerator>
-			<AxisGearRatioDenominator>1.000000</AxisGearRatioDenominator>
+			<AxisGearRatioNumerator>42467328.000000</AxisGearRatioNumerator>
+			<AxisGearRatioDenominator>6.283185307179586</AxisGearRatioDenominator>
 			<SingleTurnMode>0</SingleTurnMode>
 			<SingleTurnEncoderCount>65536</SingleTurnEncoderCount>
 			<MaxTrqLimit>300.000000</MaxTrqLimit>
@@ -1469,11 +1469,11 @@
 			<PositiveTrqLimit>300.000000</PositiveTrqLimit>
 			<AxisUnit>0.000000</AxisUnit>
 			<VelocityFeedforwardGain>0.000000</VelocityFeedforwardGain>
-			<AxisPolarity>1</AxisPolarity>
+			<AxisPolarity>-1</AxisPolarity>
 			<MaxMotorSpeed>3000.000000</MaxMotorSpeed>
 			<MaxMotorSpeedUnitNumerator>1.000000</MaxMotorSpeedUnitNumerator>
 			<MaxMotorSpeedUnitDenominator>1.000000</MaxMotorSpeedUnitDenominator>
-			<AbsoluteEncoderMode>0</AbsoluteEncoderMode>
+			<AbsoluteEncoderMode>1</AbsoluteEncoderMode>
 			<AbsoluteEncoderHomeOffset>0.000000</AbsoluteEncoderHomeOffset>
 			<EncoderRangeMode>0</EncoderRangeMode>
 			<EncoderRangeLow>0</EncoderRangeLow>

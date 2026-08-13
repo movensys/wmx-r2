@@ -247,6 +247,7 @@ hardware_interface::CallbackReturn WmxSystemHardware::on_activate(
         return hardware_interface::CallbackReturn::ERROR;
       }
     }
+    cm_->axisControl->SetServoOn(6, 1, 2000);
     RCLCPP_INFO(logger_, "Servos enabled on all axes");
   }
 
@@ -274,6 +275,7 @@ hardware_interface::CallbackReturn WmxSystemHardware::on_deactivate(
     for (auto & joint : joints_) {
       cm_->axisControl->SetServoOn(joint.axis, 0, 2000);
     }
+    cm_->axisControl->SetServoOn(6, 0, 2000);
   }
   RCLCPP_INFO(logger_, "WmxSystemHardware deactivated");
   return hardware_interface::CallbackReturn::SUCCESS;

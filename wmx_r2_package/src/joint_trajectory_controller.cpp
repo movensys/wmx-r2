@@ -5,12 +5,14 @@
 #include <thread>
 #include <sstream>
 #include <chrono>
+#include <functional>
 #include <string>
 #include <vector>
 
 #include "WMX3Api.h"
 #include "CoreMotionApi.h"
 #include "AdvancedMotionApi.h"
+#include "CyclicBufferApi.h"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -27,6 +29,9 @@ using wmx3Api::AdvMotion;
 using wmx3Api::AxisSelection;
 using wmx3Api::Config;
 using wmx3Api::CoreMotion;
+using wmx3Api::CyclicBuffer;
+using wmx3Api::CyclicBufferSingleAxisStatus;
+using wmx3Api::CyclicBufferMultiAxisCommands;
 using wmx3Api::CoreMotionStatus;
 using wmx3Api::DeviceType;
 using wmx3Api::ErrorCode;
@@ -43,6 +48,7 @@ public:
 
   std::vector<int64_t> jointAxes_;
   std::string jointTrajectoryAction_;
+  std::string jointTrajectoryTopic_;
   std::string wmxParamFilePath_;
 
   int err_;
@@ -53,14 +59,18 @@ private:
 
   WMX3Api wmx3Lib_;
   CoreMotion wmx3LibCm_;
+  CyclicBuffer wmx3LibCb_;
   AdvancedMotion wmx3LibAm_;
   AdvMotion::PointTimeSplineCommand spl;
   AdvMotion::SplinePoint pt_spl[MAX_TRAJ_POINTS];
   double time_spl[MAX_TRAJ_POINTS];
   AxisSelection axisSel;
   Config::AxisParam axisParam_;
+  CyclicBufferSingleAxisStatus cycStatus;
+  CyclicBufferMultiAxisCommands cycCmds;
 
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr engineReadySub_;
+  rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr jointTrajectorySub_;
   rclcpp_action::Server<FollowJointTrajectory>::SharedPtr action_server_;
 
   // Action server callback declarations
@@ -79,6 +89,8 @@ private:
   void setWmxParam(char * path);
   void getWmxParam();
   void onEngineReady(std_msgs::msg::Bool::ConstSharedPtr msg);
+  void onJointTrajectory(
+    trajectory_msgs::msg::JointTrajectory::ConstSharedPtr msg);
   void logTrajectory(const trajectory_msgs::msg::JointTrajectory & trajectory);
 };
 
@@ -144,6 +156,12 @@ void JointTrajectoryController::onEngineReady(std_msgs::msg::Bool::ConstSharedPt
   wmx3LibCm_ = CoreMotion(&wmx3Lib_);
   wmx3LibAm_ = AdvancedMotion(&wmx3Lib_);
   wmx3LibAm_.advMotion->CreateSplineBuffer(0, MAX_TRAJ_POINTS);
+  wmx3LibCb_ = CyclicBuffer(&wmx3Lib_);
+  axisSel.axisCount = 6;
+  for (int i = 0; i < 6; ++i) {
+    axisSel.axis[i] = i + 1;
+  }
+  wmx3LibCb_.OpenCyclicBuffer(&axisSel, 200);
 
   setWmxParam(const_cast<char *>(wmxParamFilePath_.c_str()));
   getWmxParam();
@@ -157,6 +175,10 @@ void JointTrajectoryController::onEngineReady(std_msgs::msg::Bool::ConstSharedPt
     std::bind(&JointTrajectoryController::handle_cancel, this, std::placeholders::_1),
     std::bind(&JointTrajectoryController::handle_accepted, this, std::placeholders::_1)
   );
+
+  jointTrajectorySub_ = this->create_subscription<trajectory_msgs::msg::JointTrajectory>(
+    jointTrajectoryTopic_, rclcpp::QoS(10),
+    std::bind(&JointTrajectoryController::onJointTrajectory, this, std::placeholders::_1));
 
   initialized_ = true;
   engineReadySub_.reset();
@@ -225,10 +247,12 @@ void JointTrajectoryController::setRosParameter()
   this->declare_parameter<std::vector<int64_t>>("joint_axes", std::vector<int64_t>{});
   this->declare_parameter<std::string>(
     "joint_trajectory_action", "/joint_trajectory_action/no_param");
+  this->declare_parameter<std::string>("joint_trajectory_topic", "/joint_trajectory");
   this->declare_parameter<std::string>("wmx_param_file_path", "/joint_trajectory/no_param");
 
   this->get_parameter("joint_axes", jointAxes_);
   this->get_parameter("joint_trajectory_action", jointTrajectoryAction_);
+  this->get_parameter("joint_trajectory_topic", jointTrajectoryTopic_);
   this->get_parameter("wmx_param_file_path", wmxParamFilePath_);
 
   std::string joint_axes_str;
@@ -240,6 +264,7 @@ void JointTrajectoryController::setRosParameter()
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
   RCLCPP_INFO(this->get_logger(), "joint_axes: [%s]", joint_axes_str.c_str());
   RCLCPP_INFO(this->get_logger(), "joint_trajectory_action: %s", jointTrajectoryAction_.c_str());
+  RCLCPP_INFO(this->get_logger(), "joint_trajectory_topic: %s", jointTrajectoryTopic_.c_str());
   RCLCPP_INFO(this->get_logger(), "wmx_param_file_path: %s", wmxParamFilePath_.c_str());
   RCLCPP_INFO(this->get_logger(), "===========================");
 }
@@ -361,6 +386,58 @@ void JointTrajectoryController::execute(std::shared_ptr<GoalHandleFJT> goal_hand
   result->error_code = 0;
   goal_handle->succeed(result);
   RCLCPP_INFO(this->get_logger(), "Trajectory execution completed successfully");
+}
+
+void JointTrajectoryController::onJointTrajectory(
+  trajectory_msgs::msg::JointTrajectory::ConstSharedPtr msg)
+{
+  RCLCPP_INFO(
+    this->get_logger(), "Received joint trajectory topic. Point number: [%zu]",
+    msg->points.size());
+
+  // TODO: Implement topic-based JointTrajectory handling here.
+  // Example:
+  // - Validate msg->joint_names and msg->points
+  // - Convert trajectory points into WMX spline commands
+  // - Start/stop motion or update controller state
+  if (msg->points.empty()) {
+    RCLCPP_ERROR(this->get_logger(), "msg->points is empty");
+    return;
+  }
+  const auto& point = msg->points[0];
+  // uint32_t nanosec = point.time_from_start.nanosec;
+  const auto& positions = point.positions;
+  axisSel.axisCount = msg->joint_names.size();
+  for (int i = 0; i < axisSel.axisCount; ++i) {
+    axisSel.axis[i] = i + 1;
+    cycCmds.cmd[axisSel.axis[i]].type = wmx3Api::CyclicBufferCommandType::AbsolutePos;
+    cycCmds.cmd[axisSel.axis[i]].command = positions[i];
+    // cycCmds.cmd[axisSel.axis[i]].intervalCycles = nanosec / 1000 / 1000;
+    cycCmds.cmd[axisSel.axis[i]].intervalCycles = 100;
+  }
+  err_ = wmx3LibCb_.AddCommand(&axisSel, &cycCmds);
+  if (err_ != 0) {
+    wmx3LibCb_.ErrorToString(err_, errString_, 256);
+    RCLCPP_ERROR(this->get_logger(), "AddCommand Error: %s", errString_);
+    return;
+  }
+  // err_ = wmx3LibCb_.GetStatus(1, &cycStatus);
+  // if (err_ != 0) {
+  //   wmx3LibCb_.ErrorToString(err_, errString_, 256);
+  //   RCLCPP_ERROR(this->get_logger(), "GetStatus Error: %s", errString_);
+  //   return;
+  // }
+  RCLCPP_INFO(
+    this->get_logger(), "CyclicBufferStatus: [%zu]",
+    cycStatus.state);
+  // if (cycStatus.state == wmx3Api::CyclicBufferState::Stopped) {
+    err_ = wmx3LibCb_.Execute(&axisSel);
+    if (err_ != 0) {
+      wmx3LibCb_.ErrorToString(err_, errString_, 256);
+      RCLCPP_ERROR(this->get_logger(), "Execute Error: %s", errString_);
+      return;
+    }
+  // }
 }
 
 void JointTrajectoryController::logTrajectory(

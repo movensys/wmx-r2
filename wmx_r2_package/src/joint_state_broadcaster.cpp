@@ -124,6 +124,7 @@ JointStateBroadcaster::~JointStateBroadcaster()
         RCLCPP_INFO(this->get_logger(), "Servo %d off", axis);
       }
     }
+    wmx3LibCm_->axisControl->SetServoOn(6, 0);
 
     err_ = wmx3Lib_.CloseDevice();
     if (err_ != ErrorCode::None) {
@@ -360,7 +361,7 @@ void JointStateBroadcaster::publishJointState()
 
   for (size_t i = 0; i < jointAxes_.size(); ++i) {
     encoderJointMsg_.name.push_back(jointNames_[i]);
-    encoderJointMsg_.position.push_back(cmStatus_.axesStatus[jointAxes_[i]].actualPos);
+    encoderJointMsg_.position.push_back(cmStatus_.axesStatus[jointAxes_[i]].posCmd);
     encoderJointMsg_.velocity.push_back(cmStatus_.axesStatus[jointAxes_[i]].actualVelocity);
   }
 
