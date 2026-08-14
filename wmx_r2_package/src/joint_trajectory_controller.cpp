@@ -413,7 +413,7 @@ void JointTrajectoryController::onJointTrajectory(
     cycCmds.cmd[axisSel.axis[i]].type = wmx3Api::CyclicBufferCommandType::AbsolutePos;
     cycCmds.cmd[axisSel.axis[i]].command = positions[i];
     // cycCmds.cmd[axisSel.axis[i]].intervalCycles = nanosec / 1000 / 1000;
-    cycCmds.cmd[axisSel.axis[i]].intervalCycles = 100;
+    cycCmds.cmd[axisSel.axis[i]].intervalCycles = 110;
   }
   err_ = wmx3LibCb_.AddCommand(&axisSel, &cycCmds);
   if (err_ != 0) {

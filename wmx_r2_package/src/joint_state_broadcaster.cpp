@@ -361,7 +361,7 @@ void JointStateBroadcaster::publishJointState()
 
   for (size_t i = 0; i < jointAxes_.size(); ++i) {
     encoderJointMsg_.name.push_back(jointNames_[i]);
-    encoderJointMsg_.position.push_back(cmStatus_.axesStatus[jointAxes_[i]].posCmd);
+    encoderJointMsg_.position.push_back(cmStatus_.axesStatus[jointAxes_[i]].actualPos);
     encoderJointMsg_.velocity.push_back(cmStatus_.axesStatus[jointAxes_[i]].actualVelocity);
   }
 
