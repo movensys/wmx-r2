@@ -318,7 +318,7 @@
 			<LSDirection>0</LSDirection>
 		</LimitParam>
 		<MotionParam>
-			<QuickStopDec>100000.000000</QuickStopDec>
+			<QuickStopDec>1.0000000</QuickStopDec>
 			<ProhibitOvertravel>1</ProhibitOvertravel>
 			<LinearIntplOverrideType>2</LinearIntplOverrideType>
 			<LinearIntplOverrideSmoothPercent>30</LinearIntplOverrideSmoothPercent>
@@ -526,7 +526,7 @@
 			<LSDirection>0</LSDirection>
 		</LimitParam>
 		<MotionParam>
-			<QuickStopDec>100000.000000</QuickStopDec>
+			<QuickStopDec>1.0000000</QuickStopDec>
 			<ProhibitOvertravel>1</ProhibitOvertravel>
 			<LinearIntplOverrideType>2</LinearIntplOverrideType>
 			<LinearIntplOverrideSmoothPercent>30</LinearIntplOverrideSmoothPercent>
@@ -734,7 +734,7 @@
 			<LSDirection>0</LSDirection>
 		</LimitParam>
 		<MotionParam>
-			<QuickStopDec>100000.000000</QuickStopDec>
+			<QuickStopDec>1.0000000</QuickStopDec>
 			<ProhibitOvertravel>1</ProhibitOvertravel>
 			<LinearIntplOverrideType>2</LinearIntplOverrideType>
 			<LinearIntplOverrideSmoothPercent>30</LinearIntplOverrideSmoothPercent>
@@ -942,7 +942,7 @@
 			<LSDirection>0</LSDirection>
 		</LimitParam>
 		<MotionParam>
-			<QuickStopDec>100000.000000</QuickStopDec>
+			<QuickStopDec>1.0000000</QuickStopDec>
 			<ProhibitOvertravel>1</ProhibitOvertravel>
 			<LinearIntplOverrideType>2</LinearIntplOverrideType>
 			<LinearIntplOverrideSmoothPercent>30</LinearIntplOverrideSmoothPercent>
@@ -1150,7 +1150,7 @@
 			<LSDirection>0</LSDirection>
 		</LimitParam>
 		<MotionParam>
-			<QuickStopDec>100000.000000</QuickStopDec>
+			<QuickStopDec>1.0000000</QuickStopDec>
 			<ProhibitOvertravel>1</ProhibitOvertravel>
 			<LinearIntplOverrideType>2</LinearIntplOverrideType>
 			<LinearIntplOverrideSmoothPercent>30</LinearIntplOverrideSmoothPercent>
@@ -1358,7 +1358,7 @@
 			<LSDirection>0</LSDirection>
 		</LimitParam>
 		<MotionParam>
-			<QuickStopDec>100000.000000</QuickStopDec>
+			<QuickStopDec>1.0000000</QuickStopDec>
 			<ProhibitOvertravel>1</ProhibitOvertravel>
 			<LinearIntplOverrideType>2</LinearIntplOverrideType>
 			<LinearIntplOverrideSmoothPercent>30</LinearIntplOverrideSmoothPercent>

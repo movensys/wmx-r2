@@ -8,6 +8,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <queue>
 
 #include "WMX3Api.h"
 #include "CoreMotionApi.h"
@@ -36,6 +37,7 @@ using wmx3Api::CoreMotionStatus;
 using wmx3Api::DeviceType;
 using wmx3Api::ErrorCode;
 using wmx3Api::WMX3Api;
+using wmx3Api::OperationState;
 
 class JointTrajectoryController : public rclcpp::Node
 {
@@ -67,7 +69,10 @@ private:
   AxisSelection axisSel;
   Config::AxisParam axisParam_;
   CyclicBufferSingleAxisStatus cycStatus;
-  CyclicBufferMultiAxisCommands cycCmds;
+  // CyclicBufferMultiAxisCommands cycCmds;
+  bool isMoving;
+  bool afterExecQuickStop;
+  std::queue<CyclicBufferMultiAxisCommands> cmdQueue;
 
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr engineReadySub_;
   rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr jointTrajectorySub_;
@@ -105,6 +110,8 @@ JointTrajectoryController::JointTrajectoryController()
     std::bind(&JointTrajectoryController::onEngineReady, this, std::placeholders::_1));
 
   RCLCPP_INFO(this->get_logger(), "joint_trajectory_controller waiting for engine...");
+  isMoving = false;
+  afterExecQuickStop = false;
 }
 
 JointTrajectoryController::~JointTrajectoryController()
@@ -161,7 +168,12 @@ void JointTrajectoryController::onEngineReady(std_msgs::msg::Bool::ConstSharedPt
   for (int i = 0; i < 6; ++i) {
     axisSel.axis[i] = i + 1;
   }
-  wmx3LibCb_.OpenCyclicBuffer(&axisSel, 200);
+  err_ = wmx3LibCb_.OpenCyclicBuffer(&axisSel, 3000);
+  if (err_ != 0) {
+    wmx3LibCb_.ErrorToString(err_, errString_, 256);
+    RCLCPP_ERROR(this->get_logger(), "OpenCyclicBuffer Error: %s", errString_);
+    return;
+  }
 
   setWmxParam(const_cast<char *>(wmxParamFilePath_.c_str()));
   getWmxParam();
@@ -391,10 +403,6 @@ void JointTrajectoryController::execute(std::shared_ptr<GoalHandleFJT> goal_hand
 void JointTrajectoryController::onJointTrajectory(
   trajectory_msgs::msg::JointTrajectory::ConstSharedPtr msg)
 {
-  RCLCPP_INFO(
-    this->get_logger(), "Received joint trajectory topic. Point number: [%zu]",
-    msg->points.size());
-
   // TODO: Implement topic-based JointTrajectory handling here.
   // Example:
   // - Validate msg->joint_names and msg->points
@@ -402,8 +410,22 @@ void JointTrajectoryController::onJointTrajectory(
   // - Start/stop motion or update controller state
   if (msg->points.empty()) {
     RCLCPP_ERROR(this->get_logger(), "msg->points is empty");
+    if (isMoving) {
+      err_ = wmx3LibCb_.ExecQuickStop(&axisSel);
+      if (err_ != 0) {
+        wmx3LibCb_.ErrorToString(err_, errString_, 256);
+        RCLCPP_ERROR(this->get_logger(), "ExecQuickStop Error: %s", errString_);
+        return;
+      }
+      else {
+        RCLCPP_INFO(this->get_logger(), "Executed Quick Stop!!");
+        afterExecQuickStop = true;
+      }
+      isMoving = false;
+    }
     return;
   }
+  CyclicBufferMultiAxisCommands cycCmds;
   const auto& point = msg->points[0];
   // uint32_t nanosec = point.time_from_start.nanosec;
   const auto& positions = point.positions;
@@ -412,32 +434,52 @@ void JointTrajectoryController::onJointTrajectory(
     axisSel.axis[i] = i + 1;
     cycCmds.cmd[axisSel.axis[i]].type = wmx3Api::CyclicBufferCommandType::AbsolutePos;
     cycCmds.cmd[axisSel.axis[i]].command = positions[i];
-    // cycCmds.cmd[axisSel.axis[i]].intervalCycles = nanosec / 1000 / 1000;
     cycCmds.cmd[axisSel.axis[i]].intervalCycles = 110;
   }
-  err_ = wmx3LibCb_.AddCommand(&axisSel, &cycCmds);
-  if (err_ != 0) {
-    wmx3LibCb_.ErrorToString(err_, errString_, 256);
-    RCLCPP_ERROR(this->get_logger(), "AddCommand Error: %s", errString_);
-    return;
+  if (msg->header.frame_id == "start_point_trajectory") {
+    if (afterExecQuickStop) {
+      RCLCPP_INFO(this->get_logger(), "Trajectory is reproduced.");
+      afterExecQuickStop = false;
+      for (int i = 0; i < axisSel.axisCount; ++i) cycCmds.cmd[axisSel.axis[i]].intervalCycles = 1500;
+    }
+    else {
+      return;
+    }
   }
-  // err_ = wmx3LibCb_.GetStatus(1, &cycStatus);
-  // if (err_ != 0) {
-  //   wmx3LibCb_.ErrorToString(err_, errString_, 256);
-  //   RCLCPP_ERROR(this->get_logger(), "GetStatus Error: %s", errString_);
-  //   return;
-  // }
-  RCLCPP_INFO(
-    this->get_logger(), "CyclicBufferStatus: [%zu]",
-    cycStatus.state);
-  // if (cycStatus.state == wmx3Api::CyclicBufferState::Stopped) {
+  cmdQueue.push(cycCmds);
+  
+  CoreMotionStatus cmStatus;
+  wmx3LibCm_.GetStatus(&cmStatus);
+  bool axisIsStopping = false;
+  for (int i = 0; i < axisSel.axisCount; ++i) {
+    if (cmStatus.axesStatus[axisSel.axis[i]].opState == OperationState::Stop) {
+      axisIsStopping = true;
+    }
+  }
+  if (!axisIsStopping) {
+    int size = cmdQueue.size();
+    if (size > 1) {
+      RCLCPP_INFO(this->get_logger(), "Queue size is [%zu]", size);
+    }
+    while (!cmdQueue.empty()) {
+      CyclicBufferMultiAxisCommands cmds = cmdQueue.front();
+      err_ = wmx3LibCb_.AddCommand(&axisSel, &cmds);
+      if (err_ != 0) {
+        wmx3LibCb_.ErrorToString(err_, errString_, 256);
+        RCLCPP_ERROR(this->get_logger(), "AddCommand Error: %s", errString_);
+        return;
+      }
+      cmdQueue.pop();
+    }
     err_ = wmx3LibCb_.Execute(&axisSel);
     if (err_ != 0) {
       wmx3LibCb_.ErrorToString(err_, errString_, 256);
       RCLCPP_ERROR(this->get_logger(), "Execute Error: %s", errString_);
       return;
     }
-  // }
+  }
+
+  isMoving = true;
 }
 
 void JointTrajectoryController::logTrajectory(
