@@ -434,13 +434,13 @@ void JointTrajectoryController::onJointTrajectory(
     axisSel.axis[i] = i + 1;
     cycCmds.cmd[axisSel.axis[i]].type = wmx3Api::CyclicBufferCommandType::AbsolutePos;
     cycCmds.cmd[axisSel.axis[i]].command = positions[i];
-    cycCmds.cmd[axisSel.axis[i]].intervalCycles = 110;
+    cycCmds.cmd[axisSel.axis[i]].intervalCycles = 102;
   }
   if (msg->header.frame_id == "start_point_trajectory") {
     if (afterExecQuickStop) {
       RCLCPP_INFO(this->get_logger(), "Trajectory is reproduced.");
       afterExecQuickStop = false;
-      for (int i = 0; i < axisSel.axisCount; ++i) cycCmds.cmd[axisSel.axis[i]].intervalCycles = 1500;
+      for (int i = 0; i < axisSel.axisCount; ++i) cycCmds.cmd[axisSel.axis[i]].intervalCycles = 2000;
     }
     else {
       return;
