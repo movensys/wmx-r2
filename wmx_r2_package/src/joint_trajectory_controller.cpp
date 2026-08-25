@@ -73,6 +73,9 @@ private:
   bool isMoving;
   bool afterExecQuickStop;
   std::queue<CyclicBufferMultiAxisCommands> cmdQueue;
+  std::vector<double> prePos;
+  std::vector<double> preVel;
+  std::vector<double> a;
 
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr engineReadySub_;
   rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr jointTrajectorySub_;
@@ -97,6 +100,8 @@ private:
   void onJointTrajectory(
     trajectory_msgs::msg::JointTrajectory::ConstSharedPtr msg);
   void logTrajectory(const trajectory_msgs::msg::JointTrajectory & trajectory);
+  void calculateAB(std::vector<double> & a, int cycle, const std::vector<double> & positions, const std::vector<double> & velocities, std::vector<double> & prePos, std::vector<double> & preVel);
+  void pushToCyclicBuffer(std::vector<double> & a, int cycle, const std::vector<double> & positions, const std::vector<double> & velocities, std::queue<CyclicBufferMultiAxisCommands> & cmdQueue, std::vector<double> & prePos, std::vector<double> & preVel, CyclicBufferMultiAxisCommands & cycCmds, AxisSelection & axisSel);
 };
 
 JointTrajectoryController::JointTrajectoryController()
@@ -196,6 +201,11 @@ void JointTrajectoryController::onEngineReady(std_msgs::msg::Bool::ConstSharedPt
   engineReadySub_.reset();
 
   RCLCPP_INFO(this->get_logger(), "joint_trajectory_controller is ready");
+  for (int i = 0; i < 6; ++i) {
+    prePos.push_back(0.0);
+    preVel.push_back(0.0);
+    a.push_back(0.0);
+  }
 }
 
 void JointTrajectoryController::setWmxParam(char * path)
@@ -425,28 +435,38 @@ void JointTrajectoryController::onJointTrajectory(
     }
     return;
   }
+
   CyclicBufferMultiAxisCommands cycCmds;
   const auto& point = msg->points[0];
-  // uint32_t nanosec = point.time_from_start.nanosec;
   const auto& positions = point.positions;
+  const auto& velocities = point.velocities;
   axisSel.axisCount = msg->joint_names.size();
-  for (int i = 0; i < axisSel.axisCount; ++i) {
-    axisSel.axis[i] = i + 1;
-    cycCmds.cmd[axisSel.axis[i]].type = wmx3Api::CyclicBufferCommandType::AbsolutePos;
-    cycCmds.cmd[axisSel.axis[i]].command = positions[i];
-    cycCmds.cmd[axisSel.axis[i]].intervalCycles = 102;
-  }
   if (msg->header.frame_id == "start_point_trajectory") {
     if (afterExecQuickStop) {
       RCLCPP_INFO(this->get_logger(), "Trajectory is reproduced.");
       afterExecQuickStop = false;
-      for (int i = 0; i < axisSel.axisCount; ++i) cycCmds.cmd[axisSel.axis[i]].intervalCycles = 2000;
+      for (int i = 0; i < axisSel.axisCount; ++i) {
+        axisSel.axis[i] = i + 1;
+        cycCmds.cmd[axisSel.axis[i]].type = wmx3Api::CyclicBufferCommandType::AbsolutePos;
+        cycCmds.cmd[axisSel.axis[i]].command = positions[i];
+        cycCmds.cmd[axisSel.axis[i]].intervalCycles = 2000;
+        prePos[i] = positions[i];
+        preVel[i] = velocities[i] / 1.02;
+      }
+      cmdQueue.push(cycCmds);
     }
     else {
+      for (int i = 0; i < axisSel.axisCount; ++i) {
+        prePos[i] = positions[i];
+        preVel[i] = velocities[i] / 1.02;
+      }
       return;
     }
   }
-  cmdQueue.push(cycCmds);
+  else {
+    calculateAB(a, 102, positions, velocities, prePos, preVel);
+    pushToCyclicBuffer(a, 102, positions, velocities, cmdQueue, prePos, preVel, cycCmds, axisSel);
+  }
   
   CoreMotionStatus cmStatus;
   wmx3LibCm_.GetStatus(&cmStatus);
@@ -520,6 +540,35 @@ void JointTrajectoryController::logTrajectory(
         this->get_logger(), "Time interval: %f",
         (duration_cur - duration_pre).seconds());
     }
+  }
+}
+
+void JointTrajectoryController::calculateAB(std::vector<double> & a, int cycle, const std::vector<double> & positions, const std::vector<double> & velocities, std::vector<double> & prePos, std::vector<double> & preVel) {
+  double dt = cycle / 1000.0;
+  for (int i = 0; i < a.size(); ++i) {
+    a[i] = (velocities[i] / 1.02 - preVel[i]) / dt;
+  }
+}
+
+void JointTrajectoryController::pushToCyclicBuffer(std::vector<double> & a, int cycle, const std::vector<double> & positions, const std::vector<double> & velocities, std::queue<CyclicBufferMultiAxisCommands> & cmdQueue, std::vector<double> & prePos, std::vector<double> & preVel, CyclicBufferMultiAxisCommands & cycCmds, AxisSelection & axisSel) {
+  std::vector<double> preCyclePos;
+  for (int j = 0; j < axisSel.axisCount; ++j) {
+    preCyclePos.push_back(0.0);
+  }
+  for (int i = 0; i < cycle; ++i) {
+    double dt = (i + 1) / 1000.0;
+    for (int j = 0; j < axisSel.axisCount; ++j) {
+      axisSel.axis[j] = j + 1;
+      cycCmds.cmd[axisSel.axis[j]].type = wmx3Api::CyclicBufferCommandType::AbsolutePos;
+      cycCmds.cmd[axisSel.axis[j]].command = 0.5 * a[j] * dt * dt + preVel[j] * dt + prePos[j];
+      cycCmds.cmd[axisSel.axis[j]].intervalCycles = 1;
+      preCyclePos[j] = 0.5 * a[j] * dt * dt + preVel[j] * dt;
+      if (i + 1 == cycle) {
+        prePos[j] = cycCmds.cmd[axisSel.axis[j]].command;
+        preVel[j] = velocities[j] * 100.0 / 102.0;
+      }
+    }
+    cmdQueue.push(cycCmds);
   }
 }
 
