@@ -24,31 +24,37 @@ sudo --preserve-env=PATH \
 
 Set `use_sim_time:=true` for the HiL run (Isaac Sim publishes the clock).
 
-Two things happen automatically once `wmx_core_motion_node` is up:
+Two bring-up options on `wmx_core_motion_node`:
 
 | arg | default | what it does |
 |---|---|---|
 | `auto_servo_on` | `true` | clears alarms and enables the servos (WMX3 rejects motion in servo-off) |
-| `auto_home` | `true` | homes with `HomeType CurrentPos` (no motion) so the reported position lands inside the URDF joint limits |
+| `auto_home` | `false` | homes with `HomeType CurrentPos` (no motion). Off, same as the manipulator launches — see below |
 
-`auto_home` is what makes MoveIt able to plan at all. `axis_z` travels
-[0.012, 0.090] m in the URDF, so the raw encoder reading of `0.000` is *outside*
-the joint limits and every plan aborts with
+The cartesian drives are absolute encoders (`AbsoluteEncoderMode` 1 for axes
+0..3 in `config/cartesian_wmx_parameters.xml`, as in the cr3a/cr5a files), so
+they remember their position across a power cycle and nothing has to be homed
+at bring-up. The one-time step is to set each axis' `AbsoluteEncoderHomeOffset`
+from WMX Studio so that the reported position equals the URDF joint value.
 
-```
-[check_start_state_bounds]: Joint 'axis_z' from the starting state is outside
-bounds by: [0 ] should be in the range [0.012 ], [0.09 ].
-```
-
-Homing labels the parked position with each axis' `HomePosition` from
-`config/cartesian_wmx_parameters.xml` — `0.012` for axis 2, `0` for the rest —
-which is only correct if the machine is parked at the model's home pose (X/Y
-centred, Z at the bottom of its travel). If it is not, pass `auto_home:=false`,
-put the machine where you want the origin, and home it yourself:
+Do **not** pass `auto_home:=true` on these drives: `wmx/axis/homing` labels the
+current position with the axis' `HomePosition` (`0.012` for axis 2, `0` for the
+rest), which overwrites the remembered position. It exists for a deliberate
+re-zero only — park the machine at the model home pose (X/Y centred, Z at the
+bottom of its travel) and run it yourself:
 
 ```
 ros2 service call /wmx/axis/homing wmx_r2_message/srv/SetAxis \
   "{index: [0,1,2,3], data: [0,0,0,0]}"
+```
+
+Why the position matters to MoveIt at all: `axis_z` travels [0.012, 0.090] m in
+the URDF, so a raw reading of `0.000` is *outside* the joint limits and every
+plan aborts with
+
+```
+[check_start_state_bounds]: Joint 'axis_z' from the starting state is outside
+bounds by: [0 ] should be in the range [0.012 ], [0.09 ].
 ```
 
 Homing must also be re-run after any gear ratio change — WMX3 recomputes the

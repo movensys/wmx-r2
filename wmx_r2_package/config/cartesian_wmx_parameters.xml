@@ -14,14 +14,19 @@
   (AxisUnit is a *rounding* step for reported positions, not a scaling factor.
   It stays 0 = rounding disabled.)
 
-  ZERO POSITION. axis_z travels [0.012, 0.090] m in the URDF, so the encoder
-  zero (0.0) is not a legal joint value and MoveIt refuses to plan from it
-  ("Joint 'axis_z' from the starting state is outside bounds").
-  HomePosition for axis 2 is therefore 0.012: homing with HomeType CurrentPos
-  labels the parked position 0.012 m instead of 0, which puts the machine
-  inside the URDF range. wmx_r2_cartesian.launch.py does this at bring-up
-  (auto_home:=true) and it assumes the Z stage is parked at the bottom of its
-  travel. Homing must be re-run after any gear ratio change.
+  ZERO POSITION. AbsoluteEncoderMode is 1 for axes 0..3, as in the
+  manipulator parameter files: the drives keep their position across a power
+  cycle, so no homing runs at bring-up (wmx_r2_cartesian.launch.py defaults to
+  auto_home:=false). Set the offset between the encoder's absolute value and
+  the URDF coordinate once, from WMX Studio (AbsoluteEncoderHomeOffset), so
+  that the reported position IS the URDF joint value.
+  HomePosition (0.012 for axis 2, 0 for the rest) is only used by a manual
+  `wmx/axis/homing` call (HomeType CurrentPos), which labels the parked
+  position with it. On absolute drives that call overwrites the remembered
+  position, so run it only as a deliberate re-zero with the machine parked at
+  the model home pose (X/Y centred, Z at the bottom of its travel). Keep in
+  mind axis_z travels [0.012, 0.090] m in the URDF, so a raw 0.0 is outside
+  the joint limits and MoveIt refuses to plan from it.
 
   TODO before running on real hardware: replace this file with a WMX Studio
   export for the actual machine. The gear ratio above is a nominal 1 um/pulse
@@ -256,7 +261,7 @@
 			<MaxMotorSpeed>3000.000000</MaxMotorSpeed>
 			<MaxMotorSpeedUnitNumerator>1.000000</MaxMotorSpeedUnitNumerator>
 			<MaxMotorSpeedUnitDenominator>1.000000</MaxMotorSpeedUnitDenominator>
-			<AbsoluteEncoderMode>0</AbsoluteEncoderMode>
+			<AbsoluteEncoderMode>1</AbsoluteEncoderMode>
 			<AbsoluteEncoderHomeOffset>0.000000</AbsoluteEncoderHomeOffset>
 			<EncoderRangeMode>0</EncoderRangeMode>
 			<EncoderRangeLow>0</EncoderRangeLow>
@@ -464,7 +469,7 @@
 			<MaxMotorSpeed>3000.000000</MaxMotorSpeed>
 			<MaxMotorSpeedUnitNumerator>1.000000</MaxMotorSpeedUnitNumerator>
 			<MaxMotorSpeedUnitDenominator>1.000000</MaxMotorSpeedUnitDenominator>
-			<AbsoluteEncoderMode>0</AbsoluteEncoderMode>
+			<AbsoluteEncoderMode>1</AbsoluteEncoderMode>
 			<AbsoluteEncoderHomeOffset>0.000000</AbsoluteEncoderHomeOffset>
 			<EncoderRangeMode>0</EncoderRangeMode>
 			<EncoderRangeLow>0</EncoderRangeLow>
@@ -672,7 +677,7 @@
 			<MaxMotorSpeed>3000.000000</MaxMotorSpeed>
 			<MaxMotorSpeedUnitNumerator>1.000000</MaxMotorSpeedUnitNumerator>
 			<MaxMotorSpeedUnitDenominator>1.000000</MaxMotorSpeedUnitDenominator>
-			<AbsoluteEncoderMode>0</AbsoluteEncoderMode>
+			<AbsoluteEncoderMode>1</AbsoluteEncoderMode>
 			<AbsoluteEncoderHomeOffset>0.000000</AbsoluteEncoderHomeOffset>
 			<EncoderRangeMode>0</EncoderRangeMode>
 			<EncoderRangeLow>0</EncoderRangeLow>
@@ -880,7 +885,7 @@
 			<MaxMotorSpeed>3000.000000</MaxMotorSpeed>
 			<MaxMotorSpeedUnitNumerator>1.000000</MaxMotorSpeedUnitNumerator>
 			<MaxMotorSpeedUnitDenominator>1.000000</MaxMotorSpeedUnitDenominator>
-			<AbsoluteEncoderMode>0</AbsoluteEncoderMode>
+			<AbsoluteEncoderMode>1</AbsoluteEncoderMode>
 			<AbsoluteEncoderHomeOffset>0.000000</AbsoluteEncoderHomeOffset>
 			<EncoderRangeMode>0</EncoderRangeMode>
 			<EncoderRangeLow>0</EncoderRangeLow>
