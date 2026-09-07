@@ -95,22 +95,21 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'config_file',
-            description='YAML with the differential node parameters, e.g. '
-                        'wmx_r2_package example/diffbot_differential_config.yaml'
+            description='YAML with the differential node parameters; '
+                        'see the wmx_r2_package example folder'
         ),
         DeclareLaunchArgument(
             'wmx_param_file',
             description='WMX3 parameter XML imported at engine start and read '
-                        'by the xacro, e.g. wmx_r2_package '
-                        'example/diffbot_wmx_parameters.xml'
+                        'by the xacro; see the wmx_r2_package example folder'
         ),
         DeclareLaunchArgument(
             'urdf_file',
-            description='Robot description xacro, e.g. urdf/diffbot.wmx.urdf.xacro'
+            description='Robot description xacro'
         ),
         DeclareLaunchArgument(
             'controllers_file',
-            description='ros2_control controller manager YAML, e.g. config/diffbot_controllers.yaml'
+            description='ros2_control controller manager YAML'
         ),
 
         start_wmx_r2_general_nodes,

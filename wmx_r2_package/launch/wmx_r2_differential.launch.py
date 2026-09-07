@@ -54,14 +54,14 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'config_file',
-            description='YAML with the differential node parameters, e.g. '
-                        'example/diffbot_differential_config.yaml'
+            description='YAML with the differential node parameters; '
+                        'see the example folder'
         ),
         DeclareLaunchArgument(
             'wmx_param_file',
             default_value='',
-            description='WMX3 parameter XML imported at engine start, e.g. '
-                        'example/diffbot_wmx_parameters.xml; empty imports nothing'
+            description='WMX3 parameter XML imported at engine start; '
+                        'see the example folder, empty imports nothing'
         ),
 
         start_wmx_r2_general_nodes,

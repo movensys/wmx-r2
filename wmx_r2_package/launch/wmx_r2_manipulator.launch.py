@@ -76,14 +76,14 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'config_file',
-            description='YAML with the manipulator node parameters, e.g. '
-                        'example/cr3a_manipulator_config.yaml'
+            description='YAML with the manipulator node parameters; '
+                        'see the example folder'
         ),
         DeclareLaunchArgument(
             'wmx_param_file',
             default_value='',
-            description='WMX3 parameter XML imported at engine start, e.g. '
-                        'example/cr3a_wmx_parameters.xml; empty imports nothing'
+            description='WMX3 parameter XML imported at engine start; '
+                        'see the example folder, empty imports nothing'
         ),
         DeclareLaunchArgument(
             'use_gripper',

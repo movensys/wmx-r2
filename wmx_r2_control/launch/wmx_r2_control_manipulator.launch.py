@@ -112,22 +112,21 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'config_file',
-            description='YAML with the manipulator node parameters, e.g. '
-                        'wmx_r2_package example/cr3a_manipulator_config.yaml'
+            description='YAML with the manipulator node parameters; '
+                        'see the wmx_r2_package example folder'
         ),
         DeclareLaunchArgument(
             'wmx_param_file',
             description='WMX3 parameter XML imported at engine start and read '
-                        'by the xacro, e.g. wmx_r2_package '
-                        'example/cr3a_wmx_parameters.xml'
+                        'by the xacro; see the wmx_r2_package example folder'
         ),
         DeclareLaunchArgument(
             'urdf_file',
-            description='Robot description xacro, e.g. urdf/cr3a.wmx.urdf.xacro'
+            description='Robot description xacro'
         ),
         DeclareLaunchArgument(
             'controllers_file',
-            description='ros2_control controller manager YAML, e.g. config/cr3a_controllers.yaml'
+            description='ros2_control controller manager YAML'
         ),
         DeclareLaunchArgument(
             'use_gripper',

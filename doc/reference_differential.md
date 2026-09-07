@@ -10,9 +10,9 @@ header `differential_drive_controller.hpp`; the node is the ROS/WMX wiring aroun
 /cmd_vel_safe ──────────▶ ┌──────────────────────────────┐ ──▶ /odom_enc    (Odometry)
  (TwistStamped)           │ differential_drive_controller │ ──▶ /odom_deltas (TwistStamped)
 configure / activate ────▶│  (lifecycle node)             │ ──▶ /odom_accel  (AccelStamped)
- from wmx_engine_node     │  single loop @ rate (100 Hz)  │ ──▶ /omega_enc   (JointState)
+ from wmx_engine_node     │  two loops @ rate (100 Hz)    │ ──▶ /omega_enc   (JointState)
                           │  WMX3 CoreMotion StartVel /   │ ──▶ /tf odom→base_link (optional)
-                          │  GetStatus (one per cycle)    │
+                          │  GetStatus once per loop      │
                           └──────────────────────────────┘
 ```
 
@@ -222,35 +222,44 @@ and `start_home` for as long as it stays active (it is listed in that node's
 `motion_controllers`). `wmx/axes/stop` is never blocked. See
 `reference_general_nodes.md`.
 
-**Control loop** (every `1/rate`, single `GetStatus` per cycle):
+Two timers, each every `1/rate` and each issuing its own `GetStatus`, so
+publishing can never delay a command.
 
-1. *Engine gate* — if `engineState != Communicating`: warn (1 s throttle), publish
-   nothing, command nothing, and drop the position baseline (`havePrev_`) + resend
-   cache so odometry and the `StartVel` state re-baseline cleanly on recovery
-   (re-anchoring to the current absolute encoder position).
-2. *Odometry path* — runs even with servo off (encoder feedback stays valid):
-   integrate the pose and `/odom_deltas` from per-wheel encoder **position deltas**
+**Feedback loop** — `publishMotorFeedback`:
+
+1. *Engine gate* — a failed `GetStatus` or `engineState != Communicating` drops the
+   position baseline (`havePrev_`) and publishes nothing, so odometry re-baselines
+   cleanly on recovery (re-anchoring to the current absolute encoder position). It
+   stays silent; the warnings come from the control loop.
+2. *Odometry* — runs even with servo off (encoder feedback stays valid): integrate
+   the pose and `/odom_deltas` from per-wheel encoder **position deltas**
    (twist/accel from `actualVelocity`); the jump guard re-baselines on a
    homing/rollover jump; publish `/omega_enc`, `/odom_enc`, `/odom_deltas`,
    `/odom_accel` (rate-limited), optional TF.
-3. *Command path* — skipped (with 1 s-throttled warn, resend cache invalidated)
-   while an amp alarm is active or either servo is off; recovery therefore always
+
+**Control loop** — `controlStep`:
+
+1. *Engine gate* — a failed `GetStatus` or `engineState != Communicating`: warn
+   (1 s throttle), command nothing, zero the wheels and drop the resend cache.
+2. *Servo gate* — skipped (with 1 s-throttled warn, resend cache invalidated) while
+   an amp alarm is active or either servo is off; recovery therefore always
    re-sends the current target.
-4. *Stale-command check* — no fresh command within `cmd_vel_timeout` ⇒ target zero.
-5. *Resend-on-change* — `StartVel` is re-sent only when the wheel target changes,
+3. *Stale-command check* — no fresh command within `cmd_vel_timeout` ⇒ target zero.
+4. *Resend-on-change* — `StartVel` is re-sent only when the wheel target changes,
    so the velocity trapezoid is not restarted every cycle. The "last sent" cache
    commits only if **both** axes accept the command; a failed `StartVel` (e.g. a
    transient motion-state conflict) is retried next cycle — this guarantees a
    timeout→zero stop can never be swallowed by a failed send.
 
-**Shutdown.** Destructor cancels the timer, commands both wheels to zero, and
-closes the WMX device.
+**Shutdown.** `deactivate` cancels both timers and commands both wheels to zero;
+the destructor closes the WMX device.
 
-**Process model.** Ships as a standalone executable on the default
-single-threaded executor; the command state shared between the `cmd_vel`
-callback and the control loop is unsynchronized by design (single-threaded
-callback execution is a correctness assumption). It is not built as a
-composable component — run it as its own process, one per robot.
+**Process model.** Ships as a standalone executable on a `MultiThreadedExecutor`.
+`controlStep` and the `cmd_vel` subscription share one **MutuallyExclusive**
+callback group, which is what keeps the command state lock-free;
+`publishMotorFeedback` runs in the node's default group, so it executes on
+another thread. It is not built as a composable component — run it as its own
+process, one per robot.
 
 ---
 
@@ -259,11 +268,13 @@ composable component — run it as its own process, one per robot.
 A deployment consists of two files plus the launch wiring
 (example: `launch/wmx_r2_differential.launch.py`):
 
-1. **ROS parameter YAML** — `example/diffbot_differential_config.yaml`, key
+1. **ROS parameter YAML** — the differential config (example:
+   `example/diffbot_differential_config.yaml`), key
    `differential_drive_controller.ros__parameters` (all tables above), plus the
    `wmx_engine_node` key (`core`, `affinity_mask`, `wmx_param_file_path`) and
    the other general-node keys.
-2. **WMX parameter XML** — `example/diffbot_wmx_parameters.xml`: axis-level
+2. **WMX parameter XML** — the axis file (example:
+   `example/diffbot_wmx_parameters.xml`): axis-level
    gear/feedback/limit/e-stop setup imported at node init. This is where the
    "axis unit = wheel rad/s" scaling and the hardware-level motion limits live.
 3. **Launch** — starts the general WMX nodes (engine etc.), the

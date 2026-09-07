@@ -30,12 +30,12 @@ own the engine, not the motion these controllers command.
   (std_srvs/SetBool)         └───────────────────────────────┘
 ```
 
-| Node | Role | Launched by |
+| Node | Role | Started |
 |---|---|---|
-| `joint_state_broadcaster` | Encoder feedback → `/joint_states`; clears amp alarms and switches servos on at activate | CR3A, CR5A |
-| `joint_trajectory_controller` | `FollowJointTrajectory` action → WMX3 time-based C-spline | CR3A, CR5A |
-| `joint_position_controller` | MoveIt Servo's streamed `JointTrajectory` → WMX3 linear interpolation | CR3A, CR5A |
-| `gripper_controller` | Gripper open/close over a WMX IO output bit | only with `use_gripper:=true` (CR3A) |
+| `joint_state_broadcaster` | Encoder feedback → `/joint_states`; clears amp alarms and switches servos on at activate | always |
+| `joint_trajectory_controller` | `FollowJointTrajectory` action → WMX3 time-based C-spline | always |
+| `joint_position_controller` | MoveIt Servo's streamed `JointTrajectory` → WMX3 linear interpolation | always |
+| `gripper_controller` | Gripper open/close over a WMX IO output bit | only with `use_gripper:=true` |
 
 ---
 
@@ -59,9 +59,9 @@ and one tightening:
 | `urdf_file` | **required** | Robot description xacro, e.g. `urdf/cr3a.wmx.urdf.xacro` |
 | `controllers_file` | **required** | `ros2_control` controller manager YAML, e.g. `config/cr3a_controllers.yaml` |
 
-No robot is baked into either launch file: CR3A and CR5A differ only by the
-paths passed on the command line, see
-[launch_manipulator.md](launch_manipulator.md).
+No robot is baked into either launch file: any EtherCAT manipulator differs
+only by the paths passed on the command line, see
+[launch_manipulator.md](launch_manipulator.md) for worked examples.
 
 ## Parameters
 
@@ -84,13 +84,13 @@ wrong. Every deployment supplies a YAML.
 | `encoder_joint_topic` | string | `/encoder_joint_topic/no_param` | – | Real-robot feedback topic; the deployment sets it to `/joint_states` (MoveIt / robot_state_publisher input). |
 | `isaacsim_joint_topic` | string | `/isaacsim_joint_topic/no_param` | – | Mirror of the same message for Isaac Sim (`/isaacsim/joint_command`). Published **before** the header stamp is filled in, i.e. with a zero stamp — Isaac consumes positions by name, not by time. |
 | `gazebo_position_joint_topic` | string | `""` | – | Joint **positions** as `Float64MultiArray`, for a Gazebo position controller. Empty means the publisher is never created. |
-| `gazebo_position_joint_axes` | int[] | `[]` | – | Which axes go on that topic, as axis numbers from `joint_axes`, in the order the Gazebo controller lists its own `joints:`. Must be set together with the topic. `gripper_joint_name` entries come from an IO bit, not an axis, so they cannot be listed here — they are appended after the axis values automatically (CR3A). |
+| `gazebo_position_joint_axes` | int[] | `[]` | – | Which axes go on that topic, as axis numbers from `joint_axes`, in the order the Gazebo controller lists its own `joints:`. Must be set together with the topic. `gripper_joint_name` entries come from an IO bit, not an axis, so they cannot be listed here — they are appended after the axis values automatically. |
 | `gazebo_velocity_joint_topic` | string | `""` | – | Joint **velocities** as `Float64MultiArray`, for a Gazebo velocity controller. Sending positions here would command a continuous joint its own accumulated angle. |
 | `gazebo_velocity_joint_axes` | int[] | `[]` | – | As above, for the velocity topic. A mobile manipulator sets all four: wheel axes on the velocity topic, arm axes on the position topic. |
-| `gripper_joint_name` | string[] | `[]` | – | Extra joint names appended to the feedback message so the gripper shows up in RViz/MoveIt. Empty = no gripper (CR5A). |
+| `gripper_joint_name` | string[] | `[]` | – | Extra joint names appended to the feedback message so the gripper shows up in RViz/MoveIt. Empty = no gripper. |
 | `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX **output** bit read back for gripper state. |
 | `gripper_open_value` | double | `0.0` | m or rad | Joint value reported for every `gripper_joint_name` while the output bit is 0. |
-| `gripper_close_value` | double | `0.0` | m or rad | Joint value reported while the bit is 1. CR3A uses `0.045`. |
+| `gripper_close_value` | double | `0.0` | m or rad | Joint value reported while the bit is 1, e.g. `0.045`. |
 
 ### B. `joint_trajectory_controller`
 
@@ -118,9 +118,9 @@ WMX spline buffer allocated at `configure` and caps the accepted goal length.
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
-| `wmx_gripper_topic` | string | `/wmx_gripper_topic/no_param` | – | Name of the `std_srvs/SetBool` **service** (the parameter is named "topic" for historical reasons). CR3A uses `/wmx/set_gripper`. |
+| `wmx_gripper_topic` | string | `/wmx_gripper_topic/no_param` | – | Name of the `std_srvs/SetBool` **service** (the parameter is named "topic" for historical reasons), e.g. `/wmx/set_gripper`. |
 | `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX output bit driven by the service. A list shorter than 2 falls back to `[0, 0]` with a warning. |
-| `pre_setup_io` | bool | `false` | – | When true, `configure` runs the gripper power-up sequence (`SetOutByte(28, 113)`, then a readback of output byte 28 and input bit 0.1). CR3A sets it true; CR5A leaves it false. |
+| `pre_setup_io` | bool | `false` | – | When true, `configure` runs a gripper power-up sequence (`SetOutByte(28, 113)`, then a readback of output byte 28 and input bit 0.1). Those addresses are compiled in, so leave it `false` unless the gripper matches them. |
 
 ---
 
@@ -286,9 +286,6 @@ None is built as a composable component.
   broadcaster publishing the last values it saw. Watch the engine through
   `wmx/engine/get_engine_status` (the lifecycle manager already does, and takes
   these nodes down when it stops).
-- **`gripper_controller` hardcodes its SDK path.** It calls `CreateDevice("/opt/lmx/", ...)`
-  rather than the compiled-in `WMX3_SDK_PATH` that every other node uses; an
-  installation elsewhere fails to configure this node only.
 - **Gripper power-up is gated by `pre_setup_io`, which defaults to false.**
   Running `gripper_controller` without it set true skips the power-up sequence,
   and the service then toggles a bit on an unpowered gripper.
@@ -300,14 +297,16 @@ None is built as a composable component.
 A deployment is one YAML plus the launch wiring
 (example: `launch/wmx_r2_manipulator.launch.py`):
 
-1. **ROS parameter YAML** — `example/cr3a_manipulator_config.yaml` (or
-   `cr5a_...`), with one key per node (all tables above) **plus** the
+1. **ROS parameter YAML** — the manipulator config (examples:
+   `example/cr3a_manipulator_config.yaml`, `example/cr5a_manipulator_config.yaml`),
+   with one key per node (all tables above) **plus** the
    `wmx_engine_node` and `wmx_lifecycle_manager_node` keys: the manipulator launch
    passes this same file down to the included general-nodes launch as
    `config_file`, so engine core/affinity (`core`, `affinity_mask`), the WMX
    parameter XML path (`wmx_param_file_path`), and the bring-up order all live
    in it.
-2. **WMX parameter XML** — `example/cr3a_wmx_parameters.xml`: axis-level
+2. **WMX parameter XML** — the axis file (example:
+   `example/cr3a_wmx_parameters.xml`): axis-level
    gear/feedback/limit/`inPos` setup. This is where the "axis user unit = joint
    rad" scaling and the hardware-level motion limits live. Loaded by
    `wmx_engine_node` via `wmx_param_file_path`, or on demand through
@@ -323,7 +322,7 @@ joint_state_broadcaster:
     joint_feedback_rate: 100          # Hz — must be > 0
     joint_axes: [0, 1, 2, 3, 4, 5]
     joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
-    gripper_joint_name: ["picker_1_joint", "picker_2_joint"]   # omit for CR5A
+    gripper_joint_name: ["picker_1_joint", "picker_2_joint"]   # omit when no gripper
     gripper_address: [0, 0]           # [byte, bit]
     gripper_open_value: 0.00
     gripper_close_value: 0.045
@@ -346,7 +345,7 @@ joint_position_controller:
     default_velocity: 0.5
     min_step: 0.001
 
-gripper_controller:                   # CR3A only
+gripper_controller:                   # only when there is a gripper
   ros__parameters:
     wmx_gripper_topic: /wmx/set_gripper
     gripper_address: [0, 0]
@@ -383,7 +382,7 @@ What the Toolkit needs to template per robot / per deployment:
   (`wmx_param_file_path`) that defines the joint unit scaling and limits.
 - **Per gripper:** `gripper_address`, `gripper_open_value`/`gripper_close_value`,
   `gripper_joint_name`, `wmx_gripper_topic`, `pre_setup_io` — and on gripperless
-  arms (CR5A) drop `gripper_controller` from `managed_nodes` entirely and leave
+  arms drop `gripper_controller` from `managed_nodes` entirely and leave
   `use_gripper` at its `false` default.
 - **Per planning stack:** `joint_trajectory_action` and `joint_trajectory_topic`,
   which must match the MoveIt2 controller configuration and the Servo output topic.
@@ -401,9 +400,9 @@ What the Toolkit needs to template per robot / per deployment:
 
 `wmx_r2_package` compiles against the WMX3 SDK at the CMake cache path
 `WMX3_SDK_PATH` (default `/opt/wmx3`); the same path (with a trailing `/` appended
-by CMake) is compiled in and passed to `CreateDevice` at runtime — except in
-`gripper_controller`, which hardcodes `/opt/lmx/`. The trajectory controller
-additionally links `advancedmotionapi` for the C-spline path.
+by CMake) is compiled in and passed to `CreateDevice` at runtime by every node.
+The trajectory controller additionally links `advancedmotionapi` for the C-spline
+path.
 
 At **runtime** the dynamic linker must be able to find the SDK's shared libraries
 (`libimdll.so` etc.): either an `ld.so.conf.d` entry for `/opt/wmx3/lib` (the SDK
