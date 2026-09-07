@@ -41,7 +41,10 @@ source install/setup.bash
 colcon build && source install/setup.bash
 
 # 2. Launch the low-level nodes (engine, core motion, IO, EtherCAT)
-ros2 launch wmx_r2_package wmx_r2_general_nodes.launch.py
+ros2 launch wmx_r2_package wmx_r2_general_nodes.launch.py \
+  use_sim_time:=false \
+  'config_file:=$(ros2 pkg prefix --share wmx_r2_package)/config/wmx_r2_general_nodes_config.yaml' \
+  'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/config/wmx_parameters.xml'
 
 # 3. Bring axes online and command a move
 ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{axis: [0,1], data: [1,1]}"
@@ -162,13 +165,19 @@ flowchart LR;
 | [wmx_r2_control_manipulator.launch.py](wmx_r2_control/launch/wmx_r2_control_manipulator.launch.py) | Manipulator through `ros2_control` | manipulator nodes + `robot_state_publisher`, `ros2_control_node`, controller spawners |
 | [wmx_r2_control_differential.launch.py](wmx_r2_control/launch/wmx_r2_control_differential.launch.py) | Differential base through `ros2_control` | general nodes + `robot_state_publisher`, `ros2_control_node`, controller spawners |
 
+No robot is baked into any launch file. Each takes its paths as launch
+arguments — `config_file` and `wmx_param_file`, plus `urdf_file` and
+`controllers_file` on the `ros2_control` ones — so one launch file serves every
+robot of that kind. The per-robot examples live in
+[wmx_r2_package/example/](wmx_r2_package/example/).
+
 ## Supported Robots
 
-| Robot | Type | Launch file | WMX parameters | Guide |
-|-------|------|-------------|----------------|-------|
-| Dobot CR3A | 6-axis manipulator | `wmx_r2_manipulator.launch.py` | `example/cr3a_wmx_parameters.xml` | [doc/launch_manipulator.md](doc/launch_manipulator.md) |
-| Dobot CR5A | 6-axis manipulator | `wmx_r2_manipulator.launch.py` | `example/cr5a_wmx_parameters.xml` | [doc/launch_manipulator.md](doc/launch_manipulator.md) |
-| Diffbot | Differential-drive base | `wmx_r2_differential.launch.py` | `example/diffbot_wmx_parameters.xml` | [doc/launch_differential.md](doc/launch_differential.md) |
+| Robot | Type | Launch file | ROS config | WMX parameters | Guide |
+|-------|------|-------------|------------|----------------|-------|
+| Dobot CR3A | 6-axis manipulator | `wmx_r2_manipulator.launch.py` (`use_gripper:=true`) | `example/cr3a_manipulator_config.yaml` | `example/cr3a_wmx_parameters.xml` | [doc/launch_manipulator.md](doc/launch_manipulator.md) |
+| Dobot CR5A | 6-axis manipulator | `wmx_r2_manipulator.launch.py` | `example/cr5a_manipulator_config.yaml` | `example/cr5a_wmx_parameters.xml` | [doc/launch_manipulator.md](doc/launch_manipulator.md) |
+| Diffbot | Differential-drive base | `wmx_r2_differential.launch.py` | `example/diffbot_differential_config.yaml` | `example/diffbot_wmx_parameters.xml` | [doc/launch_differential.md](doc/launch_differential.md) |
 
 ## MoveIt2 Integration
 

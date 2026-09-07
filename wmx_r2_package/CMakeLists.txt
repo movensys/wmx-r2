@@ -66,7 +66,7 @@ target_compile_definitions(joint_position_controller PRIVATE WMX3_SDK_PATH="${WM
 
 add_executable(differential_drive_controller src/differential_drive_controller.cpp)
 ament_target_dependencies(differential_drive_controller
-  rclcpp rclcpp_lifecycle std_msgs std_srvs geometry_msgs nav_msgs
+  rclcpp rclcpp_lifecycle sensor_msgs std_srvs geometry_msgs nav_msgs
   tf2 tf2_ros wmx_r2_message)
 target_include_directories(differential_drive_controller PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
 target_link_libraries(differential_drive_controller coremotionapi wmx3api imdll)
@@ -169,7 +169,7 @@ if(BUILD_TESTING)
       test_accel_estimator)
     ament_add_gtest(${_t} test/${_t}.cpp)
     ament_target_dependencies(${_t}
-      rclcpp rclcpp_lifecycle std_msgs geometry_msgs nav_msgs tf2 tf2_ros)
+      rclcpp rclcpp_lifecycle sensor_msgs geometry_msgs nav_msgs tf2 tf2_ros)
     target_include_directories(${_t} PRIVATE
       include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
   endforeach()

@@ -4,7 +4,20 @@ Every interface of the five nodes started by `wmx_r2_general_nodes.launch.py`:
 `wmx_engine_node`, `wmx_lifecycle_manager_node`, `wmx_core_motion_node`,
 `wmx_io_node`, `wmx_ethercat_node`.
 
-check `doc/launch_wmx_r2_general_nodes.md`
+check `doc/launch_general_nodes.md`
+
+## Launch arguments
+
+`wmx_r2_general_nodes.launch.py`:
+
+| Argument | Default | Description |
+|---|---|---|
+| `use_sim_time` | `false` | Use simulation clock |
+| `config_file` | `""` | YAML with the general node parameters, e.g. `config/wmx_r2_general_nodes_config.yaml`. Empty loads no parameter file: launch warns and every node falls back to its compiled defaults |
+| `wmx_param_file` | `""` | WMX3 parameter XML imported at engine start, e.g. `config/wmx_parameters.xml`. Empty imports nothing and leaves `wmx_param_file_path` to `config_file` |
+
+Nothing is baked into the launch file; the robot launches forward their own
+`config_file` and `wmx_param_file` here.
 
 ---
 

@@ -11,18 +11,19 @@
 #include <mutex>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 #include "rclcpp_lifecycle/lifecycle_publisher.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
 
-#include "std_msgs/msg/float64_multi_array.hpp"
 #include "geometry_msgs/msg/accel_stamped.hpp"
 #include "geometry_msgs/msg/quaternion.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 
 #include "WMX3Api.h"
@@ -290,6 +291,7 @@ private:
   bool publishTf_ = false;
   std::string odomFrame_;
   std::string baseFrame_;
+  std::vector<std::string> jointName_;
   double jumpGuardTol_ = 0.5;
 
   std::string cmdVelTopic_;
@@ -319,8 +321,11 @@ private:
   bool lastSentValid_ = false;
 
   rclcpp::TimerBase::SharedPtr controlTimer_;
+  rclcpp::TimerBase::SharedPtr feedbackTimer_;
+
+  rclcpp::CallbackGroup::SharedPtr controlCbGroup_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr cmdVelStampedSub_;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
+  rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr
     encoderOmegaPub_;
   rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Odometry>::SharedPtr encoderOdometryPub_;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::TwistStamped>::SharedPtr odomDeltasPub_;
@@ -331,11 +336,12 @@ private:
 
   void cmdStampedCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   void controlStep();
+  void publishMotorFeedback();
   void commandWheels(double omegaLeft, double omegaRight);
   void stopWheelsOnFault();
   bool startVel(int axis, double omega);
 
-  void publishOmega(const diff_drive::WheelOmega & enc);
+  void publishOmega(const rclcpp::Time & stamp, const diff_drive::WheelOmega & enc);
   void publishOdometry(const rclcpp::Time & stamp, const diff_drive::BodyVel & body);
   void publishDeltas(const rclcpp::Time & stamp);
   void publishAccel(const rclcpp::Time & stamp, const diff_drive::BodyVel & body);

@@ -160,6 +160,8 @@ DifferentialDriveController::DifferentialDriveController()
 {
   setRosParameter();
 
+  controlCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
   model_ = ddl::DiffDriveModel{wheelRadius_, wheelToWheel_};
   accel_ = std::make_unique<ddl::AccelEstimator>(accelAlpha_);
 
@@ -196,7 +198,11 @@ DifferentialDriveController::CallbackReturn DifferentialDriveController::on_conf
 DifferentialDriveController::CallbackReturn DifferentialDriveController::on_activate(
   const rclcpp_lifecycle::State & previous_state)
 {
-  encoderOmegaPub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
+  havePrev_ = false;
+  haveCmd_ = false;
+  lastSentValid_ = false;
+
+  encoderOmegaPub_ = this->create_publisher<sensor_msgs::msg::JointState>(
     encoderOmegaTopic_, 1);
   encoderOdometryPub_ = this->create_publisher<nav_msgs::msg::Odometry>(
     encoderOdometryTopic_, 1);
@@ -208,17 +214,19 @@ DifferentialDriveController::CallbackReturn DifferentialDriveController::on_acti
     tfBroadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
   }
 
+  rclcpp::SubscriptionOptions cmdVelOptions;
+  cmdVelOptions.callback_group = controlCbGroup_;
   cmdVelStampedSub_ = this->create_subscription<geometry_msgs::msg::TwistStamped>(
-    cmdVelTopic_, 1, std::bind(&DifferentialDriveController::cmdStampedCallback, this, _1));
+    cmdVelTopic_, 1, std::bind(&DifferentialDriveController::cmdStampedCallback, this, _1),
+    cmdVelOptions);
 
   LifecycleNode::on_activate(previous_state);
 
-  havePrev_ = false;
-  haveCmd_ = false;
-  lastSentValid_ = false;
-
   controlTimer_ = this->create_wall_timer(
-    periodFromRate(rate_), std::bind(&DifferentialDriveController::controlStep, this));
+    periodFromRate(rate_), std::bind(&DifferentialDriveController::controlStep, this),
+    controlCbGroup_);
+  feedbackTimer_ = this->create_wall_timer(
+    periodFromRate(rate_), std::bind(&DifferentialDriveController::publishMotorFeedback, this));
 
   RCLCPP_INFO(this->get_logger(), "differential_drive_controller is active");
   return CallbackReturn::SUCCESS;
@@ -228,6 +236,7 @@ DifferentialDriveController::CallbackReturn DifferentialDriveController::on_deac
   const rclcpp_lifecycle::State & previous_state)
 {
   controlTimer_.reset();
+  feedbackTimer_.reset();
 
   startVel(leftAxis_, 0.0);
   startVel(rightAxis_, 0.0);
@@ -275,8 +284,6 @@ void DifferentialDriveController::cmdStampedCallback(
 
 void DifferentialDriveController::controlStep()
 {
-  const rclcpp::Time now = this->get_clock()->now();
-
   DifferentialDriveControllerApi::AxisFeedback left;
   DifferentialDriveControllerApi::AxisFeedback right;
   bool communicating = false;
@@ -287,7 +294,6 @@ void DifferentialDriveController::controlStep()
   {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000, "%s", message.c_str());
-    havePrev_ = false;
     stopWheelsOnFault();
     return;
   }
@@ -296,8 +302,47 @@ void DifferentialDriveController::controlStep()
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000,
       "Communication or engine off. Please start the engine or communication");
-    havePrev_ = false;
     stopWheelsOnFault();
+    return;
+  }
+
+  if (left.ampAlarm || right.ampAlarm) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "Servo alarm on. Please clear servo alarm");
+    stopWheelsOnFault();
+    return;
+  }
+  if (!left.servoOn || !right.servoOn) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "Servo off. Please set servo on");
+    stopWheelsOnFault();
+    return;
+  }
+
+  const rclcpp::Time now = this->get_clock()->now();
+  const bool stale = !haveCmd_ || (now - lastCmdTime_).seconds() > cmdVelTimeout_;
+  const ddl::BodyVel cmd =
+    stale ? ddl::BodyVel{0.0, 0.0} : ddl::BodyVel{cmdVelMsg_.linear.x, cmdVelMsg_.angular.z};
+
+  const ddl::WheelOmega target = model_.inverse(cmd);
+  commandWheels(target.left, target.right);
+}
+
+void DifferentialDriveController::publishMotorFeedback()
+{
+  const rclcpp::Time now = this->get_clock()->now();
+
+  DifferentialDriveControllerApi::AxisFeedback left;
+  DifferentialDriveControllerApi::AxisFeedback right;
+  bool communicating = false;
+  std::string message;
+
+  if (api_->getStatus(leftAxis_, rightAxis_, left, right, communicating, message) !=
+    ErrorCode::None || !communicating)
+  {
+    havePrev_ = false;
     return;
   }
 
@@ -327,33 +372,11 @@ void DifferentialDriveController::controlStep()
   prevLoopTime_ = now;
   havePrev_ = true;
 
-  publishOmega(enc);
+  publishOmega(now, enc);
   publishOdometry(now, body);
   publishDeltas(now);
   publishAccel(now, body);
   if (publishTf_) {publishTf(now);}
-
-  if (left.ampAlarm || right.ampAlarm) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 1000,
-      "Servo alarm on. Please clear servo alarm");
-    stopWheelsOnFault();
-    return;
-  }
-  if (!left.servoOn || !right.servoOn) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 1000,
-      "Servo off. Please set servo on");
-    stopWheelsOnFault();
-    return;
-  }
-
-  const bool stale = !haveCmd_ || (now - lastCmdTime_).seconds() > cmdVelTimeout_;
-  const ddl::BodyVel cmd =
-    stale ? ddl::BodyVel{0.0, 0.0} : ddl::BodyVel{cmdVelMsg_.linear.x, cmdVelMsg_.angular.z};
-
-  const ddl::WheelOmega target = model_.inverse(cmd);
-  commandWheels(target.left, target.right);
 }
 
 void DifferentialDriveController::commandWheels(double omegaLeft, double omegaRight)
@@ -390,10 +413,13 @@ bool DifferentialDriveController::startVel(int axis, double omega)
   return api_->startVel(axis, omega, message) == ErrorCode::None;
 }
 
-void DifferentialDriveController::publishOmega(const ddl::WheelOmega & enc)
+void DifferentialDriveController::publishOmega(
+  const rclcpp::Time & stamp, const ddl::WheelOmega & enc)
 {
-  std_msgs::msg::Float64MultiArray msg;
-  msg.data = {enc.left, enc.right};
+  sensor_msgs::msg::JointState msg;
+  msg.header.stamp = stamp;
+  msg.name = jointName_;
+  msg.velocity = {enc.left, enc.right};
   encoderOmegaPub_->publish(msg);
 }
 
@@ -509,6 +535,8 @@ void DifferentialDriveController::setRosParameter()
   publishTf_ = this->declare_parameter<bool>("publish_tf", false);
   odomFrame_ = this->declare_parameter<std::string>("odom_frame", "odom");
   baseFrame_ = this->declare_parameter<std::string>("base_frame", "base_link");
+  jointName_ = this->declare_parameter<std::vector<std::string>>(
+    "joint_name", std::vector<std::string>{"left_wheel_joint", "right_wheel_joint"});
   jumpGuardTol_ = this->declare_parameter<double>("jump_guard_tol", 0.5);
 
   cmdVelTopic_ = this->declare_parameter<std::string>("cmd_vel_topic", "/cmd_vel_safe");
@@ -538,6 +566,13 @@ void DifferentialDriveController::setRosParameter()
     RCLCPP_WARN(this->get_logger(), "jump_guard_tol must be > 0; falling back to 0.5");
     jumpGuardTol_ = 0.5;
   }
+  if (jointName_.size() < 2) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "joint_name needs [left, right], got %zu entries. Falling back to defaults.",
+      jointName_.size());
+    jointName_ = {"left_wheel_joint", "right_wheel_joint"};
+  }
 
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
   RCLCPP_INFO(this->get_logger(), "left_axis: %d, right_axis: %d", leftAxis_, rightAxis_);
@@ -554,6 +589,9 @@ void DifferentialDriveController::setRosParameter()
     this->get_logger(), "odom_frame: %s, base_frame: %s",
     odomFrame_.c_str(), baseFrame_.c_str());
   RCLCPP_INFO(this->get_logger(), "jump_guard_tol: %f", jumpGuardTol_);
+  RCLCPP_INFO(
+    this->get_logger(), "joint_name: [%s, %s]",
+    jointName_[0].c_str(), jointName_[1].c_str());
   RCLCPP_INFO(this->get_logger(), "cmd_vel_topic: %s", cmdVelTopic_.c_str());
   RCLCPP_INFO(this->get_logger(), "encoder_omega_topic: %s", encoderOmegaTopic_.c_str());
   RCLCPP_INFO(this->get_logger(), "encoder_odometry_topic: %s", encoderOdometryTopic_.c_str());
@@ -566,7 +604,9 @@ int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<DifferentialDriveController>();
-  rclcpp::spin(node->get_node_base_interface());
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(node->get_node_base_interface());
+  executor.spin();
   rclcpp::shutdown();
   return 0;
 }

@@ -14,6 +14,7 @@ differential_drive_controller:
     publish_tf: false
     odom_frame: odom
     base_frame: base_link
+    joint_name: ["drivewheel_left_joint", "drivewheel_right_joint"]
     cmd_vel_topic: /cmd_vel_safe
     encoder_odometry_topic: /odom_enc
     encoder_omega_topic: /omega_enc

@@ -1,20 +1,44 @@
 # Differential Drive Controller Reference
 
 Standalone rclcpp node (`wmx_r2_package/src/differential_drive_controller.cpp`)
-that drives two WMX3 wheel axes directly via CoreMotion `StartVel` and exposes the
-autonomy contract (command velocity in, odometry feedback out). The WMX/ROS-free
+that drives two Ethercat wheel axes directly via CoreMotion `StartVel` and exposes the
+autonomy contract (command velocity in, odometry feedback out). The 
 math (kinematics, dead-reckoning, deltas, accel EMA) lives in the unit-tested
 header `differential_drive_controller.hpp`; the node is the ROS/WMX wiring around it.
 
 ```
 /cmd_vel_safe ──────────▶ ┌──────────────────────────────┐ ──▶ /odom_enc    (Odometry)
-                          │ differential_drive_controller │ ──▶ /odom_deltas (TwistStamped)
+ (TwistStamped)           │ differential_drive_controller │ ──▶ /odom_deltas (TwistStamped)
 configure / activate ────▶│  (lifecycle node)             │ ──▶ /odom_accel  (AccelStamped)
- from wmx_engine_node     │  single loop @ rate (100 Hz)  │ ──▶ /omega_enc   (Float64MultiArray)
+ from wmx_engine_node     │  single loop @ rate (100 Hz)  │ ──▶ /omega_enc   (JointState)
                           │  WMX3 CoreMotion StartVel /   │ ──▶ /tf odom→base_link (optional)
                           │  GetStatus (one per cycle)    │
                           └──────────────────────────────┘
 ```
+
+---
+
+## Launch arguments
+
+`wmx_r2_differential.launch.py`:
+
+| Argument | Default | Description |
+|---|---|---|
+| `use_sim_time` | `false` | Use simulation clock |
+| `config_file` | **required** | YAML with the differential node parameters, e.g. `example/diffbot_differential_config.yaml` |
+| `wmx_param_file` | `""` | WMX3 parameter XML imported at engine start, e.g. `example/diffbot_wmx_parameters.xml`; empty imports nothing |
+
+`wmx_r2_control_differential.launch.py` takes the same three, with two additions
+and one tightening:
+
+| Argument | Default | Description |
+|---|---|---|
+| `wmx_param_file` | **required** | Also fed to the xacro, so an empty value would blank the description's own default |
+| `urdf_file` | **required** | Robot description xacro, e.g. `urdf/diffbot.wmx.urdf.xacro` |
+| `controllers_file` | **required** | `ros2_control` controller manager YAML, e.g. `config/diffbot_controllers.yaml` |
+
+No robot is baked into either launch file, see
+[launch_differential.md](launch_differential.md).
 
 ---
 
@@ -77,6 +101,7 @@ both the arrival stamp and the comparison come from the same paused clock.
 | `cmd_vel_topic` | `/cmd_vel_safe` | Command input (subscription). |
 | `encoder_odometry_topic` | `/odom_enc` | Encoder odometry output (EKF `odom0` input). |
 | `encoder_omega_topic` | `/omega_enc` | Per-wheel encoder velocity output. |
+| `joint_name` | `["left_wheel_joint", "right_wheel_joint"]` | Wheel joint names published in `/omega_enc`, ordered `[left, right]` to match `left_axis`/`right_axis`. Fewer than 2 entries falls back to the default with a warning. |
 | `odom_deltas_topic` | `/odom_deltas` | Accumulated travel output (DistanceTraveled monitor). |
 | `odom_accel_topic` | `/odom_accel` | Body acceleration output (Motion monitor). |
 
@@ -93,7 +118,7 @@ in the generated node config like any other value.
 | `/odom_enc` | pub | `nav_msgs/Odometry` | default, depth 1 | `rate` | `header.frame_id = odom_frame`, `child_frame_id = base_frame`. **Pose** = dead-reckoned from per-wheel encoder **position deltas** (`actualPos`), exact-arc via the sinc midpoint form (dt-free). **Twist** = `vx`, `vy`(=0), `vyaw` from `actualVelocity` (forward kinematics). Covariance: see below. |
 | `/odom_deltas` | pub | `geometry_msgs/TwistStamped` | default, depth 1 | `rate` | Accumulated `Σ|Δs|` (in `twist.linear.x`, m) and `Σ|Δθ|` (in `twist.angular.z`, rad) from encoder **position deltas** since the previous publish (more exact than `Σ|v|·dt`); resets each publish. `frame_id = odom_frame`. |
 | `/odom_accel` | pub | `geometry_msgs/AccelStamped` | default, depth 1 | `accel_publish_rate` | EMA-filtered derivative of body velocity over the actual inter-publish interval. `frame_id = base_frame`. |
-| `/omega_enc` | pub | `std_msgs/Float64MultiArray` | default, depth 1 | `rate` | `data = [left, right]` wheel angular velocity [rad/s] (`actualVelocity` from `GetStatus`). |
+| `/omega_enc` | pub | `sensor_msgs/JointState` | default, depth 1 | `rate` | `velocity = [left, right]` wheel angular velocity [rad/s] (`actualVelocity` from `GetStatus`), named by `joint_name`. `header.stamp` is the loop time; `position` and `effort` are left empty. |
 | `/tf` (`odom_frame → base_frame`) | pub | TF | tf2 default | `rate` | Only when `publish_tf: true`. |
 
 **Namespaces.** The five data-topic defaults are *absolute* names, so launching
@@ -242,9 +267,10 @@ A deployment consists of two files plus the launch wiring
    gear/feedback/limit/e-stop setup imported at node init. This is where the
    "axis unit = wheel rad/s" scaling and the hardware-level motion limits live.
 3. **Launch** — starts the general WMX nodes (engine etc.), the
-   `joint_state_broadcaster`, and this node; injects the engine's
-   `wmx_param_file_path` (resolved from the package share at launch time) and
-   `use_sim_time`.
+   `joint_state_broadcaster`, and this node; injects `use_sim_time` and the
+   engine's `wmx_param_file_path` from the `wmx_param_file` launch argument.
+   `config_file` is a required launch argument, so the same YAML reaches this
+   node and the general nodes.
 
 ```yaml
 differential_drive_controller:
@@ -262,6 +288,7 @@ differential_drive_controller:
     publish_tf: false    # true only for IMU-less / no-EKF configs
     odom_frame: odom
     base_frame: base_link
+    joint_name: ["drivewheel_left_joint", "drivewheel_right_joint"]
     cmd_vel_topic: /cmd_vel_safe
     encoder_odometry_topic: /odom_enc
     encoder_omega_topic: /omega_enc

@@ -35,9 +35,33 @@ own the engine, not the motion these controllers command.
 | `joint_state_broadcaster` | Encoder feedback → `/joint_states`; clears amp alarms and switches servos on at activate | CR3A, CR5A |
 | `joint_trajectory_controller` | `FollowJointTrajectory` action → WMX3 time-based C-spline | CR3A, CR5A |
 | `joint_position_controller` | MoveIt Servo's streamed `JointTrajectory` → WMX3 linear interpolation | CR3A, CR5A |
-| `gripper_controller` | Gripper open/close over a WMX IO output bit | CR3A only |
+| `gripper_controller` | Gripper open/close over a WMX IO output bit | only with `use_gripper:=true` (CR3A) |
 
 ---
+
+## Launch arguments
+
+`wmx_r2_manipulator.launch.py`:
+
+| Argument | Default | Description |
+|---|---|---|
+| `use_sim_time` | `false` | Use simulation clock |
+| `config_file` | **required** | YAML with the manipulator node parameters, e.g. `example/cr3a_manipulator_config.yaml` |
+| `wmx_param_file` | `""` | WMX3 parameter XML imported at engine start, e.g. `example/cr3a_wmx_parameters.xml`; empty imports nothing |
+| `use_gripper` | `false` | Start `gripper_controller` |
+
+`wmx_r2_control_manipulator.launch.py` takes the same four, with two additions
+and one tightening:
+
+| Argument | Default | Description |
+|---|---|---|
+| `wmx_param_file` | **required** | Also fed to the xacro, so an empty value would blank the description's own default |
+| `urdf_file` | **required** | Robot description xacro, e.g. `urdf/cr3a.wmx.urdf.xacro` |
+| `controllers_file` | **required** | `ros2_control` controller manager YAML, e.g. `config/cr3a_controllers.yaml` |
+
+No robot is baked into either launch file: CR3A and CR5A differ only by the
+paths passed on the command line, see
+[launch_manipulator.md](launch_manipulator.md).
 
 ## Parameters
 
@@ -290,7 +314,8 @@ A deployment is one YAML plus the launch wiring
    `wmx/engine/import_and_set_all`.
 3. **Launch** — includes the general nodes, then starts the manipulator nodes as
    `LifecycleNode`s (unconfigured; the manager drives them) and injects
-   `use_sim_time`.
+   `use_sim_time`. `config_file` is a required launch argument, so the same YAML
+   reaches the manipulator nodes and the general nodes.
 
 ```yaml
 joint_state_broadcaster:
@@ -357,8 +382,9 @@ What the Toolkit needs to template per robot / per deployment:
   three motion nodes), `joint_feedback_rate`, and the WMX parameter XML
   (`wmx_param_file_path`) that defines the joint unit scaling and limits.
 - **Per gripper:** `gripper_address`, `gripper_open_value`/`gripper_close_value`,
-  `gripper_joint_name`, `wmx_gripper_topic` — and drop `gripper_controller` from
-  `managed_nodes` entirely on grippersless arms (CR5A).
+  `gripper_joint_name`, `wmx_gripper_topic`, `pre_setup_io` — and on gripperless
+  arms (CR5A) drop `gripper_controller` from `managed_nodes` entirely and leave
+  `use_gripper` at its `false` default.
 - **Per planning stack:** `joint_trajectory_action` and `joint_trajectory_topic`,
   which must match the MoveIt2 controller configuration and the Servo output topic.
 - **Usually defaults:** `accel_ratio`, `default_velocity`, `min_step`, and the
@@ -386,7 +412,7 @@ containers that only mount the SDK.
 
 The manipulator launches need **root** for real-time scheduling; start them with
 `sudo --preserve-env` as shown in
-[launch_dobot_cr3a_manipulator.md](launch_dobot_cr3a_manipulator.md).
+[launch_manipulator.md](launch_manipulator.md).
 
 `joint_position_controller` has a launch test
 (`test/test_joint_position_controller.py`, no hardware required) exercised by
