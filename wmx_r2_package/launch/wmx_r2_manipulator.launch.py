@@ -3,18 +3,18 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode
 
 PKG_SHARE = get_package_share_directory('wmx_r2_package')
 
-CR3A_CONFIG = os.path.join(PKG_SHARE, 'config', 'cr3a_manipulator_config.yaml')
-CR3A_WMX_PARAM_FILE = os.path.join(PKG_SHARE, 'config', 'cr3a_wmx_parameters.xml')
-
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
+    config_file = LaunchConfiguration('config_file')
+    wmx_param_file = LaunchConfiguration('wmx_param_file')
 
     start_wmx_r2_general_nodes = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -22,8 +22,8 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'config_file': CR3A_CONFIG,
-            'wmx_param_file': CR3A_WMX_PARAM_FILE,
+            'config_file': config_file,
+            'wmx_param_file': wmx_param_file,
         }.items(),
     )
 
@@ -32,7 +32,7 @@ def generate_launch_description():
         executable='joint_state_broadcaster',
         name='joint_state_broadcaster',
         namespace='',
-        parameters=[CR3A_CONFIG, {'use_sim_time': use_sim_time}],
+        parameters=[config_file, {'use_sim_time': use_sim_time}],
         output='screen',
         emulate_tty=True,
     )
@@ -42,7 +42,7 @@ def generate_launch_description():
         executable='joint_trajectory_controller',
         name='joint_trajectory_controller',
         namespace='',
-        parameters=[CR3A_CONFIG, {'use_sim_time': use_sim_time}],
+        parameters=[config_file, {'use_sim_time': use_sim_time}],
         output='screen',
         emulate_tty=True,
     )
@@ -52,7 +52,7 @@ def generate_launch_description():
         executable='joint_position_controller',
         name='joint_position_controller',
         namespace='',
-        parameters=[CR3A_CONFIG, {'use_sim_time': use_sim_time}],
+        parameters=[config_file, {'use_sim_time': use_sim_time}],
         output='screen',
         emulate_tty=True,
     )
@@ -62,8 +62,8 @@ def generate_launch_description():
         executable='gripper_controller',
         name='gripper_controller',
         namespace='',
-        parameters=[CR3A_CONFIG, {'use_sim_time': use_sim_time}],
-        additional_env={'MANIPULATOR_MODEL': 'dobot_cr3a'},
+        parameters=[config_file, {'use_sim_time': use_sim_time}],
+        condition=IfCondition(LaunchConfiguration('use_gripper')),
         output='screen',
         emulate_tty=True,
     )
@@ -73,6 +73,22 @@ def generate_launch_description():
             'use_sim_time',
             default_value='false',
             description='Use simulation clock'
+        ),
+        DeclareLaunchArgument(
+            'config_file',
+            description='YAML with the manipulator node parameters, e.g. '
+                        'example/cr3a_manipulator_config.yaml'
+        ),
+        DeclareLaunchArgument(
+            'wmx_param_file',
+            default_value='',
+            description='WMX3 parameter XML imported at engine start, e.g. '
+                        'example/cr3a_wmx_parameters.xml; empty imports nothing'
+        ),
+        DeclareLaunchArgument(
+            'use_gripper',
+            default_value='false',
+            description='Start gripper_controller'
         ),
 
         start_wmx_r2_general_nodes,

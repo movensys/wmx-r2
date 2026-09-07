@@ -34,6 +34,7 @@ set(WMX3_SDK_PATH "/opt/wmx3" CACHE PATH "Path to WMX3 SDK installation")
 
 install(DIRECTORY
   config
+  example
   launch
   DESTINATION share/${PROJECT_NAME}/
 )

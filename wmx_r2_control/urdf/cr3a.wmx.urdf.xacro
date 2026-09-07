@@ -2,7 +2,7 @@
 <robot name="movensys_manipulator" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="wmx_param_file"
-             default="$(find wmx_r2_package)/config/cr3a_wmx_parameters.xml"/>
+             default="$(find wmx_r2_package)/example/cr3a_wmx_parameters.xml"/>
 
   <xacro:include filename="$(find movensys_manipulator_description)/urdf/dobot_cr3a/movensys_manipulator.xacro"/>
   <xacro:include filename="$(find wmx_r2_control)/urdf/cr3a.wmx.ros2_control.xacro"/>

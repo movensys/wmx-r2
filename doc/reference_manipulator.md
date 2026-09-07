@@ -96,11 +96,7 @@ WMX spline buffer allocated at `configure` and caps the accepted goal length.
 |---|---|---|---|---|
 | `wmx_gripper_topic` | string | `/wmx_gripper_topic/no_param` | – | Name of the `std_srvs/SetBool` **service** (the parameter is named "topic" for historical reasons). CR3A uses `/wmx/set_gripper`. |
 | `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX output bit driven by the service. A list shorter than 2 falls back to `[0, 0]` with a warning. |
-
-`MANIPULATOR_MODEL` is an **environment variable**, not a parameter: when it equals
-`dobot_cr3a` (injected by the CR3A launch file via `additional_env`), `configure`
-runs the CR3A gripper power-up sequence (`SetOutByte(28, 113)`, then a readback of
-output byte 28 and input bit 0.1). Any other value skips it with an INFO log.
+| `pre_setup_io` | bool | `false` | – | When true, `configure` runs the gripper power-up sequence (`SetOutByte(28, 113)`, then a readback of output byte 28 and input bit 0.1). CR3A sets it true; CR5A leaves it false. |
 
 ---
 
@@ -269,9 +265,9 @@ None is built as a composable component.
 - **`gripper_controller` hardcodes its SDK path.** It calls `CreateDevice("/opt/lmx/", ...)`
   rather than the compiled-in `WMX3_SDK_PATH` that every other node uses; an
   installation elsewhere fails to configure this node only.
-- **CR3A gripper setup is model-gated by environment.** Running
-  `gripper_controller` outside its launch file (no `MANIPULATOR_MODEL`) skips the
-  power-up sequence, and the service then toggles a bit on an unpowered gripper.
+- **Gripper power-up is gated by `pre_setup_io`, which defaults to false.**
+  Running `gripper_controller` without it set true skips the power-up sequence,
+  and the service then toggles a bit on an unpowered gripper.
 
 ---
 
@@ -294,7 +290,7 @@ A deployment is one YAML plus the launch wiring
    `wmx/engine/import_and_set_all`.
 3. **Launch** — includes the general nodes, then starts the manipulator nodes as
    `LifecycleNode`s (unconfigured; the manager drives them) and injects
-   `use_sim_time` and, for CR3A, `MANIPULATOR_MODEL=dobot_cr3a`.
+   `use_sim_time`.
 
 ```yaml
 joint_state_broadcaster:
