@@ -6,17 +6,10 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
 
-EXAMPLE_CONFIG = os.path.join(
-    get_package_share_directory('wmx_r2_package'),
-    'config',
-    'wmx_r2_general_nodes_config.yaml',
-)
-
-
 def launch_general_nodes(context):
-    use_sim_time = LaunchConfiguration('use_sim_time')
     engine_config = [LaunchConfiguration('config_file').perform(context)]
 
+    use_sim_time = LaunchConfiguration('use_sim_time')
     engine_params = [{'use_sim_time': use_sim_time}]
     wmx_param_file = LaunchConfiguration('wmx_param_file').perform(context)
     if wmx_param_file:
@@ -88,7 +81,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'config_file',
-            default_value=EXAMPLE_CONFIG,
+            default_value='',
             description='YAML with the wmx_engine_node and '
                         'wmx_lifecycle_manager_node parameters. Defaults to '
                         'config/wmx_r2_general_nodes_config.yaml, an example '
