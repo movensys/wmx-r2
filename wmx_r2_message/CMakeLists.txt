@@ -21,7 +21,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetEngine.srv"
   "srv/SetAxis.srv"
   "srv/SetAxisGearRatio.srv"
-  "srv/SetAxisPosition.srv"
   "srv/GetIoBit.srv"
   "srv/GetIoBytes.srv"
   "srv/SetIoBit.srv"

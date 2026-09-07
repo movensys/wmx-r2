@@ -1,5 +1,0 @@
-int32[] index      # axis index
-float64[] position # position in user units (metres / radians on the cartesian machine)
----
-bool success   # indicate successful run
-string message # response messages
