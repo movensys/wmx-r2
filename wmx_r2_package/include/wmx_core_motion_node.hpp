@@ -22,6 +22,7 @@
 
 #include "wmx_r2_message/srv/set_axis.hpp"
 #include "wmx_r2_message/srv/set_axis_gear_ratio.hpp"
+#include "wmx_r2_message/srv/set_axis_position.hpp"
 #include "wmx_r2_message/srv/load_wmx_params.hpp"
 #include "wmx_r2_message/srv/get_wmx_params.hpp"
 #include "wmx_r2_message/msg/axis_velocity.hpp"
@@ -89,6 +90,7 @@ private:
   rclcpp::Service<wmx_r2_message::srv::SetAxis>::SharedPtr setAxisPolarityService_;
   rclcpp::Service<wmx_r2_message::srv::SetAxisGearRatio>::SharedPtr setAxisGearRatioService_;
   rclcpp::Service<wmx_r2_message::srv::SetAxis>::SharedPtr setHomingService_;
+  rclcpp::Service<wmx_r2_message::srv::SetAxisPosition>::SharedPtr setReferenceService_;
   rclcpp::Service<wmx_r2_message::srv::SetAxis>::SharedPtr stopAxisService_;
   rclcpp::Service<wmx_r2_message::srv::LoadWmxParams>::SharedPtr loadParamsService_;
   rclcpp::Service<wmx_r2_message::srv::GetWmxParams>::SharedPtr getParamsService_;
@@ -122,6 +124,9 @@ private:
   void setHoming(
     const std::shared_ptr<wmx_r2_message::srv::SetAxis::Request> request,
     std::shared_ptr<wmx_r2_message::srv::SetAxis::Response> response);
+  void setReference(
+    const std::shared_ptr<wmx_r2_message::srv::SetAxisPosition::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::SetAxisPosition::Response> response);
   void stopAxes(
     const std::shared_ptr<wmx_r2_message::srv::SetAxis::Request> request,
     std::shared_ptr<wmx_r2_message::srv::SetAxis::Response> response);

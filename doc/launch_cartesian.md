@@ -34,19 +34,26 @@ Two bring-up options on `wmx_core_motion_node`:
 The cartesian drives are absolute encoders (`AbsoluteEncoderMode` 1 for axes
 0..3 in `config/cartesian_wmx_parameters.xml`, as in the cr3a/cr5a files), so
 they remember their position across a power cycle and nothing has to be homed
-at bring-up. The one-time step is to set each axis' `AbsoluteEncoderHomeOffset`
-from WMX Studio so that the reported position equals the URDF joint value.
+at bring-up.
 
-Do **not** pass `auto_home:=true` on these drives: `wmx/axis/homing` labels the
-current position with the axis' `HomePosition` (`0.012` for axis 2, `0` for the
-rest), which overwrites the remembered position. It exists for a deliberate
-re-zero only — park the machine at the model home pose (X/Y centred, Z at the
-bottom of its travel) and run it yourself:
+One-time setup (and the procedure for a deliberate re-zero):
 
-```
-ros2 service call /wmx/axis/homing wmx_r2_message/srv/SetAxis \
-  "{index: [0,1,2,3], data: [0,0,0,0]}"
-```
+1. Park the machine at the model home pose — X/Y centred, Z at the bottom of
+   its travel.
+2. Home once. `HomeType CurrentPos` moves nothing; it labels that pose with each
+   axis' `HomePosition` (`0.012` for axis 2, `0` for the rest) and makes WMX3
+   compute `AbsoluteEncoderHomeOffset` for the axis:
+   ```
+   ros2 service call /wmx/axis/homing wmx_r2_message/srv/SetAxis \
+     "{index: [0,1,2,3], data: [0,0,0,0]}"
+   ```
+3. Export the parameters from WOS / WMX Studio over
+   `config/cartesian_wmx_parameters.xml`. wmx-r2 imports that file at start and
+   never exports, so an offset that is not exported is gone at shutdown.
+
+`AbsoluteEncoderHomeOffset` is not meant to be typed in by hand — WMX3 writes it
+on homing. Do **not** pass `auto_home:=true` on these drives: it repeats step 2
+at every start, overwriting the remembered position.
 
 Why the position matters to MoveIt at all: `axis_z` travels [0.012, 0.090] m in
 the URDF, so a raw reading of `0.000` is *outside* the joint limits and every

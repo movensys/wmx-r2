@@ -88,7 +88,11 @@ def generate_launch_description():
     # bottom of its travel). Without a valid position MoveIt aborts every plan
     # with "Joint 'axis_z' from the starting state is outside bounds", because
     # axis_z travels [0.012, 0.090] m and a raw 0.0 is outside that.
-    # The manual equivalent, for a one-off re-zero:
+    # One-time setup on absolute drives (see the header of
+    # cartesian_wmx_parameters.xml): park at the model home pose, run the
+    # homing call below once, then export the parameters over that file --
+    # the offset WMX3 computes is only persisted by the export.
+    # The manual call, also used for a deliberate re-zero:
     #   ros2 service call /wmx/axis/homing wmx_r2_message/srv/SetAxis \
     #     "{index: [0,1,2,3], data: [0,0,0,0]}"
     axes = '[0,1,2,3]'

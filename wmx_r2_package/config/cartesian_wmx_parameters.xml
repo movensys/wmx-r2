@@ -17,16 +17,22 @@
   ZERO POSITION. AbsoluteEncoderMode is 1 for axes 0..3, as in the
   manipulator parameter files: the drives keep their position across a power
   cycle, so no homing runs at bring-up (wmx_r2_cartesian.launch.py defaults to
-  auto_home:=false). Set the offset between the encoder's absolute value and
-  the URDF coordinate once, from WMX Studio (AbsoluteEncoderHomeOffset), so
-  that the reported position IS the URDF joint value.
-  HomePosition (0.012 for axis 2, 0 for the rest) is only used by a manual
-  `wmx/axis/homing` call (HomeType CurrentPos), which labels the parked
-  position with it. On absolute drives that call overwrites the remembered
-  position, so run it only as a deliberate re-zero with the machine parked at
-  the model home pose (X/Y centred, Z at the bottom of its travel). Keep in
-  mind axis_z travels [0.012, 0.090] m in the URDF, so a raw 0.0 is outside
-  the joint limits and MoveIt refuses to plan from it.
+  auto_home:=false). AbsoluteEncoderHomeOffset (pulses) is the number WMX3
+  adds to the encoder's absolute count to get the reported position. Do NOT
+  edit it by hand: WMX3 writes it itself when a homing completes with
+  AbsoluteEncoderMode 1. The one-time setup is therefore
+    1. park the machine at the model home pose (X/Y centred, Z at the bottom
+       of its travel),
+    2. run `wmx/axis/homing` once (HomeType CurrentPos, no motion) - this
+       labels that pose with HomePosition (0.012 for axis 2, 0 for the rest)
+       and updates AbsoluteEncoderHomeOffset in the running engine,
+    3. export the parameters (WOS / WMX Studio) over this file, so the offset
+       is imported again at the next start. wmx-r2 only imports; it never
+       exports, so a homing that is not exported is lost at shutdown.
+  From then on the reported position IS the URDF joint value at every power-on.
+  Running `wmx/axis/homing` again re-does step 2, i.e. re-zeroes the machine.
+  axis_z travels [0.012, 0.090] m in the URDF, so a raw 0.0 is outside the
+  joint limits and MoveIt refuses to plan from it - that is what step 2 fixes.
 
   TODO before running on real hardware: replace this file with a WMX Studio
   export for the actual machine. The gear ratio above is a nominal 1 um/pulse

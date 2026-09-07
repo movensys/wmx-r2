@@ -50,6 +50,10 @@ WmxCoreMotionNode::WmxCoreMotionNode()
     "wmx/axis/homing",
     std::bind(&WmxCoreMotionNode::setHoming, this, _1, _2));
 
+  setReferenceService_ = this->create_service<wmx_r2_message::srv::SetAxisPosition>(
+    "wmx/axis/reference",
+    std::bind(&WmxCoreMotionNode::setReference, this, _1, _2));
+
   stopAxisService_ = this->create_service<wmx_r2_message::srv::SetAxis>(
     "wmx/axis/stop",
     std::bind(&WmxCoreMotionNode::stopAxes, this, _1, _2));
@@ -677,6 +681,65 @@ void WmxCoreMotionNode::setHoming(
       all_success = false;
     } else {
       snprintf(buffer_, sizeof(buffer_), "Homed axis %d", request->index[i]);
+      RCLCPP_INFO(this->get_logger(), "%s", buffer_);
+    }
+    msg_stream << buffer_ << "; ";
+  }
+
+  response->success = all_success;
+  response->message = msg_stream.str();
+}
+
+// "The axis is at `position` right now." Like setHoming this is a HomeType
+// CurrentPos homing (no motion), but the value written into the encoder comes
+// from the request instead of the HomePosition in the parameter file. The
+// HomePosition of the axis is updated to the same value, so a later parameter
+// export (needed to keep an absolute encoder offset across a restart) carries
+// it as well.
+void WmxCoreMotionNode::setReference(
+  const std::shared_ptr<wmx_r2_message::srv::SetAxisPosition::Request> request,
+  std::shared_ptr<wmx_r2_message::srv::SetAxisPosition::Response> response)
+{
+  if (!initialized_) {
+    response->success = false;
+    response->message = "CoreMotion not initialized. Engine not ready.";
+    return;
+  }
+  if (request->index.size() != request->position.size()) {
+    response->success = false;
+    response->message = "index and position must have the same length";
+    return;
+  }
+
+  bool all_success = true;
+  std::stringstream msg_stream;
+
+  for (size_t i = 0; i < request->index.size(); ++i) {
+    const int axis = request->index[i];
+    err_ = wmx3LibCm_->config->GetHomeParam(axis, &homeParam_);
+    if (err_ == ErrorCode::None) {
+      homeParam_.homeType = Config::HomeType::CurrentPos;
+      homeParam_.homePosition = request->position[i];
+      err_ = wmx3LibCm_->config->SetHomeParam(axis, &homeParam_);
+    }
+    if (err_ == ErrorCode::None) {
+      err_ = wmx3LibCm_->home->StartHome(axis);
+    }
+    if (err_ == ErrorCode::None) {
+      err_ = wmx3LibCm_->motion->Wait(axis);
+    }
+
+    if (err_ != ErrorCode::None) {
+      wmx3Lib_.ErrorToString(err_, errString_, sizeof(errString_));
+      snprintf(
+        buffer_, sizeof(buffer_),
+        "Failed to reference axis %d at %.6f. Error=%d (%s)",
+        axis, request->position[i], err_, errString_);
+      RCLCPP_ERROR(this->get_logger(), "%s", buffer_);
+      all_success = false;
+    } else {
+      snprintf(
+        buffer_, sizeof(buffer_), "Referenced axis %d at %.6f", axis, request->position[i]);
       RCLCPP_INFO(this->get_logger(), "%s", buffer_);
     }
     msg_stream << buffer_ << "; ";
