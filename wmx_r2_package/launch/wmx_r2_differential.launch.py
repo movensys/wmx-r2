@@ -9,12 +9,11 @@ from launch_ros.actions import LifecycleNode
 
 PKG_SHARE = get_package_share_directory('wmx_r2_package')
 
-DIFFBOT_CONFIG = os.path.join(PKG_SHARE, 'config', 'diffbot_navigation_config.yaml')
-DIFFBOT_WMX_PARAM_FILE = os.path.join(PKG_SHARE, 'config', 'diffbot_wmx_parameters.xml')
-
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
+    config_file = LaunchConfiguration('config_file')
+    wmx_param_file = LaunchConfiguration('wmx_param_file')
 
     start_wmx_r2_general_nodes = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -22,8 +21,8 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'config_file': DIFFBOT_CONFIG,
-            'wmx_param_file': DIFFBOT_WMX_PARAM_FILE,
+            'config_file': config_file,
+            'wmx_param_file': wmx_param_file,
         }.items(),
     )
 
@@ -32,7 +31,7 @@ def generate_launch_description():
         executable='joint_state_broadcaster',
         name='joint_state_broadcaster',
         namespace='',
-        parameters=[DIFFBOT_CONFIG, {'use_sim_time': use_sim_time}],
+        parameters=[config_file, {'use_sim_time': use_sim_time}],
         output='screen',
         emulate_tty=True,
     )
@@ -42,7 +41,7 @@ def generate_launch_description():
         executable='differential_drive_controller',
         name='differential_drive_controller',
         namespace='',
-        parameters=[DIFFBOT_CONFIG, {'use_sim_time': use_sim_time}],
+        parameters=[config_file, {'use_sim_time': use_sim_time}],
         output='screen',
         emulate_tty=True,
     )
@@ -52,6 +51,17 @@ def generate_launch_description():
             'use_sim_time',
             default_value='false',
             description='Use simulation clock'
+        ),
+        DeclareLaunchArgument(
+            'config_file',
+            description='YAML with the differential node parameters, e.g. '
+                        'example/diffbot_differential_config.yaml'
+        ),
+        DeclareLaunchArgument(
+            'wmx_param_file',
+            default_value='',
+            description='WMX3 parameter XML imported at engine start, e.g. '
+                        'example/diffbot_wmx_parameters.xml; empty imports nothing'
         ),
 
         start_wmx_r2_general_nodes,

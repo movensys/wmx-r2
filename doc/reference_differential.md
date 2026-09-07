@@ -39,9 +39,8 @@ has no effect on behaviour — restart the node to apply new values.
 
 The WMX parameter XML (axis gear/feedback/limit setup) is **not** a parameter of
 this node: it is imported once by `wmx_engine_node` through its
-`wmx_param_file_path` parameter, which the diffbot launch file fills in with
-`config/diffbot_wmx_parameters.xml` resolved at launch time (launch argument
-`wmx_param_file`).
+`wmx_param_file_path` parameter, which the launch file forwards from its
+`wmx_param_file` argument (example: `example/diffbot_wmx_parameters.xml`).
 
 ### B. Motion profile / loop
 
@@ -233,13 +232,13 @@ composable component — run it as its own process, one per robot.
 ## Configuration files
 
 A deployment consists of two files plus the launch wiring
-(example: `launch/wmx_r2_diffbot_navigation.launch.py`):
+(example: `launch/wmx_r2_differential.launch.py`):
 
-1. **ROS parameter YAML** — `config/diffbot_navigation_config.yaml`, key
+1. **ROS parameter YAML** — `example/diffbot_differential_config.yaml`, key
    `differential_drive_controller.ros__parameters` (all tables above), plus the
    `wmx_engine_node` key (`core`, `affinity_mask`, `wmx_param_file_path`) and
    the other general-node keys.
-2. **WMX parameter XML** — `config/diffbot_wmx_parameters.xml`: axis-level
+2. **WMX parameter XML** — `example/diffbot_wmx_parameters.xml`: axis-level
    gear/feedback/limit/e-stop setup imported at node init. This is where the
    "axis unit = wheel rad/s" scaling and the hardware-level motion limits live.
 3. **Launch** — starts the general WMX nodes (engine etc.), the

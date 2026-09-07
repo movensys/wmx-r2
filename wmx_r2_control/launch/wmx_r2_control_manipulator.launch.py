@@ -9,7 +9,6 @@ from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-CTRL_SHARE = get_package_share_directory('wmx_r2_control')
 WMX_SHARE = get_package_share_directory('wmx_r2_package')
 
 
@@ -124,13 +123,11 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'urdf_file',
-            default_value=os.path.join(CTRL_SHARE, 'urdf', 'cr3a.wmx.urdf.xacro'),
-            description='Robot description xacro'
+            description='Robot description xacro, e.g. urdf/cr3a.wmx.urdf.xacro'
         ),
         DeclareLaunchArgument(
             'controllers_file',
-            default_value=os.path.join(CTRL_SHARE, 'config', 'cr3a_controllers.yaml'),
-            description='ros2_control controller manager YAML'
+            description='ros2_control controller manager YAML, e.g. config/cr3a_controllers.yaml'
         ),
         DeclareLaunchArgument(
             'use_gripper',

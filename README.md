@@ -109,7 +109,7 @@ ros2 service call /wmx/lifecycle/set_node_state wmx_r2_message/srv/SetNodeState 
 Transitions that take nodes down are applied in reverse bring-up order. The
 standard `ros2 lifecycle` CLI works on the nodes directly as well.
 
-### Trajectory Control ([wmx_r2_cr3a_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_cr3a_manipulator.launch.py))
+### Trajectory Control ([wmx_r2_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_manipulator.launch.py))
 
 ```mermaid
 ---
@@ -135,6 +135,7 @@ flowchart LR;
 |---------|-------------|
 | [wmx_r2_message](wmx_r2_message/) | Custom messages and services for axis, IO, EtherCAT, and engine control |
 | [wmx_r2_package](wmx_r2_package/) | Main nodes, launch files, and robot configurations |
+| [wmx_r2_control](wmx_r2_control/) | `ros2_control` hardware interface, URDF xacros, and controller configs |
 
 ## Nodes
 
@@ -156,21 +157,22 @@ flowchart LR;
 | Launch file | Purpose | Nodes started |
 |-------------|---------|---------------|
 | [wmx_r2_general_nodes.launch.py](wmx_r2_package/launch/wmx_r2_general_nodes.launch.py) | Low-level axis / IO / EtherCAT control | `wmx_engine_node`, `wmx_lifecycle_manager_node`, `wmx_core_motion_node`, `wmx_io_node`, `wmx_ethercat_node` |
-| [wmx_r2_cr3a_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_cr3a_manipulator.launch.py) | Dobot CR3A trajectory control | general nodes + `joint_state_broadcaster`, `joint_trajectory_controller`, `joint_position_controller`, `gripper_controller` |
-| [wmx_r2_cr5a_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_cr5a_manipulator.launch.py) | Dobot CR5A trajectory control | general nodes + `joint_state_broadcaster`, `joint_trajectory_controller`, `joint_position_controller` |
-| [wmx_r2_diffbot_navigation.launch.py](wmx_r2_package/launch/wmx_r2_diffbot_navigation.launch.py) | Differential-drive base control | general nodes + `joint_state_broadcaster`, `differential_drive_controller` |
+| [wmx_r2_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_manipulator.launch.py) | Manipulator trajectory control | general nodes + `joint_state_broadcaster`, `joint_trajectory_controller`, `joint_position_controller`, and `gripper_controller` when `use_gripper:=true` |
+| [wmx_r2_differential.launch.py](wmx_r2_package/launch/wmx_r2_differential.launch.py) | Differential-drive base control | general nodes + `joint_state_broadcaster`, `differential_drive_controller` |
+| [wmx_r2_control_manipulator.launch.py](wmx_r2_control/launch/wmx_r2_control_manipulator.launch.py) | Manipulator through `ros2_control` | manipulator nodes + `robot_state_publisher`, `ros2_control_node`, controller spawners |
+| [wmx_r2_control_differential.launch.py](wmx_r2_control/launch/wmx_r2_control_differential.launch.py) | Differential base through `ros2_control` | general nodes + `robot_state_publisher`, `ros2_control_node`, controller spawners |
 
 ## Supported Robots
 
 | Robot | Type | Launch file | WMX parameters | Guide |
 |-------|------|-------------|----------------|-------|
-| Dobot CR3A | 6-axis manipulator | `wmx_r2_cr3a_manipulator.launch.py` | `config/cr3a_wmx_parameters.xml` | [doc/launch_dobot_cr3a_manipulator.md](doc/launch_dobot_cr3a_manipulator.md) |
-| Dobot CR5A | 6-axis manipulator | `wmx_r2_cr5a_manipulator.launch.py` | `config/cr5a_wmx_parameters.xml` | [doc/launch_dobot_cr5a_manipulator.md](doc/launch_dobot_cr5a_manipulator.md) |
-| Diffbot | Differential-drive base | `wmx_r2_diffbot_navigation.launch.py` | `config/diffbot_wmx_parameters.xml` | [doc/launch_diffbot_navigation.md](doc/launch_diffbot_navigation.md) |
+| Dobot CR3A | 6-axis manipulator | `wmx_r2_manipulator.launch.py` | `example/cr3a_wmx_parameters.xml` | [doc/launch_manipulator.md](doc/launch_manipulator.md) |
+| Dobot CR5A | 6-axis manipulator | `wmx_r2_manipulator.launch.py` | `example/cr5a_wmx_parameters.xml` | [doc/launch_manipulator.md](doc/launch_manipulator.md) |
+| Diffbot | Differential-drive base | `wmx_r2_differential.launch.py` | `example/diffbot_wmx_parameters.xml` | [doc/launch_differential.md](doc/launch_differential.md) |
 
 ## MoveIt2 Integration
 
-To connect with `movensys-manipulator`, change the action name in `config/cr3a_manipulator_config.yaml`:
+To connect with `movensys-manipulator`, change the action name in `example/cr3a_manipulator_config.yaml`:
 
 ```yaml
 joint_trajectory_action: /movensys_manipulator_arm_controller/follow_joint_trajectory
@@ -183,13 +185,12 @@ To quickly set up the WMX ROS2 package and explore its key features, follow thes
 | Doc | Description |
 |-----|-------------|
 | [doc/first_setup.md](doc/first_setup.md) | Environment setup, Docker setup, dependencies, build |
-| [doc/launch_wmx_r2_general_nodes.md](doc/launch_wmx_r2_general_nodes.md) | Launch the WMX general nodes |
-| [doc/launch_dobot_cr3a_manipulator.md](doc/launch_dobot_cr3a_manipulator.md) | Launch the Dobot CR3A manipulator |
-| [doc/launch_dobot_cr5a_manipulator.md](doc/launch_dobot_cr5a_manipulator.md) | Launch the Dobot CR5A manipulator |
-| [doc/launch_diffbot_navigation.md](doc/launch_diffbot_navigation.md) | Launch the differential-drive base |
+| [doc/launch_general_nodes.md](doc/launch_general_nodes.md) | Launch the WMX general nodes |
+| [doc/launch_manipulator.md](doc/launch_manipulator.md) | Launch a manipulator (Dobot CR3A / CR5A) |
+| [doc/launch_differential.md](doc/launch_differential.md) | Launch the differential-drive base |
 | [doc/reference_general_nodes.md](doc/reference_general_nodes.md) | ROS2 service/topic reference with startup sequence |
 | [doc/reference_manipulator.md](doc/reference_manipulator.md) | Manipulator node reference |
-| [doc/reference_navigation.md](doc/reference_navigation.md) | Navigation node reference |
+| [doc/reference_differential.md](doc/reference_differential.md) | Differential node reference |
 
 For the complete and up-to-date documentation, please visit the official site:
 **[WMX R2 Documentation](https://movensys.github.io/wmx-r2-doc/)**

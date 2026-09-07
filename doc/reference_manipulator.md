@@ -274,16 +274,16 @@ None is built as a composable component.
 ## Configuration files
 
 A deployment is one YAML plus the launch wiring
-(example: `launch/wmx_r2_cr3a_manipulator.launch.py`):
+(example: `launch/wmx_r2_manipulator.launch.py`):
 
-1. **ROS parameter YAML** — `config/cr3a_manipulator_config.yaml` (or
+1. **ROS parameter YAML** — `example/cr3a_manipulator_config.yaml` (or
    `cr5a_...`), with one key per node (all tables above) **plus** the
    `wmx_engine_node` and `wmx_lifecycle_manager_node` keys: the manipulator launch
    passes this same file down to the included general-nodes launch as
    `config_file`, so engine core/affinity (`core`, `affinity_mask`), the WMX
    parameter XML path (`wmx_param_file_path`), and the bring-up order all live
    in it.
-2. **WMX parameter XML** — `config/cr3a_wmx_parameters.xml`: axis-level
+2. **WMX parameter XML** — `example/cr3a_wmx_parameters.xml`: axis-level
    gear/feedback/limit/`inPos` setup. This is where the "axis user unit = joint
    rad" scaling and the hardware-level motion limits live. Loaded by
    `wmx_engine_node` via `wmx_param_file_path`, or on demand through

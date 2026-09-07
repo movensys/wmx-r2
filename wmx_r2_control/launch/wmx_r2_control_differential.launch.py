@@ -8,21 +8,19 @@ from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-CTRL_SHARE = get_package_share_directory('wmx_r2_control')
 WMX_SHARE = get_package_share_directory('wmx_r2_package')
-
-URDF_XACRO = os.path.join(CTRL_SHARE, 'urdf', 'diffbot.wmx.urdf.xacro')
-CONTROLLERS = os.path.join(CTRL_SHARE, 'config', 'diffbot_controllers.yaml')
-DIFFBOT_CONFIG = os.path.join(WMX_SHARE, 'config', 'diffbot_navigation_config.yaml')
-DIFFBOT_WMX_PARAM_FILE = os.path.join(WMX_SHARE, 'config', 'diffbot_wmx_parameters.xml')
 
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
+    config_file = LaunchConfiguration('config_file')
+    wmx_param_file = LaunchConfiguration('wmx_param_file')
+    urdf_file = LaunchConfiguration('urdf_file')
+    controllers_file = LaunchConfiguration('controllers_file')
 
     robot_description = {
         'robot_description': ParameterValue(
-            Command(['xacro ', URDF_XACRO, ' wmx_param_file:=', DIFFBOT_WMX_PARAM_FILE]),
+            Command(['xacro ', urdf_file, ' wmx_param_file:=', wmx_param_file]),
             value_type=str,
         )
     }
@@ -33,8 +31,8 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'config_file': DIFFBOT_CONFIG,
-            'wmx_param_file': DIFFBOT_WMX_PARAM_FILE,
+            'config_file': config_file,
+            'wmx_param_file': wmx_param_file,
         }.items(),
     )
 
@@ -49,7 +47,8 @@ def generate_launch_description():
     start_controller_manager = Node(
         package='controller_manager',
         executable='ros2_control_node',
-        parameters=[robot_description, CONTROLLERS, {'use_sim_time': use_sim_time}],
+        parameters=[robot_description, controllers_file,
+                    {'use_sim_time': use_sim_time}],
         remappings=[
             ('/differential_drive_controller/cmd_vel', '/cmd_vel_safe'),
             ('/differential_drive_controller/odom', '/odom_enc'),
@@ -93,6 +92,25 @@ def generate_launch_description():
             'use_sim_time',
             default_value='false',
             description='Use simulation clock'
+        ),
+        DeclareLaunchArgument(
+            'config_file',
+            description='YAML with the differential node parameters, e.g. '
+                        'wmx_r2_package example/diffbot_differential_config.yaml'
+        ),
+        DeclareLaunchArgument(
+            'wmx_param_file',
+            description='WMX3 parameter XML imported at engine start and read '
+                        'by the xacro, e.g. wmx_r2_package '
+                        'example/diffbot_wmx_parameters.xml'
+        ),
+        DeclareLaunchArgument(
+            'urdf_file',
+            description='Robot description xacro, e.g. urdf/diffbot.wmx.urdf.xacro'
+        ),
+        DeclareLaunchArgument(
+            'controllers_file',
+            description='ros2_control controller manager YAML, e.g. config/diffbot_controllers.yaml'
         ),
 
         start_wmx_r2_general_nodes,

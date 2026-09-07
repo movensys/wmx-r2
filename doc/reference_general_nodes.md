@@ -28,7 +28,7 @@ ros2 service call /wmx/engine/get_engine_status std_srvs/srv/Trigger "{}"
 **`wmx/engine/import_and_set_all`** — Imports a WMX3 parameter XML into the running engine, absolute path only.
 ```bash
 ros2 service call /wmx/engine/import_and_set_all wmx_r2_message/srv/ImportAndSetAll \
-  "{path: '$HOME/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/cr3a_wmx_parameters.xml'}"
+  "{path: '$HOME/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/example/cr3a_wmx_parameters.xml'}"
 ```
 
 **`wmx/engine/get_axis_param`** — Dumps the active gear ratio, polarity and command mode of the requested axes.
