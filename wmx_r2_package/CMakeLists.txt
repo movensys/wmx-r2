@@ -82,6 +82,14 @@ target_link_directories(wmx_core_motion_node PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(wmx_core_motion_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 
 # Keyboard jog teleop. Input node only: no WMX3 include or link.
+# "axis i is at position[i] right now" (see src/axis_reference_node.cpp)
+add_executable(axis_reference_node src/axis_reference_node.cpp)
+ament_target_dependencies(axis_reference_node rclcpp std_msgs wmx_r2_message)
+target_include_directories(axis_reference_node PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
+target_compile_definitions(axis_reference_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
+target_link_libraries(axis_reference_node coremotionapi wmx3api imdll)
+target_link_directories(axis_reference_node PRIVATE ${WMX3_SDK_PATH}/lib)
+
 add_executable(jog_keyboard_node src/jog_keyboard_node.cpp)
 ament_target_dependencies(jog_keyboard_node rclcpp wmx_r2_message)
 
@@ -109,6 +117,7 @@ install(TARGETS
   wmx_io_node
   wmx_ethercat_node
   jog_keyboard_node
+  axis_reference_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

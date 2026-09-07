@@ -40,13 +40,17 @@ One-time setup (and the procedure for a deliberate re-zero):
 
 1. Park the machine at the model home pose — X/Y centred, Z at the bottom of
    its travel.
-2. Home once. `HomeType CurrentPos` moves nothing; it labels that pose with each
-   axis' `HomePosition` (`0.012` for axis 2, `0` for the rest) and makes WMX3
-   compute `AbsoluteEncoderHomeOffset` for the axis:
+2. Declare that pose. `axis_reference_node` (started by this launch file)
+   offers `wmx/axis/reference`: a `HomeType CurrentPos` homing that moves
+   nothing, labels each axis with the position in the request (metres /
+   radians) and makes WMX3 compute `AbsoluteEncoderHomeOffset` for it:
    ```
-   ros2 service call /wmx/axis/homing wmx_r2_message/srv/SetAxis \
-     "{index: [0,1,2,3], data: [0,0,0,0]}"
+   ros2 service call /wmx/axis/reference wmx_r2_message/srv/SetAxisPosition \
+     "{index: [0,1,2,3], position: [0.0, 0.0, 0.012, 0.0]}"
    ```
+   `movensys_cartesian_motion/home_reference` wraps this call in mm and checks
+   `/joint_states` afterwards. The older `wmx/axis/homing` does the same with
+   the `HomePosition` values from the parameter file instead of the request.
 3. Export the parameters from WOS / WMX Studio over
    `config/cartesian_wmx_parameters.xml`. wmx-r2 imports that file at start and
    never exports, so an offset that is not exported is gone at shutdown.

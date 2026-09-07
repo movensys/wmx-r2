@@ -68,6 +68,17 @@ def generate_launch_description():
         output='screen',
     )
 
+    # "The axes are at x/y/z right now": wmx/axis/reference. Used once, to
+    # reference the machine (movensys_cartesian_motion/home_reference talks to
+    # it in mm). Its own node so that wmx_core_motion_node stays generic.
+    start_axis_reference_node = Node(
+        package='wmx_r2_package',
+        executable='axis_reference_node',
+        name='axis_reference_node',
+        parameters=[{'use_sim_time': use_sim_time}],
+        output='screen',
+    )
+
     # WMX3 rejects any motion command while the drives are in servo-off state
     # ("StartCSplinePos Error: ... One or more axes are not in servo on state"),
     # which surfaces in MoveIt as error code -4 / CONTROL_FAILED. Nothing else
@@ -89,10 +100,11 @@ def generate_launch_description():
     # with "Joint 'axis_z' from the starting state is outside bounds", because
     # axis_z travels [0.012, 0.090] m and a raw 0.0 is outside that.
     # One-time setup on absolute drives (see the header of
-    # cartesian_wmx_parameters.xml): park at the model home pose, run the
-    # homing call below once, then export the parameters over that file --
-    # the offset WMX3 computes is only persisted by the export.
-    # The manual call, also used for a deliberate re-zero:
+    # cartesian_wmx_parameters.xml): park the machine, declare its position
+    # through axis_reference_node (wmx/axis/reference), then export the
+    # parameters over that file -- the offset WMX3 computes is only persisted
+    # by the export. The homing call below is the older equivalent that takes
+    # the position from HomePosition in the parameter file instead:
     #   ros2 service call /wmx/axis/homing wmx_r2_message/srv/SetAxis \
     #     "{index: [0,1,2,3], data: [0,0,0,0]}"
     axes = '[0,1,2,3]'
@@ -154,5 +166,6 @@ fi
         start_wmx_r2_general_nodes,
         start_joint_state_broadcaster,
         start_joint_trajectory_controller,
+        start_axis_reference_node,
         servo_on,
     ])
