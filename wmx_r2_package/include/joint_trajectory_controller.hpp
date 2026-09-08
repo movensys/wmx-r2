@@ -5,6 +5,7 @@
 #define JOINT_TRAJECTORY_CONTROLLER_HPP_
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -92,6 +93,8 @@ private:
   std::unique_ptr<JointTrajectoryControllerApi> api_;
 
   std::vector<int64_t> jointAxes_;
+  std::vector<std::string> jointNames_;
+  std::map<std::string, size_t> columnByName_;
   std::string jointTrajectoryAction_;
 
   std::atomic<bool> isNodeActive_{false};
@@ -114,6 +117,11 @@ private:
   void handleAccepted(std::shared_ptr<GoalHandleFJT> goalHandle);
 
   void executeGoal(std::shared_ptr<GoalHandleFJT> goalHandle);
+
+  bool mapGoalColumns(
+    const trajectory_msgs::msg::JointTrajectory & trajectory,
+    std::vector<size_t> & columns,
+    std::string & message) const;
 
   bool buildSplineInput(
     const trajectory_msgs::msg::JointTrajectory & trajectory,

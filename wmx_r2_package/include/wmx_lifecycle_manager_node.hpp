@@ -90,7 +90,7 @@ private:
   rclcpp::Service<wmx_r2_message::srv::SetNodeState>::SharedPtr setNodeStateService_;
   rclcpp::Service<wmx_r2_message::srv::GetNodeStates>::SharedPtr getNodeStatesService_;
 
-  bool isEngineCommunicating();
+  bool isEngineCommunicating(bool & isEngineAnswered);
   void discoveryStep();
 
   void setNodeStateCallback(

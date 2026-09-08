@@ -144,18 +144,11 @@ int WmxEngineNodeApi::stopEngine(std::string & message)
     return wmx3Api::ErrorCode::None;
   }
 
-  int err = wmx3Lib_.CloseDevice();
-  if (err != wmx3Api::ErrorCode::None) {
-    message = "Failed to close device. Error=" + std::to_string(err) +
-      " (" + errorToString(err) + ")";
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-  } else {
-    message = "Device closed";
-    RCLCPP_INFO(logger_, "%s", message.c_str());
-  }
+  int stopError = wmx3Api::ErrorCode::None;
 
-  err = wmx3Lib_.StopEngine(timeout_);
+  int err = wmx3Lib_.StopEngine(timeout_);
   if (err != wmx3Api::ErrorCode::None) {
+    stopError = err;
     message = "Failed to stop engine. Error=" + std::to_string(err) +
       " (" + errorToString(err) + ")";
     RCLCPP_ERROR(logger_, "%s", message.c_str());
@@ -164,7 +157,22 @@ int WmxEngineNodeApi::stopEngine(std::string & message)
     RCLCPP_INFO(logger_, "%s", message.c_str());
   }
 
-  return err;
+  err = wmx3Lib_.CloseDevice();
+  if (err != wmx3Api::ErrorCode::None) {
+    if (stopError == wmx3Api::ErrorCode::None) {
+      stopError = err;
+      message = "";
+    } else {
+      message += " ";
+    }
+    message += "Failed to close device. Error=" + std::to_string(err) +
+      " (" + errorToString(err) + ")";
+    RCLCPP_ERROR(logger_, "Failed to close device. Error=%d (%s)", err, errorToString(err).c_str());
+  } else {
+    RCLCPP_INFO(logger_, "Device closed");
+  }
+
+  return stopError;
 }
 
 int WmxEngineNodeApi::startCommunication(std::string & message)

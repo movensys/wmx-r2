@@ -57,7 +57,7 @@ public:
     int axis, double velocity, double acc, double dec, const rclcpp::Time & now,
     std::string & message);
   int stopExpiredJogs(const rclcpp::Time & now, std::string & message);
-  int stopAllJogs(std::string & message);
+  int stopAllAxes(int numOfAxes, std::string & message);
   int clearJog(int axis, std::string & message);
 
   int setServoOn(int axis, int newStatus, std::string & message);

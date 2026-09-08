@@ -114,6 +114,8 @@ private:
   rclcpp::Time lastCmdVelTime_;
   bool haveCmdVel_ = false;
 
+  mutable std::mutex driveMutex_;
+  bool driveEnabled_ = false;
   double sentOmegaLeft_ = 0.0;
   double sentOmegaRight_ = 0.0;
   bool sentOmegaValid_ = false;

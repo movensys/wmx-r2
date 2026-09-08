@@ -293,8 +293,40 @@ void JointTrajectoryController::waitForGoalToFinish()
 void JointTrajectoryController::setRosParameter()
 {
   jointAxes_ = this->declare_parameter<std::vector<int64_t>>("joint_axes", std::vector<int64_t>{});
+  jointNames_ = this->declare_parameter<std::vector<std::string>>(
+    "joint_name", std::vector<std::string>{});
   jointTrajectoryAction_ = this->declare_parameter<std::string>(
     "joint_trajectory_action", "/joint_trajectory_action/no_param");
+
+  if (!jointNames_.empty() && jointNames_.size() != jointAxes_.size()) {
+    RCLCPP_ERROR(
+      this->get_logger(),
+      "joint_name has %zu entries for %zu joint_axes. Dropping joint_name: goal joint_names "
+      "will be ignored and positions applied in joint_axes order.",
+      jointNames_.size(), jointAxes_.size());
+    jointNames_.clear();
+  }
+
+  columnByName_.clear();
+  for (size_t i = 0; i < jointNames_.size(); ++i) {
+    columnByName_[jointNames_[i]] = i;
+  }
+
+  if (columnByName_.size() != jointNames_.size()) {
+    RCLCPP_ERROR(
+      this->get_logger(),
+      "joint_name contains duplicate names. Dropping joint_name: goal joint_names "
+      "will be ignored and positions applied in joint_axes order.");
+    jointNames_.clear();
+    columnByName_.clear();
+  }
+
+  if (jointNames_.empty()) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "joint_name is not set: goal joint_names will be ignored and positions applied in "
+      "joint_axes order. A goal whose joints are ordered differently will drive the wrong axes.");
+  }
 
   std::string jointAxesText;
   for (size_t i = 0; i < jointAxes_.size(); ++i) {
@@ -303,7 +335,14 @@ void JointTrajectoryController::setRosParameter()
   }
 
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
+  std::string jointNamesText;
+  for (size_t i = 0; i < jointNames_.size(); ++i) {
+    if (i > 0) {jointNamesText += ", ";}
+    jointNamesText += jointNames_[i];
+  }
+
   RCLCPP_INFO(this->get_logger(), "joint_axes: [%s]", jointAxesText.c_str());
+  RCLCPP_INFO(this->get_logger(), "joint_name: [%s]", jointNamesText.c_str());
   RCLCPP_INFO(this->get_logger(), "joint_trajectory_action: %s", jointTrajectoryAction_.c_str());
   RCLCPP_INFO(this->get_logger(), "===========================");
 }
@@ -390,6 +429,10 @@ JointTrajectoryController::CallbackReturn JointTrajectoryController::on_cleanup(
 JointTrajectoryController::CallbackReturn JointTrajectoryController::on_shutdown(
   const rclcpp_lifecycle::State & previous_state)
 {
+  if (previous_state.id() == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    on_deactivate(previous_state);
+  }
+
   return on_cleanup(previous_state);
 }
 
@@ -441,6 +484,48 @@ void JointTrajectoryController::resetServo(const std::vector<std::string> & join
   servoNodeResetPub_->publish(jog);
 }
 
+bool JointTrajectoryController::mapGoalColumns(
+  const trajectory_msgs::msg::JointTrajectory & trajectory,
+  std::vector<size_t> & columns,
+  std::string & message) const
+{
+  const size_t axisCount = jointAxes_.size();
+
+  columns.resize(axisCount);
+  for (size_t i = 0; i < axisCount; ++i) {
+    columns[i] = i;
+  }
+
+  if (jointNames_.empty() || trajectory.joint_names.empty()) {
+    return true;
+  }
+
+  if (trajectory.joint_names.size() != axisCount) {
+    message = "Trajectory names " + std::to_string(trajectory.joint_names.size()) +
+      " joints, expected " + std::to_string(axisCount) + ".";
+    return false;
+  }
+
+  std::vector<bool> filled(axisCount, false);
+  for (size_t i = 0; i < axisCount; ++i) {
+    const auto it = columnByName_.find(trajectory.joint_names[i]);
+    if (it == columnByName_.end()) {
+      message = "Trajectory joint '" + trajectory.joint_names[i] + "' is not in joint_name.";
+      return false;
+    }
+
+    if (filled[it->second]) {
+      message = "Trajectory names joint '" + trajectory.joint_names[i] + "' more than once.";
+      return false;
+    }
+
+    columns[i] = it->second;
+    filled[it->second] = true;
+  }
+
+  return true;
+}
+
 bool JointTrajectoryController::buildSplineInput(
   const trajectory_msgs::msg::JointTrajectory & trajectory,
   std::vector<std::vector<double>> & positions,
@@ -471,6 +556,11 @@ bool JointTrajectoryController::buildSplineInput(
     }
   }
 
+  std::vector<size_t> columns;
+  if (!mapGoalColumns(trajectory, columns, message)) {
+    return false;
+  }
+
   positions.assign(pointCount, std::vector<double>(axisCount, 0.0));
   timesMs.assign(pointCount, 0.0);
 
@@ -486,7 +576,7 @@ bool JointTrajectoryController::buildSplineInput(
 
     timesMs[i] = rclcpp::Duration(pt.time_from_start).seconds() * 1000.0;
     for (size_t j = 0; j < axisCount; ++j) {
-      positions[i][j] = pt.positions[j];
+      positions[i][columns[j]] = pt.positions[j];
     }
   }
 

@@ -46,6 +46,17 @@ WmxEtherCatNodeApi::~WmxEtherCatNodeApi()
 
 int WmxEtherCatNodeApi::createDevice(std::string & message)
 {
+  wmx3Api::EngineStatus engineStatus;
+  if (wmx3Lib_.GetEngineStatus(&engineStatus) != ErrorCode::None ||
+    (engineStatus.state != wmx3Api::EngineState::Running &&
+    engineStatus.state != wmx3Api::EngineState::Communicating))
+  {
+    message = "WMX engine is not running. Start wmx_engine_node first: this node must not "
+      "start the engine with default parameters.";
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return ErrorCode::IMLibIsNotRunning;
+  }
+
   int err = wmx3Lib_.CreateDevice(WMX3_SDK_PATH, DeviceType::DeviceTypeNormal, timeout_);
   if (err != ErrorCode::None) {
     if (err == ErrorCode::StartProcessLockError) {

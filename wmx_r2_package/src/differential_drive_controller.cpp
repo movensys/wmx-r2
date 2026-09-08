@@ -200,9 +200,13 @@ DifferentialDriveController::CallbackReturn DifferentialDriveController::on_acti
 {
   haveFeedbackTime_ = false;
   haveCmdVel_ = false;
-  sentOmegaValid_ = false;
-  sentOmegaLeft_ = 0.0;
-  sentOmegaRight_ = 0.0;
+  {
+    std::lock_guard<std::mutex> lock(driveMutex_);
+    driveEnabled_ = true;
+    sentOmegaValid_ = false;
+    sentOmegaLeft_ = 0.0;
+    sentOmegaRight_ = 0.0;
+  }
 
   cmdOmegaPub_ = this->create_publisher<sensor_msgs::msg::JointState>(
     cmdOmegaTopic_, 1);
@@ -226,7 +230,8 @@ DifferentialDriveController::CallbackReturn DifferentialDriveController::on_acti
     periodFromRate(rate_), std::bind(&DifferentialDriveController::controlStep, this),
     controlCbGroup_);
   feedbackTimer_ = this->create_wall_timer(
-    periodFromRate(rate_), std::bind(&DifferentialDriveController::publishMotorFeedback, this));
+    periodFromRate(rate_), std::bind(&DifferentialDriveController::publishMotorFeedback, this),
+    controlCbGroup_);
 
   RCLCPP_INFO(this->get_logger(), "differential_drive_controller is active");
   return CallbackReturn::SUCCESS;
@@ -238,8 +243,13 @@ DifferentialDriveController::CallbackReturn DifferentialDriveController::on_deac
   controlTimer_.reset();
   feedbackTimer_.reset();
 
+  std::lock_guard<std::mutex> lock(driveMutex_);
+
+  driveEnabled_ = false;
   startVel(leftAxis_, 0.0);
   startVel(rightAxis_, 0.0);
+  sentOmegaLeft_ = 0.0;
+  sentOmegaRight_ = 0.0;
   sentOmegaValid_ = false;
 
   LifecycleNode::on_deactivate(previous_state);
@@ -276,8 +286,10 @@ DifferentialDriveController::CallbackReturn DifferentialDriveController::on_shut
 void DifferentialDriveController::cmdStampedCallback(
   const geometry_msgs::msg::TwistStamped::SharedPtr msg)
 {
+  const rclcpp::Time stamp(msg->header.stamp, this->get_clock()->get_clock_type());
+
   lastCmdVel_ = msg->twist;
-  lastCmdVelTime_ = this->get_clock()->now();
+  lastCmdVelTime_ = (stamp.nanoseconds() > 0) ? stamp : this->get_clock()->now();
   haveCmdVel_ = true;
 }
 
@@ -333,6 +345,12 @@ void DifferentialDriveController::controlStep()
 
 void DifferentialDriveController::publishMotorFeedback()
 {
+  std::lock_guard<std::mutex> lock(driveMutex_);
+
+  if (!driveEnabled_) {
+    return;
+  }
+
   const rclcpp::Time now = this->get_clock()->now();
 
   DifferentialDriveControllerApi::AxisFeedback left;
@@ -368,6 +386,12 @@ void DifferentialDriveController::publishMotorFeedback()
 
 void DifferentialDriveController::commandWheels(double omegaLeft, double omegaRight)
 {
+  std::lock_guard<std::mutex> lock(driveMutex_);
+
+  if (!driveEnabled_) {
+    return;
+  }
+
   if (sentOmegaValid_ && omegaLeft == sentOmegaLeft_ && omegaRight == sentOmegaRight_) {
     return;
   }
@@ -381,6 +405,12 @@ void DifferentialDriveController::commandWheels(double omegaLeft, double omegaRi
 
 void DifferentialDriveController::stopWheelsOnFault()
 {
+  std::lock_guard<std::mutex> lock(driveMutex_);
+
+  if (!driveEnabled_) {
+    return;
+  }
+
   sentOmegaLeft_ = 0.0;
   sentOmegaRight_ = 0.0;
 

@@ -198,6 +198,40 @@ int WmxSystemHardwareApi::stop(int axis, std::string & message)
   return ErrorCode::None;
 }
 
+int WmxSystemHardwareApi::waitForMotionComplete(
+  const std::vector<int> & axes, unsigned int timeoutMilliseconds, std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (axes.empty()) {
+    message = "No axes to wait for";
+    return ErrorCode::None;
+  }
+
+  if (axes.size() > static_cast<size_t>(wmx3Api::constants::maxAxes)) {
+    message = "Too many axes: " + std::to_string(axes.size()) + " requested, the SDK allows " +
+      std::to_string(wmx3Api::constants::maxAxes) + ".";
+    return ErrorCode::ArgumentOutOfRange;
+  }
+
+  wmx3Api::AxisSelection axisSel;
+  axisSel.axisCount = static_cast<int>(axes.size());
+  for (size_t i = 0; i < axes.size(); ++i) {
+    axisSel.axis[i] = axes[i];
+  }
+
+  const int err = cm_.motion->Wait(&axisSel, timeoutMilliseconds);
+  if (err != ErrorCode::None) {
+    message = "Axes did not reach motion complete within " +
+      std::to_string(timeoutMilliseconds) + " ms. Error=" + std::to_string(err) +
+      " (" + errorToString(err) + ")";
+    return err;
+  }
+
+  message = "All axes reached motion complete";
+  return ErrorCode::None;
+}
+
 int WmxSystemHardwareApi::setServoOn(int axis, int newStatus, std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
@@ -275,6 +309,7 @@ hardware_interface::CallbackReturn WmxSystemHardware::initImpl()
   wmxParamFile_ = getHwParam("wmx_param_file", "");
   maxDeviceRetries_ = config.maxDeviceRetries;
   autoServoOn_ = (getHwParam("auto_servo_on", "true") == "true");
+  stopTimeout_ = static_cast<unsigned int>(std::stoul(getHwParam("stop_timeout_ms", "2000")));
 
   api_ = std::make_unique<WmxSystemHardwareApi>(logger_, config);
 
@@ -375,10 +410,13 @@ hardware_interface::CallbackReturn WmxSystemHardware::on_configure(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  if (!wmxParamFile_.empty()) {
-    // Informational: a bad parameter file is reported but does not stop the
-    // component, matching the previous behaviour.
-    api_->importAndSetAll(wmxParamFile_, message);
+  if (!wmxParamFile_.empty() &&
+    api_->importAndSetAll(wmxParamFile_, message) != ErrorCode::None)
+  {
+    RCLCPP_FATAL(
+      logger_, "Refusing to run with default axis parameters: rad and count would not match. %s",
+      message.c_str());
+    return hardware_interface::CallbackReturn::ERROR;
   }
 
   seedJointStates();
@@ -434,6 +472,14 @@ void WmxSystemHardware::stopAllAxes()
   }
 
   if (!autoServoOn_) {
+    return;
+  }
+
+  if (api_->waitForMotionComplete(axes_, stopTimeout_, message) != ErrorCode::None) {
+    RCLCPP_ERROR(
+      logger_,
+      "Leaving the servos on: %s Cutting the torque while the axes are still moving "
+      "would let them coast.", message.c_str());
     return;
   }
 
@@ -513,6 +559,12 @@ hardware_interface::return_type WmxSystemHardware::read(
     return hardware_interface::return_type::ERROR;
   }
 
+  if (!communicating_) {
+    RCLCPP_ERROR_THROTTLE(
+      logger_, clock_, 1000, "WMX engine not Communicating; joint states are stale");
+    return hardware_interface::return_type::ERROR;
+  }
+
   for (size_t i = 0; i < joints_.size() && i < feedback_.size(); ++i) {
     joints_[i].posState = feedback_[i].actualPos;
     joints_[i].velState = feedback_[i].actualVelocity;
@@ -542,6 +594,13 @@ hardware_interface::return_type WmxSystemHardware::write(
         "Axis %d not ready (servoOn=%d, ampAlarm=%d); skipping velocity command",
         joint.axis, axisStatus.servoOn, axisStatus.ampAlarm);
       joint.lastCmd = std::numeric_limits<double>::quiet_NaN();
+      continue;
+    }
+
+    if (!std::isfinite(joint.cmd)) {
+      RCLCPP_ERROR_THROTTLE(
+        logger_, clock_, 1000,
+        "Axis %d commanded %f; skipping velocity command", joint.axis, joint.cmd);
       continue;
     }
 

@@ -47,6 +47,7 @@ private:
 
   const char * deviceName_ = "joint_position_controller";
   unsigned int timeout_ = 10000;
+  unsigned int waitTimeout_ = 10000;
 
   mutable std::mutex deviceMutex_;
 

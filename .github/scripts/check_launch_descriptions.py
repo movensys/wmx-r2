@@ -12,7 +12,12 @@ from ament_index_python.packages import PackageNotFoundError, get_package_share_
 
 import launch.logging
 from launch import LaunchContext
-from launch.actions import DeclareLaunchArgument, GroupAction, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.substitutions import Command, LocalSubstitution
 from launch.utilities import perform_substitutions
 
@@ -88,20 +93,20 @@ def cases():
         }, 3),
 
         Case('wmx_r2_manipulator.launch.py', 'cr3a',
-             manipulator('cr3a', gripper=True), 4),
+             manipulator('cr3a', gripper=True), 7),
         Case('wmx_r2_manipulator.launch.py', 'cr5a',
-             manipulator('cr5a', gripper=False), 3),
+             manipulator('cr5a', gripper=False), 6),
         Case('wmx_r2_differential.launch.py', 'diffbot',
-             differential(), 2),
+             differential(), 5),
 
         Case('wmx_r2_control_manipulator.launch.py', 'cr3a',
              with_control(manipulator('cr3a', gripper=True),
-                          'cr3a', 'cr3a_controllers.yaml'), 3),
+                          'cr3a', 'cr3a_controllers.yaml'), 6),
         Case('wmx_r2_control_manipulator.launch.py', 'cr5a',
              with_control(manipulator('cr5a', gripper=False),
-                          'cr5a', 'cr5a_controllers.yaml'), 2),
+                          'cr5a', 'cr5a_controllers.yaml'), 5),
         Case('wmx_r2_control_differential.launch.py', 'diffbot',
-             with_control(differential(), 'diffbot', 'diffbot_controllers.yaml'), 0),
+             with_control(differential(), 'diffbot', 'diffbot_controllers.yaml'), 3),
     ]
 
 
@@ -200,6 +205,10 @@ def entities_of(description, context):
                 walk(entity.execute(context) or [])
             elif isinstance(entity, GroupAction):
                 walk(entity.execute(context) or [])
+            elif isinstance(entity, IncludeLaunchDescription):
+                entity.execute(context)
+                walk(entity.launch_description_source.get_launch_description(
+                    context).entities)
             else:
                 entities.append(entity)
 
