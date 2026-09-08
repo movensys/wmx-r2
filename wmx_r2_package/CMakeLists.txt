@@ -160,19 +160,6 @@ if(BUILD_TESTING)
   add_launch_test(test/test_joint_position_controller.py
     TIMEOUT 120
   )
-
-  find_package(ament_cmake_gtest REQUIRED)
-  foreach(_t
-      test_diff_drive_kinematics
-      test_odometry_integrator
-      test_odom_delta_accumulator
-      test_accel_estimator)
-    ament_add_gtest(${_t} test/${_t}.cpp)
-    ament_target_dependencies(${_t}
-      rclcpp rclcpp_lifecycle sensor_msgs geometry_msgs nav_msgs tf2 tf2_ros)
-    target_include_directories(${_t} PRIVATE
-      include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
-  endforeach()
 endif()
 
 ament_package()

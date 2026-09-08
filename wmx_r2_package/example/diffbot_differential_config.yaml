@@ -7,19 +7,15 @@ differential_drive_controller:
     dec_time: 1.0
     wheel_radius: 0.095
     wheel_to_wheel: 0.55
-    jump_guard_tol: 0.5
     cmd_vel_timeout: 0.25
-    accel_publish_rate: 10.0
-    accel_alpha: 0.3
     publish_tf: false
     odom_frame: odom
     base_frame: base_link
     joint_name: ["drivewheel_left_joint", "drivewheel_right_joint"]
     cmd_vel_topic: /cmd_vel_safe
+    cmd_omega_topic: /omega_cmd
     encoder_odometry_topic: /odom_enc
     encoder_omega_topic: /omega_enc
-    odom_deltas_topic: /odom_deltas
-    odom_accel_topic: /odom_accel
 
 joint_state_broadcaster:
   ros__parameters:
