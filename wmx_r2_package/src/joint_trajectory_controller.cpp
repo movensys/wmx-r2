@@ -1,8 +1,6 @@
 // Copyright 2026 Movensys Corporation.
 // Licensed under the MIT License. See LICENSE.txt for details.
 
-#include <algorithm>
-#include <cmath>
 #include <memory>
 #include <thread>
 #include <sstream>
@@ -44,8 +42,6 @@ public:
   ~JointTrajectoryController();
 
   std::vector<int64_t> jointAxes_;
-  std::vector<std::string> jointNames_;
-  double startTolerance_;
   std::string jointTrajectoryAction_;
   std::string wmxParamFilePath_;
 
@@ -227,26 +223,13 @@ void JointTrajectoryController::getWmxParam()
 void JointTrajectoryController::setRosParameter()
 {
   this->declare_parameter<std::vector<int64_t>>("joint_axes", std::vector<int64_t>{});
-  this->declare_parameter<std::vector<std::string>>("joint_name", std::vector<std::string>{});
-  this->declare_parameter<double>("start_tolerance", 0.01);
   this->declare_parameter<std::string>(
     "joint_trajectory_action", "/joint_trajectory_action/no_param");
   this->declare_parameter<std::string>("wmx_param_file_path", "/joint_trajectory/no_param");
 
   this->get_parameter("joint_axes", jointAxes_);
-  this->get_parameter("joint_name", jointNames_);
-  this->get_parameter("start_tolerance", startTolerance_);
   this->get_parameter("joint_trajectory_action", jointTrajectoryAction_);
   this->get_parameter("wmx_param_file_path", wmxParamFilePath_);
-
-  if (!jointNames_.empty() && jointNames_.size() != jointAxes_.size()) {
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "joint_name has %zu entries but joint_axes has %zu. They are read pairwise, so the "
-      "name mapping is ignored and positions fall back to trajectory order.",
-      jointNames_.size(), jointAxes_.size());
-    jointNames_.clear();
-  }
 
   std::string joint_axes_str;
   for (size_t i = 0; i < jointAxes_.size(); ++i) {
@@ -256,20 +239,6 @@ void JointTrajectoryController::setRosParameter()
 
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
   RCLCPP_INFO(this->get_logger(), "joint_axes: [%s]", joint_axes_str.c_str());
-  if (jointNames_.empty()) {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "joint_name: [] — trajectory positions are mapped onto joint_axes by index. "
-      "Set joint_name to map by joint name instead.");
-  } else {
-    std::string joint_names_str;
-    for (size_t i = 0; i < jointNames_.size(); ++i) {
-      if (i > 0) {joint_names_str += ", ";}
-      joint_names_str += jointNames_[i] + " -> axis " + std::to_string(jointAxes_[i]);
-    }
-    RCLCPP_INFO(this->get_logger(), "joint_name: [%s]", joint_names_str.c_str());
-  }
-  RCLCPP_INFO(this->get_logger(), "start_tolerance: %f", startTolerance_);
   RCLCPP_INFO(this->get_logger(), "joint_trajectory_action: %s", jointTrajectoryAction_.c_str());
   RCLCPP_INFO(this->get_logger(), "wmx_param_file_path: %s", wmxParamFilePath_.c_str());
   RCLCPP_INFO(this->get_logger(), "===========================");
@@ -323,36 +292,12 @@ void JointTrajectoryController::execute(std::shared_ptr<GoalHandleFJT> goal_hand
 
   logTrajectory(trajectory);
 
-  // Which WMX axis each column of trajectory.points[].positions belongs to.
-  // With `joint_name` set this is resolved through trajectory.joint_names, so a
-  // planner that orders the joints differently than the config cannot silently
-  // swap two axes. Without it the columns are taken in order, which is what the
-  // other robots' configs still rely on.
-  std::vector<int64_t> axes;
-  if (jointNames_.empty()) {
-    axes = jointAxes_;
-  } else {
-    axes.reserve(trajectory.joint_names.size());
-    for (const auto & name : trajectory.joint_names) {
-      const auto it = std::find(jointNames_.begin(), jointNames_.end(), name);
-      if (it == jointNames_.end()) {
-        RCLCPP_ERROR(
-          this->get_logger(),
-          "Trajectory joint '%s' is not listed in the joint_name parameter. Aborting.",
-          name.c_str());
-        goal_handle->abort(result);
-        return;
-      }
-      axes.push_back(jointAxes_[std::distance(jointNames_.begin(), it)]);
-    }
-  }
-
   // Generate spline commands from trajectory.points
-  axisSel.axisCount = axes.size();
-  spl.dimensionCount = axes.size();
-  for (size_t j = 0; j < axes.size(); ++j) {
-    axisSel.axis[j] = axes[j];
-    spl.axis[j] = axes[j];
+  axisSel.axisCount = jointAxes_.size();
+  spl.dimensionCount = jointAxes_.size();
+  for (size_t j = 0; j < jointAxes_.size(); ++j) {
+    axisSel.axis[j] = jointAxes_[j];
+    spl.axis[j] = jointAxes_[j];
   }
 
   for (size_t i = 0; i < trajectory.points.size(); ++i) {
@@ -360,31 +305,8 @@ void JointTrajectoryController::execute(std::shared_ptr<GoalHandleFJT> goal_hand
     timeMilliseconds = rclcpp::Duration(pt.time_from_start).seconds() * 1000;
     time_spl[i] = timeMilliseconds;
 
-    for (size_t j = 0; j < axes.size(); ++j) {
+    for (size_t j = 0; j < jointAxes_.size(); ++j) {
       pt_spl[i].pos[j] = pt.positions.at(j);
-    }
-  }
-
-  // Refuse a trajectory that does not start where the machine actually is: WMX
-  // would take the first spline point as an immediate command and jump to it.
-  // MoveIt plans from the current state, so a mismatch means something is
-  // inconsistent (wrong axis mapping, stale /joint_states). Set
-  // start_tolerance to 0 to disable the check.
-  if (startTolerance_ > 0.0) {
-    CoreMotionStatus startStatus;
-    wmx3LibCm_.GetStatus(&startStatus);
-    for (size_t j = 0; j < axes.size(); ++j) {
-      const double actual = startStatus.axesStatus[axes[j]].actualPos;
-      const double diff = std::fabs(pt_spl[0].pos[j] - actual);
-      if (diff > startTolerance_) {
-        RCLCPP_ERROR(
-          this->get_logger(),
-          "Trajectory starts at %f for axis %d, but that axis is at %f "
-          "(difference %f > start_tolerance %f). Aborting instead of jumping.",
-          pt_spl[0].pos[j], static_cast<int>(axes[j]), actual, diff, startTolerance_);
-        goal_handle->abort(result);
-        return;
-      }
     }
   }
 
@@ -427,7 +349,7 @@ void JointTrajectoryController::execute(std::shared_ptr<GoalHandleFJT> goal_hand
       CoreMotionStatus cmStatus;
       wmx3LibCm_.GetStatus(&cmStatus);
       bool all_done = true;
-      for (int64_t axis : axes) {
+      for (int axis : jointAxes_) {
         if (!cmStatus.axesStatus[axis].inPos) {all_done = false; break;}
       }
       if (all_done) {break;}
