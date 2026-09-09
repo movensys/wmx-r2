@@ -1,49 +1,14 @@
-# WMX R2 configuration for the Movensys 4-axis cartesian robot.
-# Paired with launch/wmx_r2_cartesian.launch.py.
-#
-# NOTE on units: joint_trajectory_controller and joint_state_broadcaster pass
-# positions through 1:1 (no rad/deg or mm/m conversion in the ROS nodes). The
-# URDF prismatic joints are in metres, so the WMX user unit must be a metre.
-# That is the *gear ratio* (pulse = user unit * num / den) in
-# cartesian_wmx_parameters.xml, not `axisUnit` (which only rounds the reported
-# position). It is set to 1000000/1 there: 1 user unit = 1 m, 1 pulse = 1 um.
-
 joint_state_broadcaster:
   ros__parameters:
     joint_feedback_rate: 100
-    # All four machine axes, so robot_state_publisher can build the full TF
-    # tree (MoveIt only plans axis_x / axis_y / axis_z).
-    # joint_axes[i] is the WMX axis number that feeds joint_name[i].
     joint_axes: [0, 1, 2, 3]
     joint_name: ["axis_x", "axis_y", "axis_z", "axis_r"]
-    # No gripper on this machine. Do NOT set `gripper_joint_name: []` here:
-    # YAML `[]` reaches rclcpp as an untyped empty array, which fails the
-    # vector<string> declare_parameter in joint_state_broadcaster.cpp and
-    # aborts the node. Omitting the key lets the empty default apply, which
-    # the node already handles (see the `gripperJointNames_.empty()` branch).
     encoder_joint_topic: /joint_states
-    # Topic the Isaac Sim scene's ROS2 Subscribe JointState node listens on.
-    # The 4-axis-cartesian.usd graph uses the OmniGraph default, /joint_command
-    # (same as movensys-manipulator's sim_bridge.yaml). Isaac must NOT publish
-    # /joint_states back: the WMX encoders are the only source of joint state,
-    # and a second publisher makes MoveIt's start state flap between the two.
     isaacsim_joint_topic: /joint_command
     gazebo_joint_topic: /gazebo_position_controller/commands
 
 joint_trajectory_controller:
   ros__parameters:
-    # joint_name[i] is driven by WMX axis joint_axes[i]. The node resolves each
-    # column of the incoming trajectory through trajectory.joint_names, so the
-    # order below does not have to match the order MoveIt happens to emit.
-    # Do NOT drop joint_name: without it the columns are taken positionally, and
-    # since Pilz emits [axis_x, axis_y, axis_z] while the robot model orders the
-    # joints [axis_y, axis_x, axis_z], X and Y end up swapped silently.
-    joint_name: ["axis_x", "axis_y", "axis_z"]
     joint_axes: [0, 1, 2]
-    # Abort instead of jumping if a trajectory does not start at the machine's
-    # current position (metres here). 0 disables the check.
-    start_tolerance: 0.01
-    # Must equal <controller_name>/<action_ns> in
-    # movensys_cartesian_motion/config/moveit_controllers.yaml
     joint_trajectory_action: /movensys_cartesian_controller/follow_joint_trajectory
-    wmx_param_file_path: ""  # resolved at launch time via get_package_share_directory
+    wmx_param_file_path: ""
