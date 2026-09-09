@@ -2,7 +2,7 @@
 
 > **WARNING: Do NOT run tests on a machine connected to real EtherCAT hardware.**
 > Integration tests start and stop the WMX3 engine, send service calls, and may trigger axis commands. 
-Running them while connected to real hardware (e.g. the CR3A manipulator) could cause unexpected motor movement, servo faults, or equipment damage.
+Running them while connected to real hardware could cause unexpected motor movement, servo faults, or equipment damage.
 >
 > Tests are designed to run with the WMX3 SDK in **simulation mode** (no EtherCAT slaves connected). The SDK creates the device successfully but cannot communicate with real drives, so service calls return safely with error responses. No special simulation configuration is needed — just ensure no EtherCAT hardware is connected.
 >

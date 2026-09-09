@@ -7,7 +7,7 @@
 
 ROS2 interface for [WMX3](https://www.movensys.com/en/products/software_motion_control/wmx_en), a real-time EtherCAT motion control SDK by Movensys, enabling control of industrial robots and multi-axis systems from the ROS2 ecosystem.
 
-This package wraps the WMX3 C++ API into standard ROS2 nodes, topics, services, and actions, so you can drive WMX3-controlled hardware (e.g. the Dobot CR3A/CR5A manipulators) using MoveIt2, Nav2, or any ROS2-compatible planner without writing vendor-specific motion code.
+This package wraps the WMX3 C++ API into standard ROS2 nodes, topics, services, and actions, so you can drive any Ethercat based robot using MoveIt2, Nav2, or any ROS2-compatible planner without writing vendor-specific motion code.
 
 ## Features
 
@@ -16,7 +16,7 @@ This package wraps the WMX3 C++ API into standard ROS2 nodes, topics, services, 
 - **MoveIt2 / Nav2 ready:** trajectory execution and joint-state feedback with no vendor-specific motion code.
 - **Full low-level access:** axis, IO, EtherCAT master, and engine control from the command line or your own nodes.
 - **Dual distro:** supported and CI-tested on ROS2 **Humble** and **Jazzy**.
-- **Hardware-proven:** ships configurations for the Dobot CR3A / CR5A manipulators and a differential-drive base.
+- **Hardware-proven:** ships configurations for the manipulators and a differential-drive base.
 
 ## Requirements
 
@@ -71,7 +71,7 @@ flowchart LR;
     F --> G[WMX Engine];
 ```
 
-### Trajectory Control ([wmx_r2_cr3a_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_cr3a_manipulator.launch.py))
+### Trajectory Control ([wmx_r2_<robot model>_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_<robot model>_manipulator.launch.py))
 
 ```mermaid
 ---
@@ -115,20 +115,11 @@ flowchart LR;
 | Launch file | Purpose | Nodes started |
 |-------------|---------|---------------|
 | [wmx_r2_general_nodes.launch.py](wmx_r2_package/launch/wmx_r2_general_nodes.launch.py) | Low-level axis / IO / EtherCAT control | `wmx_engine_node`, `wmx_core_motion_node`, `wmx_io_node`, `wmx_ethercat_node` |
-| [wmx_r2_cr3a_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_cr3a_manipulator.launch.py) | Dobot CR3A trajectory control | general nodes + `joint_state_broadcaster`, `joint_trajectory_controller`, `gripper_controller` |
-| [wmx_r2_cr5a_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_cr5a_manipulator.launch.py) | Dobot CR5A trajectory control | general nodes + `joint_state_broadcaster`, `joint_trajectory_controller` |
-
-## Supported Robots
-
-| Robot | Type | Launch file | WMX parameters | Guide |
-|-------|------|-------------|----------------|-------|
-| Dobot CR3A | 6-axis manipulator | `wmx_ros2_cr3a_manipulator.launch.py` | `config/cr3a_wmx_parameters.xml` | [doc/launch_dobot_cr3a_manipulator.md](doc/launch_dobot_cr3a_manipulator.md) |
-| Dobot CR5A | 6-axis manipulator | `wmx_ros2_cr5a_manipulator.launch.py` | `config/cr5a_wmx_parameters.xml` | [doc/launch_dobot_cr5a_manipulator.md](doc/launch_dobot_cr5a_manipulator.md) |
-| Diffbot | Differential-drive base | `wmx_ros2_general_nodes.launch.py` | `config/diffbot_wmx_parameters.xml` | [doc/launch_wmx_r2_general_nodes.md](doc/launch_wmx_r2_general_nodes.md) |
+| [wmx_r2_<robot model>_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_<robot model>_manipulator.launch.py) | manipulator trajectory control | general nodes + `joint_state_broadcaster`, `joint_trajectory_controller`, `gripper_controller` |
 
 ## MoveIt2 Integration
 
-To connect with `movensys-manipulator`, change the action name in `config/cr3a_manipulator_config.yaml`:
+To connect with `movensys-manipulator`, change the action name in `config/<robot_model>_manipulator_config.yaml`:
 
 ```yaml
 joint_trajectory_action: /movensys_manipulator_arm_controller/follow_joint_trajectory
@@ -142,8 +133,7 @@ To quickly set up the WMX ROS2 package and explore its key features, follow thes
 |-----|-------------|
 | [doc/first_setup.md](doc/first_setup.md) | Environment setup, dependencies, build |
 | [doc/launch_wmx_r2_general_nodes.md](doc/launch_wmx_r2_general_nodes.md) | Launch the WMX general nodes |
-| [doc/launch_dobot_cr3a_manipulator.md](doc/launch_dobot_cr3a_manipulator.md) | Launch the Dobot CR3A manipulator |
-| [doc/launch_dobot_cr5a_manipulator.md](doc/launch_dobot_cr5a_manipulator.md) | Launch the Dobot CR5A manipulator |
+| [doc/launch_<robot model>_manipulator.md](doc/launch_<robot model>_manipulator.md) | Launch the manipulator |
 | [doc/reference_wmx_r2_general_nodes.md](doc/reference_wmx_r2_general_nodes.md) | ROS2 service/topic reference with startup sequence |
 | [doc/system_test.md](doc/system_test.md) | System-level test procedures |
 
@@ -153,7 +143,7 @@ For the complete and up-to-date documentation, please visit the official site:
 ## Roadmap
 
 - [x] Low-level axis, IO, and EtherCAT control nodes
-- [x] Trajectory control for Dobot CR3A / CR5A
+- [x] Trajectory control for manipulator
 - [x] MoveIt2 integration
 - [x] CI on ROS2 Humble and Jazzy (lint + message build/test)
 - [ ] Nav2 integration example for mobile bases

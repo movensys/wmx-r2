@@ -9,9 +9,6 @@ ros2 service call /wmx/engine/get_status std_srvs/srv/Trigger "{}"
 
 # 2. Load axis parameters from file
 ## 2-1. Predefined robot case
-## Dobot CR3a, CR5a, Diffbot AMR
-ros2 service call /wmx/params/load wmx_r2_message/srv/LoadWmxParams \
-  "{file_path: '/home/$USER/workspaces/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/cr3a_wmx_parameters.xml'}"
 ## 2-2. User's own robot or arbitary motors
 ros2 service call /wmx/params/load wmx_r2_message/srv/LoadWmxParams \
   "{file_path: '/home/$USER/workspaces/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/default_wmx_parameters.xml'}"
@@ -126,10 +123,6 @@ ros2 service call /wmx/engine/scan_network std_srvs/srv/Trigger "{}"
 ## WMX Parameter Services
 ### Load Parameters from File
 ```
-# Dobot CR3A
-ros2 service call /wmx/params/load wmx_r2_message/srv/LoadWmxParams \
-  "{file_path: '/home/$USER/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/cr3a_wmx_parameters.xml'}"
-
 # Diffbot
 ros2 service call /wmx/params/load wmx_r2_message/srv/LoadWmxParams \
   "{file_path: '/home/$USER/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/diffbot_wmx_parameters.xml'}"
