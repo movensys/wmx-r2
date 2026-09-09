@@ -59,7 +59,10 @@ wrong. Every deployment supplies a YAML.
 | `joint_feedback_rate` | int | `0` | Hz | Feedback publish rate. The timer period is `1000 / joint_feedback_rate` truncated to whole milliseconds, so prefer rates that divide 1000 (100, 125, 200, 250, 500). A value of `0` or less falls back to 100 Hz with a warning, but set it explicitly (both shipped configs use `100`). |
 | `encoder_joint_topic` | string | `/encoder_joint_topic/no_param` | – | Real-robot feedback topic; the deployment sets it to `/joint_states` (MoveIt / robot_state_publisher input). |
 | `isaacsim_joint_topic` | string | `/isaacsim_joint_topic/no_param` | – | Mirror of the same message for Isaac Sim (`/isaacsim/joint_command`). Published **before** the header stamp is filled in, i.e. with a zero stamp — Isaac consumes positions by name, not by time. |
-| `gazebo_joint_topic` | string | `/gazebo_joint_topic/no_param` | – | Positions only, as `Float64MultiArray`, for a Gazebo position controller. |
+| `gazebo_position_joint_topic` | string | `""` | – | Joint **positions** as `Float64MultiArray`, for a Gazebo position controller. Empty means the publisher is never created. |
+| `gazebo_position_joint_axes` | int[] | `[]` | – | Which axes go on that topic, as axis numbers from `joint_axes`, in the order the Gazebo controller lists its own `joints:`. Must be set together with the topic. `gripper_joint_name` entries come from an IO bit, not an axis, so they cannot be listed here — they are appended after the axis values automatically (CR3A). |
+| `gazebo_velocity_joint_topic` | string | `""` | – | Joint **velocities** as `Float64MultiArray`, for a Gazebo velocity controller. Sending positions here would command a continuous joint its own accumulated angle. |
+| `gazebo_velocity_joint_axes` | int[] | `[]` | – | As above, for the velocity topic. A mobile manipulator sets all four: wheel axes on the velocity topic, arm axes on the position topic. |
 | `gripper_joint_name` | string[] | `[]` | – | Extra joint names appended to the feedback message so the gripper shows up in RViz/MoveIt. Empty = no gripper (CR5A). |
 | `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX **output** bit read back for gripper state. |
 | `gripper_open_value` | double | `0.0` | m or rad | Joint value reported for every `gripper_joint_name` while the output bit is 0. |
@@ -305,7 +308,7 @@ joint_state_broadcaster:
     gripper_close_value: 0.045
     encoder_joint_topic: /joint_states
     isaacsim_joint_topic: /isaacsim/joint_command
-    gazebo_joint_topic: /gazebo_position_controller/commands
+    gazebo_position_joint_topic: /gazebo_position_controller/commands
 
 joint_trajectory_controller:
   ros__parameters:

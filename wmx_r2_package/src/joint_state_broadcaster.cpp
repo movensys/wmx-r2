@@ -3,6 +3,7 @@
 
 #include "joint_state_broadcaster.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -33,6 +34,7 @@ std::string errorToString(int err)
   CoreMotion::ErrorToString(err, errString, sizeof(errString));
   return errString;
 }
+
 }  // namespace
 
 JointStateBroadcasterApi::JointStateBroadcasterApi(const rclcpp::Logger & logger)
@@ -199,8 +201,14 @@ void JointStateBroadcaster::setRosParameter()
     "encoder_joint_topic", "/encoder_joint_topic/no_param");
   isaacsimJointTopic_ = this->declare_parameter<std::string>(
     "isaacsim_joint_topic", "/isaacsim_joint_topic/no_param");
-  gazeboJointTopic_ = this->declare_parameter<std::string>(
-    "gazebo_joint_topic", "/gazebo_joint_topic/no_param");
+  gazeboPositionTopic_ = this->declare_parameter<std::string>(
+    "gazebo_position_joint_topic", "");
+  gazeboVelocityTopic_ = this->declare_parameter<std::string>(
+    "gazebo_velocity_joint_topic", "");
+  gazeboPositionAxes_ = this->declare_parameter<std::vector<int64_t>>(
+    "gazebo_position_joint_axes", std::vector<int64_t>{});
+  gazeboVelocityAxes_ = this->declare_parameter<std::vector<int64_t>>(
+    "gazebo_velocity_joint_axes", std::vector<int64_t>{});
 
   if (jointFeedbackRate_ <= 0) {
     RCLCPP_WARN(
@@ -258,7 +266,24 @@ void JointStateBroadcaster::setRosParameter()
   }
   RCLCPP_INFO(this->get_logger(), "encoder_joint_topic: %s", encoderJointTopic_.c_str());
   RCLCPP_INFO(this->get_logger(), "isaacsim_joint_topic: %s", isaacsimJointTopic_.c_str());
-  RCLCPP_INFO(this->get_logger(), "gazebo_joint_topic: %s", gazeboJointTopic_.c_str());
+  RCLCPP_INFO(
+    this->get_logger(), "gazebo_position_joint_topic: %s",
+    gazeboPositionTopic_.empty() ? "(disabled)" : gazeboPositionTopic_.c_str());
+  RCLCPP_INFO(
+    this->get_logger(), "gazebo_velocity_joint_topic: %s",
+    gazeboVelocityTopic_.empty() ? "(disabled)" : gazeboVelocityTopic_.c_str());
+  if (gazeboPositionTopic_.empty() != gazeboPositionAxes_.empty()) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "gazebo_position_joint_topic and gazebo_position_joint_axes must both be set; "
+      "the position publisher stays off.");
+  }
+  if (gazeboVelocityTopic_.empty() != gazeboVelocityAxes_.empty()) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "gazebo_velocity_joint_topic and gazebo_velocity_joint_axes must both be set; "
+      "the velocity publisher stays off.");
+  }
   RCLCPP_INFO(this->get_logger(), "===========================");
 }
 
@@ -308,7 +333,14 @@ JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_activate(
 
   encoderJointPub_ = this->create_publisher<sensor_msgs::msg::JointState>(encoderJointTopic_, 1);
   isaacsimJointPub_ = this->create_publisher<sensor_msgs::msg::JointState>(isaacsimJointTopic_, 1);
-  gazeboJointPub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(gazeboJointTopic_, 1);
+  if (!gazeboPositionTopic_.empty() && !gazeboPositionAxes_.empty()) {
+    gazeboPositionPub_ =
+      this->create_publisher<std_msgs::msg::Float64MultiArray>(gazeboPositionTopic_, 1);
+  }
+  if (!gazeboVelocityTopic_.empty() && !gazeboVelocityAxes_.empty()) {
+    gazeboVelocityPub_ =
+      this->create_publisher<std_msgs::msg::Float64MultiArray>(gazeboVelocityTopic_, 1);
+  }
 
   LifecycleNode::on_activate(previous_state);
 
@@ -330,7 +362,8 @@ JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_deactivate(
 
   encoderJointPub_.reset();
   isaacsimJointPub_.reset();
-  gazeboJointPub_.reset();
+  gazeboPositionPub_.reset();
+  gazeboVelocityPub_.reset();
 
   RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster is inactive");
   return CallbackReturn::SUCCESS;
@@ -477,8 +510,29 @@ void JointStateBroadcaster::publishJointState()
   encoderJointPub_->publish(encoderJointMsg);
 
   std_msgs::msg::Float64MultiArray gazeboJointMsg;
-  gazeboJointMsg.data = encoderJointMsg.position;
-  gazeboJointPub_->publish(gazeboJointMsg);
+
+  if (gazeboVelocityPub_) {
+    gazeboJointMsg.data.clear();
+    for (int64_t axis : gazeboVelocityAxes_) {
+      const auto it = std::find(jointAxes_.begin(), jointAxes_.end(), axis);
+      const size_t i = static_cast<size_t>(std::distance(jointAxes_.begin(), it));
+      gazeboJointMsg.data.push_back(i < feedback.size() ? feedback[i].actualVelocity : 0.0);
+    }
+    gazeboVelocityPub_->publish(gazeboJointMsg);
+  }
+
+  if (gazeboPositionPub_) {
+    gazeboJointMsg.data.clear();
+    for (int64_t axis : gazeboPositionAxes_) {
+      const auto it = std::find(jointAxes_.begin(), jointAxes_.end(), axis);
+      const size_t i = static_cast<size_t>(std::distance(jointAxes_.begin(), it));
+      gazeboJointMsg.data.push_back(i < feedback.size() ? feedback[i].actualPos : 0.0);
+    }
+    for (size_t i = feedback.size(); i < encoderJointMsg.position.size(); ++i) {
+      gazeboJointMsg.data.push_back(encoderJointMsg.position[i]);
+    }
+    gazeboPositionPub_->publish(gazeboJointMsg);
+  }
 }
 
 int main(int argc, char * argv[])

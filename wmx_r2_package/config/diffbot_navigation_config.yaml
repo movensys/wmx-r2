@@ -27,8 +27,9 @@ joint_state_broadcaster:
     joint_name: ["drivewheel_left_joint", "drivewheel_right_joint"]
     encoder_joint_topic: /joint_states
     isaacsim_joint_topic: /isaacsim/joint_command
-    gazebo_joint_topic: /velocity_controller/commands
-
+    gazebo_velocity_joint_topic: /velocity_controller/commands
+    gazebo_velocity_joint_axes: [0, 1]
+    
 wmx_engine_node:
   ros__parameters:
     core: -1          

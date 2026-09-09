@@ -5,7 +5,8 @@ joint_state_broadcaster:
     joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
     encoder_joint_topic: /joint_states
     isaacsim_joint_topic: /isaacsim/joint_command
-    gazebo_joint_topic: /gazebo_position_controller/commands
+    gazebo_position_joint_topic: /gazebo_position_controller/commands
+    gazebo_position_joint_axes: [0, 1, 2, 3, 4, 5]
 
 joint_trajectory_controller:
   ros__parameters:

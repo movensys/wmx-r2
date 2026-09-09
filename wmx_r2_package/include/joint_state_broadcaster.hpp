@@ -88,7 +88,10 @@ private:
   std::vector<int64_t> gripperAddress_;
   std::string encoderJointTopic_;
   std::string isaacsimJointTopic_;
-  std::string gazeboJointTopic_;
+  std::string gazeboPositionTopic_;
+  std::string gazeboVelocityTopic_;
+  std::vector<int64_t> gazeboPositionAxes_;
+  std::vector<int64_t> gazeboVelocityAxes_;
 
   rclcpp::CallbackGroup::SharedPtr axisClientCbGroup_;
   rclcpp::Client<wmx_r2_message::srv::SetAxes>::SharedPtr clearAlarmClient_;
@@ -99,7 +102,9 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr encoderJointPub_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr isaacsimJointPub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
-    gazeboJointPub_;
+    gazeboPositionPub_;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
+    gazeboVelocityPub_;
 
   void setRosParameter();
 
