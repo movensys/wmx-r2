@@ -23,10 +23,9 @@ joint_position_controller:
 
 wmx_engine_node:
   ros__parameters:
-    core: -1           # CPU core for the RT engine (-1 = SDK default)
-    affinity_mask: 0   # CPU affinity bitmask (0 = SDK default)
-    wmx_param_file_path: ""
-
+    core: -1           
+    affinity_mask: 0   
+    
 wmx_core_motion_node:
   ros__parameters:
     axes_status_rate: 100
@@ -40,8 +39,6 @@ wmx_core_motion_node:
 
 wmx_lifecycle_manager_node:
   ros__parameters:
-    # Brought up in this order once the engine reports Communicating.
-    # Empty means every lifecycle node found on the graph.
     managed_nodes:
       - wmx_core_motion_node
       - wmx_io_node
@@ -49,6 +46,4 @@ wmx_lifecycle_manager_node:
       - joint_state_broadcaster
       - joint_trajectory_controller
       - joint_position_controller
-    engine_status_service: "wmx/engine/get_engine_status"
-    require_engine: true
     discovery_period: 1.0

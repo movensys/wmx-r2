@@ -1,0 +1,12 @@
+services:
+  wmx_r2:
+    build:
+      args:
+        - ARCH=arm64
+    environment:
+      - XAUTHORITY=/run/user/1000/gdm/Xauthority
+    volumes:
+      - /run/user/1000/gdm:/run/user/1000/gdm:ro
+    gpus: all
+    group_add:
+      - "0" 

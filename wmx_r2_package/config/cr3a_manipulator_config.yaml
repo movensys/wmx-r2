@@ -34,8 +34,7 @@ wmx_engine_node:
   ros__parameters:
     core: -1           
     affinity_mask: 0  
-    wmx_param_file_path: ""
-
+    
 wmx_core_motion_node:
   ros__parameters:
     axes_status_rate: 100
@@ -57,6 +56,4 @@ wmx_lifecycle_manager_node:
       - joint_trajectory_controller
       - joint_position_controller
       - gripper_controller
-    engine_status_service: "wmx/engine/get_engine_status"
-    require_engine: true
     discovery_period: 1.0

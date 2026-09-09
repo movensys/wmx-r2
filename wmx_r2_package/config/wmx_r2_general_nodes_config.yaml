@@ -2,7 +2,6 @@ wmx_engine_node:
   ros__parameters:
     core: -1
     affinity_mask: 0
-    wmx_param_file_path: ""
 
 wmx_lifecycle_manager_node:
   ros__parameters:
@@ -10,13 +9,11 @@ wmx_lifecycle_manager_node:
       - wmx_core_motion_node
       - wmx_io_node
       - wmx_ethercat_node
-    engine_status_service: "wmx/engine/get_engine_status"
-    require_engine: true
-    discovery_period: 1.0
+    discovery_period: 0.2
 
 wmx_core_motion_node:
   ros__parameters:
-    axes_status_rate: 100
+    axes_status_rate: 1
     jog_timeout_ms: 200.0
     jog_run_time_ms: 2000.0
     jog_jerk_ratio: 0.75

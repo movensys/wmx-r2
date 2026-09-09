@@ -20,9 +20,9 @@
 
 #include "wmx_r2_message/srv/set_axes.hpp"
 #include "wmx_r2_message/srv/set_axes_gear_ratio.hpp"
-#include "wmx_r2_message/msg/axes_velocity.hpp"
+#include "wmx_r2_message/srv/start_axes_pose.hpp"
+#include "wmx_r2_message/srv/start_axes_velocity.hpp"
 #include "wmx_r2_message/msg/axes_status.hpp"
-#include "wmx_r2_message/msg/axes_pose.hpp"
 
 #include "WMX3Api.h"
 #include "CoreMotionApi.h"
@@ -51,14 +51,14 @@ public:
   int startMov(
     int axis, double target, double velocity, double acc, double dec, std::string & message);
   int startVel(int axis, double velocity, double acc, double dec, std::string & message);
-  int stop(int axis);
+  int stop(int axis, std::string & message);
 
   int startJog(
     int axis, double velocity, double acc, double dec, const rclcpp::Time & now,
     std::string & message);
-  void stopExpiredJogs(const rclcpp::Time & now);
-  void stopAllJogs();
-  void clearJog(int axis);
+  int stopExpiredJogs(const rclcpp::Time & now, std::string & message);
+  int stopAllJogs(std::string & message);
+  int clearJog(int axis, std::string & message);
 
   int setServoOn(int axis, int newStatus, std::string & message);
   int setAxisCommandMode(int axis, int mode, std::string & message);
@@ -89,7 +89,7 @@ private:
   mutable std::mutex deviceMutex_;
 
   wmx3Api::WMX3Api wmx3Lib_;
-  std::shared_ptr<wmx3Api::CoreMotion> cm_;
+  wmx3Api::CoreMotion cm_;
 };
 
 class WmxCoreMotionNode : public rclcpp_lifecycle::LifecycleNode
@@ -111,7 +111,7 @@ private:
   std::unique_ptr<WmxCoreMotionNodeApi> api_;
 
   int numOfAxes_ = 0;
-  int rate_ = 100;
+  int rate_ = 1;
 
   rclcpp::TimerBase::SharedPtr axesStatusTimer_;
   rclcpp::TimerBase::SharedPtr jogWatchdogTimer_;
@@ -139,10 +139,10 @@ private:
 
   rclcpp::CallbackGroup::SharedPtr homing_cb_group_;
   rclcpp_lifecycle::LifecyclePublisher<wmx_r2_message::msg::AxesStatus>::SharedPtr axesStatusPub_;
-  rclcpp::Subscription<wmx_r2_message::msg::AxesVelocity>::SharedPtr startVelSub_;
-  rclcpp::Subscription<wmx_r2_message::msg::AxesVelocity>::SharedPtr startJogSub_;
-  rclcpp::Subscription<wmx_r2_message::msg::AxesPose>::SharedPtr startPosSub_;
-  rclcpp::Subscription<wmx_r2_message::msg::AxesPose>::SharedPtr startMovSub_;
+  rclcpp::Service<wmx_r2_message::srv::StartAxesPose>::SharedPtr startPosService_;
+  rclcpp::Service<wmx_r2_message::srv::StartAxesPose>::SharedPtr startMovService_;
+  rclcpp::Service<wmx_r2_message::srv::StartAxesVelocity>::SharedPtr startVelService_;
+  rclcpp::Service<wmx_r2_message::srv::StartAxesVelocity>::SharedPtr startJogService_;
 
   rclcpp::Service<wmx_r2_message::srv::SetAxes>::SharedPtr setServoOnService_;
   rclcpp::Service<wmx_r2_message::srv::SetAxes>::SharedPtr clearAmpAlarmService_;
@@ -152,14 +152,21 @@ private:
   rclcpp::Service<wmx_r2_message::srv::SetAxes>::SharedPtr startHomeService_;
   rclcpp::Service<wmx_r2_message::srv::SetAxes>::SharedPtr stopService_;
 
-
   void axesStatusStep();
   void jogWatchdogStep();
 
-  void startPosCallback(const wmx_r2_message::msg::AxesPose::SharedPtr msg);
-  void startMovCallback(const wmx_r2_message::msg::AxesPose::SharedPtr msg);
-  void startVelCallback(const wmx_r2_message::msg::AxesVelocity::SharedPtr msg);
-  void startJogCallback(const wmx_r2_message::msg::AxesVelocity::SharedPtr msg);
+  void startPosCallback(
+    const std::shared_ptr<wmx_r2_message::srv::StartAxesPose::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::StartAxesPose::Response> response);
+  void startMovCallback(
+    const std::shared_ptr<wmx_r2_message::srv::StartAxesPose::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::StartAxesPose::Response> response);
+  void startVelCallback(
+    const std::shared_ptr<wmx_r2_message::srv::StartAxesVelocity::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::StartAxesVelocity::Response> response);
+  void startJogCallback(
+    const std::shared_ptr<wmx_r2_message::srv::StartAxesVelocity::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::StartAxesVelocity::Response> response);
 
   void setServoOnCallback(
     const std::shared_ptr<wmx_r2_message::srv::SetAxes::Request> request,

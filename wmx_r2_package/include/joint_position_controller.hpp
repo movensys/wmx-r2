@@ -41,7 +41,6 @@ public:
   int setAxisSelection(const std::vector<int64_t> & axes, std::string & message);
   int getPosCmd(
     const std::vector<int> & axes, std::vector<double> & posCmd, std::string & message);
-  bool isDeviceCreated() const {return isDeviceCreated_;}
 
 private:
   rclcpp::Logger logger_;
@@ -50,7 +49,6 @@ private:
   unsigned int timeout_ = 10000;
 
   mutable std::mutex deviceMutex_;
-  bool isDeviceCreated_ = false;
 
   wmx3Api::AxisSelection axisSel_;
 
@@ -89,7 +87,6 @@ private:
 
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr execActiveSub_;
   rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr jointTrajectorySub_;
-
 
   void setRosParameter();
 

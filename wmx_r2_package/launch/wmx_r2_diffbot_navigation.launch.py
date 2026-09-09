@@ -7,22 +7,23 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode
 
+PKG_SHARE = get_package_share_directory('wmx_r2_package')
+
+DIFFBOT_CONFIG = os.path.join(PKG_SHARE, 'config', 'diffbot_navigation_config.yaml')
+DIFFBOT_WMX_PARAM_FILE = os.path.join(PKG_SHARE, 'config', 'diffbot_wmx_parameters.xml')
+
 
 def generate_launch_description():
-    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
-
-    pkg_share = get_package_share_directory('wmx_r2_package')
-    diffbot_config = os.path.join(pkg_share, 'config', 'diffbot_navigation_config.yaml')
-    wmx_param_file = os.path.join(pkg_share, 'config', 'diffbot_wmx_parameters.xml')
+    use_sim_time = LaunchConfiguration('use_sim_time')
 
     start_wmx_r2_general_nodes = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(pkg_share, 'launch', 'wmx_r2_general_nodes.launch.py')
+            os.path.join(PKG_SHARE, 'launch', 'wmx_r2_general_nodes.launch.py')
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'config_file': diffbot_config,
-            'wmx_param_file': wmx_param_file,
+            'config_file': DIFFBOT_CONFIG,
+            'wmx_param_file': DIFFBOT_WMX_PARAM_FILE,
         }.items(),
     )
 
@@ -31,8 +32,9 @@ def generate_launch_description():
         executable='joint_state_broadcaster',
         name='joint_state_broadcaster',
         namespace='',
-        parameters=[diffbot_config, {'use_sim_time': use_sim_time}],
+        parameters=[DIFFBOT_CONFIG, {'use_sim_time': use_sim_time}],
         output='screen',
+        emulate_tty=True,
     )
 
     start_differential_drive_controller = LifecycleNode(
@@ -40,16 +42,18 @@ def generate_launch_description():
         executable='differential_drive_controller',
         name='differential_drive_controller',
         namespace='',
-        parameters=[diffbot_config, {'use_sim_time': use_sim_time}],
+        parameters=[DIFFBOT_CONFIG, {'use_sim_time': use_sim_time}],
         output='screen',
+        emulate_tty=True,
     )
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_sim_time',
             default_value='false',
-            description='Use simulation clock if true',
+            description='Use simulation clock'
         ),
+
         start_wmx_r2_general_nodes,
         start_joint_state_broadcaster,
         start_differential_drive_controller,

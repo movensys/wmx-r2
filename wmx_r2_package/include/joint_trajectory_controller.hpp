@@ -46,7 +46,6 @@ public:
   int getInPos(bool & inPos, std::string & message);
   int stop(std::string & message);
 
-  bool isDeviceCreated() const {return isDeviceCreated_;}
   size_t axisCount() const {return axisCount_;}
 
 private:
@@ -61,7 +60,6 @@ private:
   mutable std::mutex deviceMutex_;
 
   size_t axisCount_ = 0;
-  bool isDeviceCreated_ = false;
 
   wmx3Api::AxisSelection axisSel_;
   wmx3Api::AdvMotion::PointTimeSplineCommand splineCommand_;

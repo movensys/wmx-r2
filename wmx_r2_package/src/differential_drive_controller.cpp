@@ -40,7 +40,7 @@ std::string errorToString(int err)
 
 DifferentialDriveControllerApi::DifferentialDriveControllerApi(
   const rclcpp::Logger & logger, const Config & config)
-: logger_(logger), config_(config)
+: logger_(logger), config_(config), cm_(&wmx3Lib_)
 {
 }
 
@@ -52,11 +52,6 @@ DifferentialDriveControllerApi::~DifferentialDriveControllerApi()
 int DifferentialDriveControllerApi::createDevice(std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
-
-  if (isDeviceCreated_) {
-    message = "Already attached to the WMX3 device";
-    return ErrorCode::None;
-  }
 
   int err = wmx3Lib_.CreateDevice(WMX3_SDK_PATH, DeviceType::DeviceTypeNormal, timeout_);
   if (err != ErrorCode::None) {
@@ -80,7 +75,6 @@ int DifferentialDriveControllerApi::createDevice(std::string & message)
   }
 
   cm_ = CoreMotion(&wmx3Lib_);
-  isDeviceCreated_ = true;
 
   message = "Attached to WMX3 device";
   RCLCPP_INFO(logger_, "%s", message.c_str());
@@ -98,7 +92,6 @@ void DifferentialDriveControllerApi::closeDevice()
   }
 
   RCLCPP_INFO(logger_, "Device closed");
-  isDeviceCreated_ = false;
 }
 
 int DifferentialDriveControllerApi::getStatus(
@@ -109,11 +102,6 @@ int DifferentialDriveControllerApi::getStatus(
   std::lock_guard<std::mutex> lock(deviceMutex_);
 
   communicating = false;
-
-  if (!isDeviceCreated_) {
-    message = "Cannot read the axis status. Device is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
 
   if (leftAxis < 0 || leftAxis >= wmx3Api::constants::maxAxes ||
     rightAxis < 0 || rightAxis >= wmx3Api::constants::maxAxes)
@@ -144,11 +132,6 @@ int DifferentialDriveControllerApi::getStatus(
 int DifferentialDriveControllerApi::startVel(int axis, double omega, std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
-
-  if (!isDeviceCreated_) {
-    message = "Cannot move axis " + std::to_string(axis) + ". Device is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
 
   Velocity::VelCommand velCommand;
   velCommand.axis = axis;
@@ -275,6 +258,10 @@ DifferentialDriveController::CallbackReturn DifferentialDriveController::on_clea
 DifferentialDriveController::CallbackReturn DifferentialDriveController::on_shutdown(
   const rclcpp_lifecycle::State & previous_state)
 {
+  if (previous_state.id() == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    on_deactivate(previous_state);
+  }
+
   return on_cleanup(previous_state);
 }
 
@@ -282,8 +269,7 @@ void DifferentialDriveController::cmdStampedCallback(
   const geometry_msgs::msg::TwistStamped::SharedPtr msg)
 {
   cmdVelMsg_ = msg->twist;
-  const rclcpp::Time stamp(msg->header.stamp, RCL_ROS_TIME);
-  lastCmdTime_ = (stamp.nanoseconds() > 0) ? stamp : this->get_clock()->now();
+  lastCmdTime_ = this->get_clock()->now();
   haveCmd_ = true;
 }
 
@@ -302,7 +288,7 @@ void DifferentialDriveController::controlStep()
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000, "%s", message.c_str());
     havePrev_ = false;
-    lastSentValid_ = false;
+    stopWheelsOnFault();
     return;
   }
 
@@ -311,7 +297,7 @@ void DifferentialDriveController::controlStep()
       this->get_logger(), *this->get_clock(), 1000,
       "Communication or engine off. Please start the engine or communication");
     havePrev_ = false;
-    lastSentValid_ = false;
+    stopWheelsOnFault();
     return;
   }
 
@@ -351,14 +337,14 @@ void DifferentialDriveController::controlStep()
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000,
       "Servo alarm on. Please clear servo alarm");
-    lastSentValid_ = false;  // force a resend once the alarm clears
+    stopWheelsOnFault();
     return;
   }
   if (!left.servoOn || !right.servoOn) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000,
       "Servo off. Please set servo on");
-    lastSentValid_ = false;  // force a resend once servo is back on
+    stopWheelsOnFault();
     return;
   }
 
@@ -385,6 +371,17 @@ void DifferentialDriveController::commandWheels(double omegaLeft, double omegaRi
   } else {
     lastSentValid_ = false;
   }
+}
+
+void DifferentialDriveController::stopWheelsOnFault()
+{
+  if (!lastSentValid_) {
+    return;
+  }
+
+  lastSentValid_ = false;
+  startVel(leftAxis_, 0.0);
+  startVel(rightAxis_, 0.0);
 }
 
 bool DifferentialDriveController::startVel(int axis, double omega)
@@ -415,7 +412,7 @@ void DifferentialDriveController::publishOdometry(
   msg.pose.pose.orientation = yawToQuaternion(pose.theta);
 
   msg.twist.twist.linear.x = body.linear;
-  msg.twist.twist.linear.y = 0.0;     // diff-drive: no lateral motion
+  msg.twist.twist.linear.y = 0.0;
   msg.twist.twist.angular.z = body.angular;
 
   constexpr double kSmall = 0.01;

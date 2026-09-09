@@ -8,101 +8,103 @@ from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
+CTRL_SHARE = get_package_share_directory('wmx_r2_control')
+WMX_SHARE = get_package_share_directory('wmx_r2_package')
+
+URDF_XACRO = os.path.join(CTRL_SHARE, 'urdf', 'cr5a.wmx.urdf.xacro')
+CONTROLLERS = os.path.join(CTRL_SHARE, 'config', 'cr5a_controllers.yaml')
+CR5A_CONFIG = os.path.join(WMX_SHARE, 'config', 'cr5a_manipulator_config.yaml')
+CR5A_WMX_PARAM_FILE = os.path.join(WMX_SHARE, 'config', 'cr5a_wmx_parameters.xml')
+
 
 def generate_launch_description():
-    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
-
-    ctrl_share = get_package_share_directory('wmx_r2_control')
-    wmx_share = get_package_share_directory('wmx_r2_package')
-
-    urdf_xacro = os.path.join(ctrl_share, 'urdf', 'cr5a.wmx.urdf.xacro')
-    controllers = os.path.join(ctrl_share, 'config', 'cr5a_controllers.yaml')
-    wmx_param_file = os.path.join(wmx_share, 'config', 'cr5a_wmx_parameters.xml')
-    manipulator_config = os.path.join(wmx_share, 'config', 'cr5a_manipulator_config.yaml')
+    use_sim_time = LaunchConfiguration('use_sim_time')
 
     robot_description = {
         'robot_description': ParameterValue(
-            Command(['xacro ', urdf_xacro, ' wmx_param_file:=', wmx_param_file]),
+            Command(['xacro ', URDF_XACRO, ' wmx_param_file:=', CR5A_WMX_PARAM_FILE]),
             value_type=str,
         )
     }
 
-    general_nodes = IncludeLaunchDescription(
+    start_wmx_r2_general_nodes = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(wmx_share, 'launch', 'wmx_r2_general_nodes.launch.py')
+            os.path.join(WMX_SHARE, 'launch', 'wmx_r2_general_nodes.launch.py')
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'config_file': manipulator_config,
+            'config_file': CR5A_CONFIG,
+            'wmx_param_file': CR5A_WMX_PARAM_FILE,
         }.items(),
     )
 
-    robot_state_publisher = Node(
+    start_robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
-        output='screen',
         parameters=[robot_description, {'use_sim_time': use_sim_time}],
+        output='screen',
+        emulate_tty=True,
     )
 
-    controller_manager = Node(
+    start_controller_manager = Node(
         package='controller_manager',
         executable='ros2_control_node',
+        parameters=[robot_description, CONTROLLERS, {'use_sim_time': use_sim_time}],
         output='screen',
-        parameters=[robot_description, controllers, {'use_sim_time': use_sim_time}],
+        emulate_tty=True,
     )
 
-    joint_state_broadcaster_spawner = Node(
+    start_joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
         arguments=['joint_state_broadcaster',
                    '--controller-manager', '/controller_manager'],
         output='screen',
+        emulate_tty=True,
     )
 
-    joint_trajectory_controller = LifecycleNode(
+    start_joint_trajectory_controller = LifecycleNode(
         package='wmx_r2_package',
         executable='joint_trajectory_controller',
         name='joint_trajectory_controller',
         namespace='',
-        parameters=[
-            manipulator_config,
-            {
-                'use_sim_time': use_sim_time,
-                'wmx_param_file_path': wmx_param_file,
-            },
-        ],
+        parameters=[CR5A_CONFIG, {'use_sim_time': use_sim_time}],
         output='screen',
+        emulate_tty=True,
     )
 
-    joint_position_controller = LifecycleNode(
+    start_joint_position_controller = LifecycleNode(
         package='wmx_r2_package',
         executable='joint_position_controller',
         name='joint_position_controller',
         namespace='',
-        parameters=[manipulator_config, {'use_sim_time': use_sim_time}],
+        parameters=[CR5A_CONFIG, {'use_sim_time': use_sim_time}],
         output='screen',
+        emulate_tty=True,
     )
 
-    isaacsim_joint_command_relay = Node(
+    start_isaacsim_joint_command_relay = Node(
         package='topic_tools',
         executable='relay',
         name='isaacsim_joint_command_relay',
         arguments=['/joint_states', '/isaacsim/joint_command'],
         parameters=[{'use_sim_time': use_sim_time}],
         output='screen',
+        emulate_tty=True,
     )
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_sim_time',
             default_value='false',
-            description='Use simulation clock if true',
+            description='Use simulation clock'
         ),
-        general_nodes,
-        robot_state_publisher,
-        controller_manager,
-        joint_state_broadcaster_spawner,
-        joint_trajectory_controller,
-        joint_position_controller,
-        isaacsim_joint_command_relay,
+
+        start_wmx_r2_general_nodes,
+        start_robot_state_publisher,
+        start_controller_manager,
+        start_joint_state_broadcaster_spawner,
+        start_joint_trajectory_controller,
+        start_joint_position_controller,
+        start_isaacsim_joint_command_relay,
     ])

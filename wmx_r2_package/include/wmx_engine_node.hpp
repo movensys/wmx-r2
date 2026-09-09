@@ -49,6 +49,9 @@ public:
 private:
   std::string errorToString(int err);
 
+  bool isEngineStarted();
+  bool isEngineCommunicating();
+
   rclcpp::Logger logger_;
   Config config_;
 
@@ -60,7 +63,7 @@ private:
   std::recursive_mutex deviceMutex_;
 
   wmx3Api::WMX3Api wmx3Lib_;
-  std::unique_ptr<wmx3Api::CoreMotion> cm_;
+  wmx3Api::CoreMotion cm_;
 };
 
 class WmxEngineNode : public rclcpp::Node

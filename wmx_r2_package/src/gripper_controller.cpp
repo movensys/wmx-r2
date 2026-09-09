@@ -32,7 +32,7 @@ std::string errorToString(int err)
 }  // namespace
 
 GripperControllerApi::GripperControllerApi(const rclcpp::Logger & logger)
-: logger_(logger)
+: logger_(logger), io_(&wmx3Lib_)
 {
 }
 
@@ -44,11 +44,6 @@ GripperControllerApi::~GripperControllerApi()
 int GripperControllerApi::createDevice(std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
-
-  if (isDeviceCreated_) {
-    message = "Already attached to the WMX3 device";
-    return ErrorCode::None;
-  }
 
   int err = wmx3Lib_.CreateDevice(WMX3_SDK_PATH, DeviceType::DeviceTypeNormal, timeout_);
   if (err != ErrorCode::None) {
@@ -72,7 +67,6 @@ int GripperControllerApi::createDevice(std::string & message)
   }
 
   io_ = IO(&wmx3Lib_);
-  isDeviceCreated_ = true;
 
   message = "Attached to WMX3 device";
   RCLCPP_INFO(logger_, "%s", message.c_str());
@@ -90,7 +84,6 @@ void GripperControllerApi::closeDevice()
   }
 
   RCLCPP_INFO(logger_, "Device closed");
-  isDeviceCreated_ = false;
 }
 
 int GripperControllerApi::setOutBit(
@@ -260,6 +253,10 @@ GripperController::CallbackReturn GripperController::on_cleanup(
 GripperController::CallbackReturn GripperController::on_shutdown(
   const rclcpp_lifecycle::State & previous_state)
 {
+  if (previous_state.id() == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    on_deactivate(previous_state);
+  }
+
   return on_cleanup(previous_state);
 }
 

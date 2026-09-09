@@ -135,8 +135,9 @@ jobs:
 
       # The WMX3 SDK is not available in CI, so the nodes cannot be built here.
       # Evaluating the launch descriptions still catches the mistakes that break
-      # a real launch: bad substitutions, and lifecycle nodes declared without a
-      # namespace.
+      # a real launch: undefined launch configurations, parameter files that do
+      # not exist, lifecycle nodes declared without a namespace, and a launch
+      # file whose node count is not the one recorded in the script.
       - name: Evaluate launch descriptions
         run: |
           source /opt/ros/${{ matrix.ros_distro }}/setup.bash

@@ -13,10 +13,14 @@ using lifecycle_msgs::msg::Transition;
 
 namespace
 {
+constexpr const char * kEngineStatusService = "wmx/engine/get_engine_status";
+
 constexpr std::chrono::seconds kServiceWaitTimeout{5};
 constexpr std::chrono::seconds kTransitionTimeout{30};
 constexpr std::chrono::seconds kQueryServiceWaitTimeout{1};
 constexpr std::chrono::seconds kQueryTimeout{5};
+
+constexpr int kEngineMissLimit = 3;
 
 bool isDeviceLevelNode(const std::string & fullName)
 {
@@ -256,6 +260,26 @@ bool LifecycleManager::isKnownTransition(const std::string & transition)
          transition == "bringdown";
 }
 
+bool LifecycleManager::isDownwardTransition(const std::string & transition)
+{
+  return transition == "deactivate" || transition == "cleanup" ||
+         transition == "shutdown" || transition == "bringdown";
+}
+
+void LifecycleManager::markManual(const std::string & node, bool goingDown)
+{
+  handledNodes_.insert(node);
+
+  if (!goingDown) {
+    return;
+  }
+
+  RCLCPP_WARN(
+    logger_,
+    "%s was taken down by hand. Automatic bring-up stays off for it until it is brought up "
+    "by hand or the engine restarts.", node.c_str());
+}
+
 std::string LifecycleManager::knownTransitions()
 {
   return "configure, activate, deactivate, cleanup, shutdown, bringup or bringdown";
@@ -295,8 +319,7 @@ bool LifecycleManager::applyTransitionToAll(
 {
   nodes = discover();
 
-  const bool goingDown = transition == "deactivate" || transition == "cleanup" ||
-    transition == "shutdown" || transition == "bringdown";
+  const bool goingDown = isDownwardTransition(transition);
   if (goingDown) {
     std::reverse(nodes.begin(), nodes.end());
   }
@@ -309,8 +332,7 @@ bool LifecycleManager::applyTransitionToAll(
 
     if (applyTransition(node, transition, nodeMessage)) {
       RCLCPP_INFO(logger_, "%s", nodeMessage.c_str());
-      // Whatever the operator set stands: the discovery sweep leaves it alone.
-      markHandled(node);
+      markManual(node, goingDown);
     } else {
       RCLCPP_ERROR(logger_, "%s", nodeMessage.c_str());
       allSucceeded = false;
@@ -385,9 +407,6 @@ WmxLifecycleManagerNode::WmxLifecycleManagerNode()
 {
   const auto managedNodes = this->declare_parameter<std::vector<std::string>>(
     "managed_nodes", std::vector<std::string>{});
-  engineStatusService_ = this->declare_parameter<std::string>(
-    "engine_status_service", "wmx/engine/get_engine_status");
-  requireEngine_ = this->declare_parameter<bool>("require_engine", true);
   const double period = this->declare_parameter<double>("discovery_period", 2.0);
 
   lifecycle_ = std::make_unique<LifecycleManager>(this, managedNodes);
@@ -396,7 +415,7 @@ WmxLifecycleManagerNode::WmxLifecycleManagerNode()
   clientCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
   engineStatusClient_ = this->create_client<std_srvs::srv::Trigger>(
-    engineStatusService_, servicesQos(), clientCbGroup_);
+    kEngineStatusService, servicesQos(), clientCbGroup_);
 
   setNodeStateService_ = this->create_service<wmx_r2_message::srv::SetNodeState>(
     "wmx/lifecycle/set_node_state",
@@ -436,24 +455,30 @@ bool WmxLifecycleManagerNode::isEngineCommunicating()
 
 void WmxLifecycleManagerNode::discoveryStep()
 {
-  if (!requireEngine_) {
-    lifecycle_->bringUpDiscovered();
-    return;
-  }
-
   if (isEngineCommunicating()) {
+    engineMissCount_ = 0;
     nodesAreUp_ = true;
     lifecycle_->bringUpDiscovered();
     return;
   }
 
-  if (nodesAreUp_) {
-    RCLCPP_WARN(
-      this->get_logger(), "Engine stopped; taking the lifecycle nodes down");
-    lifecycle_->bringDownDiscovered(true);
-    lifecycle_->clearHandled();
-    nodesAreUp_ = false;
+  if (!nodesAreUp_) {
+    return;
   }
+
+  ++engineMissCount_;
+  if (engineMissCount_ < kEngineMissLimit) {
+    RCLCPP_WARN(
+      this->get_logger(), "Engine status query failed (%d of %d). Holding the nodes up.",
+      engineMissCount_, kEngineMissLimit);
+    return;
+  }
+
+  RCLCPP_WARN(this->get_logger(), "Engine stopped; taking the lifecycle nodes down");
+  lifecycle_->bringDownDiscovered(true);
+  lifecycle_->clearHandled();
+  nodesAreUp_ = false;
+  engineMissCount_ = 0;
 }
 
 void WmxLifecycleManagerNode::setNodeStateCallback(
@@ -466,6 +491,7 @@ void WmxLifecycleManagerNode::setNodeStateCallback(
     response->success = false;
     response->message = "Unknown transition '" + transition + "'. Use " +
       LifecycleManager::knownTransitions() + ".";
+    RCLCPP_ERROR(this->get_logger(), "%s", response->message.c_str());
     return;
   }
 
@@ -481,7 +507,7 @@ void WmxLifecycleManagerNode::setNodeStateCallback(
 
     if (response->success) {
       RCLCPP_INFO(this->get_logger(), "%s", message.c_str());
-      lifecycle_->markHandled(node);
+      lifecycle_->markManual(node, LifecycleManager::isDownwardTransition(transition));
     } else {
       RCLCPP_ERROR(this->get_logger(), "%s", message.c_str());
     }

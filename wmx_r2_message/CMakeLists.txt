@@ -23,6 +23,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetNodeStates.srv"
   "srv/SetAxes.srv"
   "srv/SetAxesGearRatio.srv"
+  "srv/StartAxesPose.srv"
+  "srv/StartAxesVelocity.srv"
   "srv/GetIoBit.srv"
   "srv/GetIoBits.srv"
   "srv/GetIoByte.srv"
@@ -41,9 +43,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ImportAndSetAll.srv"
   "srv/GetAxisParam.srv"
 
-  "msg/AxesVelocity.msg"
   "msg/AxesStatus.msg"
-  "msg/AxesPose.msg"
   DEPENDENCIES std_msgs
 )
 

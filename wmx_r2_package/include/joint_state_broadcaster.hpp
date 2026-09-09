@@ -48,8 +48,6 @@ public:
 
   int setServoOn(int axis, int newStatus, std::string & message);
 
-  bool isDeviceCreated() const {return isDeviceCreated_;}
-
 private:
   rclcpp::Logger logger_;
 
@@ -57,7 +55,6 @@ private:
   unsigned int timeout_ = 10000;
 
   mutable std::mutex deviceMutex_;
-  bool isDeviceCreated_ = false;
 
   wmx3Api::WMX3Api wmx3Lib_;
   wmx3Api::CoreMotion cm_;
@@ -93,7 +90,6 @@ private:
   std::string isaacsimJointTopic_;
   std::string gazeboJointTopic_;
 
-
   rclcpp::CallbackGroup::SharedPtr axisClientCbGroup_;
   rclcpp::Client<wmx_r2_message::srv::SetAxes>::SharedPtr clearAlarmClient_;
   rclcpp::Client<wmx_r2_message::srv::SetAxes>::SharedPtr setAxisOnClient_;
@@ -104,7 +100,6 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr isaacsimJointPub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
     gazeboJointPub_;
-
 
   void setRosParameter();
 

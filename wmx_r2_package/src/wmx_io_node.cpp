@@ -27,7 +27,7 @@ std::string failureText(const std::string & call, const std::string & where, int
 }  // namespace
 
 WmxIoNodeApi::WmxIoNodeApi(const rclcpp::Logger & logger)
-: logger_(logger)
+: logger_(logger), wmxIo_(&wmx3Lib_)
 {
 }
 
@@ -59,7 +59,7 @@ int WmxIoNodeApi::createDevice(std::string & message)
     return err;
   }
 
-  wmxIo_ = std::make_unique<IO>(&wmx3Lib_);
+  wmxIo_ = IO(&wmx3Lib_);
 
   message = "Attached to WMX3 device";
   RCLCPP_INFO(logger_, "%s", message.c_str());
@@ -68,8 +68,6 @@ int WmxIoNodeApi::createDevice(std::string & message)
 
 void WmxIoNodeApi::closeDevice()
 {
-  wmxIo_.reset();
-
   const int err = wmx3Lib_.CloseDevice();
   if (err != ErrorCode::None) {
     RCLCPP_ERROR(logger_, "Failed to close device. Error=%d (%s)", err, errorToString(err).c_str());
@@ -80,12 +78,7 @@ void WmxIoNodeApi::closeDevice()
 
 int WmxIoNodeApi::getInBit(int32_t addr, int32_t bit, uint8_t & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot read input bit. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
-  const int err = wmxIo_->GetInBitEx(addr, bit, &data);
+  const int err = wmxIo_.GetInBitEx(addr, bit, &data);
   if (err != ErrorCode::None) {
     message = failureText(
       "GetInBitEx", "addr=" + std::to_string(addr) + " bit=" + std::to_string(bit), err);
@@ -100,12 +93,7 @@ int WmxIoNodeApi::getInBit(int32_t addr, int32_t bit, uint8_t & data, std::strin
 
 int WmxIoNodeApi::getOutBit(int32_t addr, int32_t bit, uint8_t & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot read output bit. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
-  const int err = wmxIo_->GetOutBitEx(addr, bit, &data);
+  const int err = wmxIo_.GetOutBitEx(addr, bit, &data);
   if (err != ErrorCode::None) {
     message = failureText(
       "GetOutBitEx", "addr=" + std::to_string(addr) + " bit=" + std::to_string(bit), err);
@@ -122,26 +110,19 @@ int WmxIoNodeApi::getInBits(
   const std::vector<int32_t> & addr, const std::vector<int32_t> & bit,
   std::vector<uint8_t> & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot read input bits. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
-  if (addr.empty()) {
-    message = "No addr provided";
+  if (addr.empty() || addr.size() != bit.size()) {
+    message = "getInBits: addr and bit must be non-empty and the same length (addr=" +
+      std::to_string(addr.size()) + ", bit=" + std::to_string(bit.size()) + ")";
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    data.clear();
     return ErrorCode::IOSizeOutOfRange;
-  }
-
-  if (bit.size() != addr.size()) {
-    message = "addr and bit must be the same size";
-    return ErrorCode::ArgumentOutOfRange;
   }
 
   const int count = static_cast<int>(addr.size());
   data.assign(addr.size(), 0);
 
   for (size_t i = 0; i < addr.size(); ++i) {
-    const int err = wmxIo_->GetInBitEx(addr[i], bit[i], &data[i]);
+    const int err = wmxIo_.GetInBitEx(addr[i], bit[i], &data[i]);
     if (err != ErrorCode::None) {
       message = failureText(
         "GetInBitEx", "addr=" + std::to_string(addr[i]) + " bit=" + std::to_string(bit[i]), err);
@@ -159,26 +140,19 @@ int WmxIoNodeApi::getOutBits(
   const std::vector<int32_t> & addr, const std::vector<int32_t> & bit,
   std::vector<uint8_t> & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot read output bits. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
-  if (addr.empty()) {
-    message = "No addr provided";
+  if (addr.empty() || addr.size() != bit.size()) {
+    message = "getOutBits: addr and bit must be non-empty and the same length (addr=" +
+      std::to_string(addr.size()) + ", bit=" + std::to_string(bit.size()) + ")";
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    data.clear();
     return ErrorCode::IOSizeOutOfRange;
-  }
-
-  if (bit.size() != addr.size()) {
-    message = "addr and bit must be the same size";
-    return ErrorCode::ArgumentOutOfRange;
   }
 
   const int count = static_cast<int>(addr.size());
   data.assign(addr.size(), 0);
 
   for (size_t i = 0; i < addr.size(); ++i) {
-    const int err = wmxIo_->GetOutBitEx(addr[i], bit[i], &data[i]);
+    const int err = wmxIo_.GetOutBitEx(addr[i], bit[i], &data[i]);
     if (err != ErrorCode::None) {
       message = failureText(
         "GetOutBitEx", "addr=" + std::to_string(addr[i]) + " bit=" + std::to_string(bit[i]), err);
@@ -195,19 +169,14 @@ int WmxIoNodeApi::getOutBits(
 int WmxIoNodeApi::getInBytes(
   int32_t addr, int32_t size, std::vector<uint8_t> & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot read input bytes. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
   if (size <= 0 || size > wmx3Api::constants::maxIOInSize) {
-    message = "Invalid size: must be 1.." +
-      std::to_string(wmx3Api::constants::maxIOInSize);
+    message = "Invalid size: must be 1.." + std::to_string(wmx3Api::constants::maxIOInSize);
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
     return ErrorCode::IOSizeOutOfRange;
   }
 
   std::vector<unsigned char> raw(size, 0);
-  const int err = wmxIo_->GetInBytesEx(addr, size, raw.data());
+  const int err = wmxIo_.GetInBytesEx(addr, size, raw.data());
   if (err != ErrorCode::None) {
     message = failureText(
       "GetInBytesEx", "addr=" + std::to_string(addr) + " size=" + std::to_string(size), err);
@@ -223,19 +192,14 @@ int WmxIoNodeApi::getInBytes(
 int WmxIoNodeApi::getOutBytes(
   int32_t addr, int32_t size, std::vector<uint8_t> & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot read output bytes. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
   if (size <= 0 || size > wmx3Api::constants::maxIOOutSize) {
-    message = "Invalid size: must be 1.." +
-      std::to_string(wmx3Api::constants::maxIOOutSize);
+    message = "Invalid size: must be 1.." + std::to_string(wmx3Api::constants::maxIOOutSize);
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
     return ErrorCode::IOSizeOutOfRange;
   }
 
   std::vector<unsigned char> raw(size, 0);
-  const int err = wmxIo_->GetOutBytesEx(addr, size, raw.data());
+  const int err = wmxIo_.GetOutBytesEx(addr, size, raw.data());
   if (err != ErrorCode::None) {
     message = failureText(
       "GetOutBytesEx", "addr=" + std::to_string(addr) + " size=" + std::to_string(size), err);
@@ -250,17 +214,7 @@ int WmxIoNodeApi::getOutBytes(
 
 int WmxIoNodeApi::setOutBit(int32_t addr, int32_t bit, uint8_t data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot set output bit. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
-  if (data != 0 && data != 1) {
-    message = "Invalid data: must be 0 or 1";
-    return ErrorCode::ArgumentOutOfRange;
-  }
-
-  const int err = wmxIo_->SetOutBitEx(addr, bit, (data ? 1 : 0));
+  const int err = wmxIo_.SetOutBitEx(addr, bit, (data ? 1 : 0));
   if (err != ErrorCode::None) {
     message = failureText(
       "SetOutBitEx",
@@ -278,12 +232,7 @@ int WmxIoNodeApi::setOutBit(int32_t addr, int32_t bit, uint8_t data, std::string
 
 int WmxIoNodeApi::getInByte(int32_t addr, uint8_t & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot read input byte. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
-  const int err = wmxIo_->GetInByteEx(addr, &data);
+  const int err = wmxIo_.GetInByteEx(addr, &data);
   if (err != ErrorCode::None) {
     message = failureText("GetInByteEx", "addr=" + std::to_string(addr), err);
     RCLCPP_ERROR(logger_, "%s", message.c_str());
@@ -296,12 +245,7 @@ int WmxIoNodeApi::getInByte(int32_t addr, uint8_t & data, std::string & message)
 
 int WmxIoNodeApi::getOutByte(int32_t addr, uint8_t & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot read output byte. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
-  const int err = wmxIo_->GetOutByteEx(addr, &data);
+  const int err = wmxIo_.GetOutByteEx(addr, &data);
   if (err != ErrorCode::None) {
     message = failureText("GetOutByteEx", "addr=" + std::to_string(addr), err);
     RCLCPP_ERROR(logger_, "%s", message.c_str());
@@ -314,12 +258,7 @@ int WmxIoNodeApi::getOutByte(int32_t addr, uint8_t & data, std::string & message
 
 int WmxIoNodeApi::setOutByte(int32_t addr, uint8_t data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot set output byte. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
-  const int err = wmxIo_->SetOutByteEx(addr, data);
+  const int err = wmxIo_.SetOutByteEx(addr, data);
   if (err != ErrorCode::None) {
     message = failureText(
       "SetOutByteEx",
@@ -337,34 +276,23 @@ int WmxIoNodeApi::setOutBits(
   const std::vector<int32_t> & addr, const std::vector<int32_t> & bit,
   const std::vector<uint8_t> & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot set output bits. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
-  if (addr.empty()) {
-    message = "No data provided";
+  if (addr.empty() || addr.size() != bit.size() || addr.size() != data.size()) {
+    message = "setOutBits: addr, bit and data must be non-empty and the same length (addr=" +
+      std::to_string(addr.size()) + ", bit=" + std::to_string(bit.size()) +
+      ", data=" + std::to_string(data.size()) + ")";
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
     return ErrorCode::IOSizeOutOfRange;
-  }
-
-  if (bit.size() != addr.size() || data.size() != addr.size()) {
-    message = "addr, bit and data must be the same size";
-    return ErrorCode::ArgumentOutOfRange;
-  }
-
-  for (const uint8_t bitData : data) {
-    if (bitData != 0 && bitData != 1) {
-      message = "Invalid data: must be 0 or 1";
-      return ErrorCode::ArgumentOutOfRange;
-    }
   }
 
   const int count = static_cast<int>(addr.size());
   std::vector<int> rawAddr(addr.begin(), addr.end());
   std::vector<int> rawBit(bit.begin(), bit.end());
-  std::vector<unsigned char> rawData(data.begin(), data.end());
+  std::vector<unsigned char> rawData(data.size());
+  for (size_t i = 0; i < data.size(); ++i) {
+    rawData[i] = data[i] ? 1 : 0;
+  }
 
-  const int err = wmxIo_->SetOutBitsEx(
+  const int err = wmxIo_.SetOutBitsEx(
     rawAddr.data(), rawBit.data(), rawData.data(), count);
   if (err != ErrorCode::None) {
     message = failureText("SetOutBitsEx", "count=" + std::to_string(count), err);
@@ -380,11 +308,6 @@ int WmxIoNodeApi::setOutBits(
 int WmxIoNodeApi::setOutBytes(
   int32_t addr, const std::vector<uint8_t> & data, std::string & message)
 {
-  if (!wmxIo_) {
-    message = "Cannot set output bytes. IO is not attached.";
-    return ErrorCode::DeviceIsNull;
-  }
-
   if (data.empty()) {
     message = "No data provided";
     return ErrorCode::IOSizeOutOfRange;
@@ -393,7 +316,7 @@ int WmxIoNodeApi::setOutBytes(
   const int size = static_cast<int>(data.size());
   std::vector<unsigned char> raw(data.begin(), data.end());
 
-  const int err = wmxIo_->SetOutBytesEx(addr, size, raw.data());
+  const int err = wmxIo_.SetOutBytesEx(addr, size, raw.data());
   if (err != ErrorCode::None) {
     message = failureText(
       "SetOutBytesEx", "addr=" + std::to_string(addr) + " size=" + std::to_string(size), err);
@@ -518,6 +441,10 @@ WmxIoNode::CallbackReturn WmxIoNode::on_cleanup(const rclcpp_lifecycle::State &)
 
 WmxIoNode::CallbackReturn WmxIoNode::on_shutdown(const rclcpp_lifecycle::State & previous_state)
 {
+  if (previous_state.id() == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    on_deactivate(previous_state);
+  }
+
   return on_cleanup(previous_state);
 }
 

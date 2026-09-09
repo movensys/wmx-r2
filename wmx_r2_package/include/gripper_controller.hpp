@@ -33,8 +33,6 @@ public:
   int getOutByte(int32_t addr, uint8_t & data, std::string & message);
   int getInBit(int32_t addr, int32_t bit, uint8_t & data, std::string & message);
 
-  bool isDeviceCreated() const {return isDeviceCreated_;}
-
 private:
   rclcpp::Logger logger_;
 
@@ -42,7 +40,6 @@ private:
   unsigned int timeout_ = 10000;
 
   mutable std::mutex deviceMutex_;
-  bool isDeviceCreated_ = false;
 
   wmx3Api::WMX3Api wmx3Lib_;
   wmx3Api::IO io_;
@@ -69,9 +66,7 @@ private:
   std::vector<int64_t> gripperAddress_;
   std::string wmxGripperTopic_;
 
-
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr setGripperService_;
-
 
   void setRosParameter();
 

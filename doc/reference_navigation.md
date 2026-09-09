@@ -32,8 +32,8 @@ has no effect on behaviour — restart the node to apply new values.
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
-| `left_axis` | int | `0` | – | WMX3 axis index of the left wheel. **Not validated**: must be a valid axis index and ≠ `right_axis`; an out-of-range value causes an out-of-bounds status read (garbage odometry / undefined behaviour), not an error message. |
-| `right_axis` | int | `1` | – | WMX3 axis index of the right wheel. Same caveat as `left_axis`. |
+| `left_axis` | int | `0` | – | WMX3 axis index of the left wheel. The range is checked on every status read: a value outside `[0, maxAxes)` fails the read with `ArgumentOutOfRange` and the cycle publishes nothing (throttled warn). Setting it equal to `right_axis` is **not** checked and gives a base that reads one wheel twice. |
+| `right_axis` | int | `1` | – | WMX3 axis index of the right wheel. Same rules as `left_axis`. |
 | `wheel_radius` | double | `0.095` | m | Drive-wheel radius `R`. Guarded: values ≤ 0 fall back to the default (warn). |
 | `wheel_to_wheel` | double | `0.55` | m | Wheel separation `L` (distance between the two drive wheels). Guarded: ≤ 0 falls back to the default (warn). |
 
@@ -56,13 +56,14 @@ encoder **position deltas** (dt-free), so a paused or stretched `/clock` does **
 corrupt them. `use_sim_time` (ROS clock) only affects time-derived quantities:
 message stamps, the `cmd_vel_timeout` stale check, the jump guard's expected step
 (`actualVelocity·dt`), and the `/odom_accel` rate limit. A paused `/clock` still
-disables the stale-command stop (the last wheel target keeps being held).
+disables the stale-command stop (the last wheel target keeps being held), because
+both the arrival stamp and the comparison come from the same paused clock.
 
 ### C. Behaviour / safety
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
-| `cmd_vel_timeout` | double | `0.25` | s | Stale-command safety: if no command is fresh within this window, the wheel target is forced to zero. Freshness is measured against the command's **header stamp** (rejects stale/buffered commands, not just gaps in receipt; a zero/unset stamp falls back to arrival time). The stop decelerates over `dec_time` — **not** an emergency stop; a true e-stop must go through the WMX hardware-level stop path. Not guarded: a negative value makes every cycle stale (permanent zero target, no warning). |
+| `cmd_vel_timeout` | double | `0.25` | s | Stale-command safety: if no command arrives within this window, the wheel target is forced to zero. Freshness is measured against **arrival time** on this node's clock, so a publisher whose clock runs ahead cannot hold the base alive after it dies. The stop decelerates over `dec_time`, so it is **not** an emergency stop; a true e-stop must go through the WMX hardware-level stop path. Not guarded: a negative value makes every cycle stale (permanent zero target, no warning). |
 | `accel_publish_rate` | double | `10.0` | Hz | Rate limit for `/odom_accel` relative to the control loop. `0` = publish every control cycle. Guarded: negative values fall back to 10.0. |
 | `accel_alpha` | double | `0.3` | – | EMA weight of the newest raw acceleration sample, valid range (0, 1]; higher = more responsive, lower = smoother. The estimator snaps to zero when both the current and previous velocity samples are ~0 (kills the EMA tail at standstill). Not guarded: the range is not enforced (0 pins `/odom_accel` to zero; >1 destabilizes the EMA — validate in the config layer). |
 | `publish_tf` | bool | `false` | – | Publish `odom_frame → base_frame` TF from the integrated pose. Keep **false** when a localization EKF owns that TF (the EKF is launched when an IMU is configured). Enable only as the fallback for IMU-less / no-EKF configs where this node is the sole odometry source. |
@@ -89,7 +90,7 @@ in the generated node config like any other value.
 
 | Topic (default) | Dir | Type | QoS | Rate | Notes |
 |---|---|---|---|---|---|
-| `/cmd_vel_safe` | sub | `geometry_msgs/TwistStamped` | default (reliable, volatile), depth 1 | producer | **TwistStamped is mandatory** — the header stamp drives the staleness timeout (a zero/unset stamp falls back to arrival time). Uses `twist.linear.x` [m/s], `twist.angular.z` [rad/s]. |
+| `/cmd_vel_safe` | sub | `geometry_msgs/TwistStamped` | default (reliable, volatile), depth 1 | producer | **TwistStamped is mandatory** by message type; the header stamp is not read, the staleness timeout runs on arrival time. Uses `twist.linear.x` [m/s], `twist.angular.z` [rad/s]. |
 | `/odom_enc` | pub | `nav_msgs/Odometry` | default, depth 1 | `rate` | `header.frame_id = odom_frame`, `child_frame_id = base_frame`. **Pose** = dead-reckoned from per-wheel encoder **position deltas** (`actualPos`), exact-arc via the sinc midpoint form (dt-free). **Twist** = `vx`, `vy`(=0), `vyaw` from `actualVelocity` (forward kinematics). Covariance: see below. |
 | `/odom_deltas` | pub | `geometry_msgs/TwistStamped` | default, depth 1 | `rate` | Accumulated `Σ|Δs|` (in `twist.linear.x`, m) and `Σ|Δθ|` (in `twist.angular.z`, rad) from encoder **position deltas** since the previous publish (more exact than `Σ|v|·dt`); resets each publish. `frame_id = odom_frame`. |
 | `/odom_accel` | pub | `geometry_msgs/AccelStamped` | default, depth 1 | `accel_publish_rate` | EMA-filtered derivative of body velocity over the actual inter-publish interval. `frame_id = base_frame`. |
@@ -189,10 +190,10 @@ exit codes.
 
 The node does **not** start communication, clear alarms, or switch servos on —
 that is owned by the engine/general nodes (see
-`reference_wmx_r2_general_nodes.md` for the service sequence).
+`reference_general_nodes.md` for the service sequence).
 
 **Manual vs. controller arbitration.** While this node is ACTIVE it owns the wheel
-axes: `wmx_core_motion_node` rejects `start_pos`, `start_mov`, `start_vel`, `start_jog`
+axes: `wmx_core_motion_node` rejects the `start_pos`, `start_mov`, `start_vel`, `start_jog`
 and `start_home` for as long as it stays active (it is listed in that node's
 `motion_controllers`). `wmx/axes/stop` is never blocked. See
 `reference_general_nodes.md`.

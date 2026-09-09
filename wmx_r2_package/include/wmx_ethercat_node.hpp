@@ -39,8 +39,6 @@ public:
   int scanNetwork(int32_t masterId, std::string & message);
   int startHotconnect(int32_t masterId, std::string & message);
 
-  bool isDeviceCreated() const {return wmxEcat_ != nullptr;}
-
 private:
   rclcpp::Logger logger_;
 
@@ -48,7 +46,7 @@ private:
   unsigned int timeout_ = 10000;
 
   wmx3Api::WMX3Api wmx3Lib_;
-  std::unique_ptr<wmx3Api::ecApi::Ecat> wmxEcat_;
+  wmx3Api::ecApi::Ecat wmxEcat_;
 };
 
 class WmxEtherCatNode : public rclcpp_lifecycle::LifecycleNode
@@ -74,7 +72,6 @@ private:
   rclcpp::Service<wmx_r2_message::srv::EcatResetStatistics>::SharedPtr resetStatisticsService_;
   rclcpp::Service<wmx_r2_message::srv::EcatScanNetwork>::SharedPtr scanNetworkService_;
   rclcpp::Service<wmx_r2_message::srv::EcatStartHotconnect>::SharedPtr startHotconnectService_;
-
 
   void getMasterInfoCallback(
     const std::shared_ptr<wmx_r2_message::srv::EcatGetMasterInfo::Request> request,

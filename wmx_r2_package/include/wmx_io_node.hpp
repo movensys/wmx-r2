@@ -62,7 +62,7 @@ private:
   unsigned int timeout_ = 10000;
 
   wmx3Api::WMX3Api wmx3Lib_;
-  std::unique_ptr<wmx3Api::IO> wmxIo_;
+  wmx3Api::IO wmxIo_;
 };
 
 class WmxIoNode : public rclcpp_lifecycle::LifecycleNode
@@ -95,7 +95,6 @@ private:
   rclcpp::Service<wmx_r2_message::srv::SetIoBits>::SharedPtr setOutBitsService_;
   rclcpp::Service<wmx_r2_message::srv::SetIoByte>::SharedPtr setOutByteService_;
   rclcpp::Service<wmx_r2_message::srv::SetIoBytes>::SharedPtr setOutBytesService_;
-
 
   void getInBitCallback(
     const std::shared_ptr<wmx_r2_message::srv::GetIoBit::Request> request,

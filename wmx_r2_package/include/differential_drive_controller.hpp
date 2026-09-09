@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
@@ -64,8 +65,7 @@ struct DiffDriveModel
 
   BodyVel forwardDelta(double d_phi_left, double d_phi_right) const
   {
-    // DiffDriveModel::forward, not std::forward (cpplint IWYU false positive):
-    return forward({d_phi_left, d_phi_right});  // NOLINT(build/include_what_you_use)
+    return forward({d_phi_left, d_phi_right});
   }
 };
 
@@ -100,7 +100,7 @@ public:
 
   void odometryPoseCalculation(double ds, double dtheta)
   {
-    if (!std::isfinite(ds) || !std::isfinite(dtheta)) {return;}  // ignore invalid steps
+    if (!std::isfinite(ds) || !std::isfinite(dtheta)) {return;}
     const double half = 0.5 * dtheta;
     const double mid = pose_.theta + half;
     const double k = ds * sinc(half);
@@ -134,14 +134,14 @@ class OdomDeltaAccumulator
 public:
   void odometryDeltaAccumulation(const BodyVel & vel, double dt)
   {
-    if (!std::isfinite(dt) || dt <= 0.0) {return;}  // ignore invalid/negative dt
+    if (!std::isfinite(dt) || dt <= 0.0) {return;}
     delta_.linear += std::abs(vel.linear * dt);
     delta_.angular += std::abs(vel.angular * dt);
   }
 
   void odometryDeltaAccumulation(double ds, double dtheta)
   {
-    if (!std::isfinite(ds) || !std::isfinite(dtheta)) {return;}  // ignore invalid steps
+    if (!std::isfinite(ds) || !std::isfinite(dtheta)) {return;}
     delta_.linear += std::abs(ds);
     delta_.angular += std::abs(dtheta);
   }
@@ -245,8 +245,6 @@ public:
 
   int startVel(int axis, double omega, std::string & message);
 
-  bool isDeviceCreated() const {return isDeviceCreated_;}
-
 private:
   rclcpp::Logger logger_;
   Config config_;
@@ -255,7 +253,6 @@ private:
   unsigned int timeout_ = 10000;
 
   mutable std::mutex deviceMutex_;
-  bool isDeviceCreated_ = false;
 
   wmx3Api::WMX3Api wmx3Lib_;
   wmx3Api::CoreMotion cm_;
@@ -301,7 +298,6 @@ private:
   std::string odomDeltasTopic_;
   std::string odomAccelTopic_;
 
-
   diff_drive::DiffDriveModel model_;
   diff_drive::OdometryIntegrator integrator_;
   diff_drive::OdomDeltaAccumulator deltas_;
@@ -331,12 +327,12 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::AccelStamped>::SharedPtr odomAccelPub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tfBroadcaster_;
 
-
   void setRosParameter();
 
   void cmdStampedCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   void controlStep();
   void commandWheels(double omegaLeft, double omegaRight);
+  void stopWheelsOnFault();
   bool startVel(int axis, double omega);
 
   void publishOmega(const diff_drive::WheelOmega & enc);

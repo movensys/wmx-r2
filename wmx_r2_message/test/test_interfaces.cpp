@@ -6,9 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "wmx_r2_message/msg/axes_pose.hpp"
 #include "wmx_r2_message/msg/axes_status.hpp"
-#include "wmx_r2_message/msg/axes_velocity.hpp"
 #include "wmx_r2_message/srv/ecat_get_master_info.hpp"
 #include "wmx_r2_message/srv/ecat_register_read.hpp"
 #include "wmx_r2_message/srv/ecat_reset_statistics.hpp"
@@ -25,6 +23,8 @@
 #include "wmx_r2_message/srv/set_io_bit.hpp"
 #include "wmx_r2_message/srv/set_io_bytes.hpp"
 #include "wmx_r2_message/srv/set_node_state.hpp"
+#include "wmx_r2_message/srv/start_axes_pose.hpp"
+#include "wmx_r2_message/srv/start_axes_velocity.hpp"
 
 TEST(AxesStatus, roundtrip_fields) {
   wmx_r2_message::msg::AxesStatus msg;
@@ -40,27 +40,37 @@ TEST(AxesStatus, roundtrip_fields) {
   EXPECT_DOUBLE_EQ(msg.pos_cmd[0], 3.0);
 }
 
-TEST(AxesPose, roundtrip_fields) {
-  wmx_r2_message::msg::AxesPose msg;
-  msg.axis = {0, 1, 2};
-  msg.target = {10.0, 20.0, 30.0};
-  msg.velocity = {1.0, 2.0, 3.0};
-  msg.acc = {100.0, 100.0, 100.0};
-  msg.dec = {50.0, 50.0, 50.0};
+TEST(StartAxesPose, request_and_response) {
+  wmx_r2_message::srv::StartAxesPose::Request req;
+  req.axis = {0, 1, 2};
+  req.target = {10.0, 20.0, 30.0};
+  req.velocity = {1.0, 2.0, 3.0};
+  req.acc = {100.0, 100.0, 100.0};
+  req.dec = {50.0, 50.0, 50.0};
 
-  EXPECT_EQ(msg.axis.size(), 3u);
-  EXPECT_DOUBLE_EQ(msg.target[2], 30.0);
+  EXPECT_EQ(req.axis.size(), 3u);
+  EXPECT_DOUBLE_EQ(req.target[2], 30.0);
+
+  wmx_r2_message::srv::StartAxesPose::Response res;
+  res.success = true;
+  res.message = "Moving axis 0 to 10";
+  EXPECT_TRUE(res.success);
 }
 
-TEST(AxesVelocity, roundtrip_fields) {
-  wmx_r2_message::msg::AxesVelocity msg;
-  msg.axis = {0};
-  msg.velocity = {5.5};
-  msg.acc = {200.0};
-  msg.dec = {200.0};
+TEST(StartAxesVelocity, request_and_response) {
+  wmx_r2_message::srv::StartAxesVelocity::Request req;
+  req.axis = {0};
+  req.velocity = {5.5};
+  req.acc = {200.0};
+  req.dec = {200.0};
 
-  EXPECT_EQ(msg.axis[0], 0);
-  EXPECT_DOUBLE_EQ(msg.velocity[0], 5.5);
+  EXPECT_EQ(req.axis[0], 0);
+  EXPECT_DOUBLE_EQ(req.velocity[0], 5.5);
+
+  wmx_r2_message::srv::StartAxesVelocity::Response res;
+  res.success = false;
+  res.message = "startVel: no axis given";
+  EXPECT_FALSE(res.success);
 }
 
 TEST(SetEngine, request_and_response) {

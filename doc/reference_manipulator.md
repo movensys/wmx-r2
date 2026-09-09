@@ -54,9 +54,9 @@ wrong. Every deployment supplies a YAML.
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
-| `joint_axes` | int[] | `[]` | – | WMX3 axis index per joint, in the same order as `joint_name`. **Not validated**: an out-of-range index reads out of bounds in the status array (garbage feedback), not an error. |
-| `joint_name` | string[] | `[j1..j6]` | – | Joint names published in `JointState.name`. **Must be at least as long as `joint_axes`** — the publish loop indexes `joint_name[i]` for every entry of `joint_axes`, so a short list is out-of-bounds access, not a warning. |
-| `joint_feedback_rate` | int | `0` | Hz | Feedback publish rate. The timer period is `1000 / joint_feedback_rate` truncated to whole milliseconds, so prefer rates that divide 1000 (100, 125, 200, 250, 500). **The default is not usable**: leaving it at `0` divides by zero at `configure`. Always set it (both shipped configs use `100`). |
+| `joint_axes` | int[] | `[]` | – | WMX3 axis index per joint, in the same order as `joint_name`. An index outside `[0, maxAxes)` fails the whole status read with `ArgumentOutOfRange` and the cycle publishes nothing (throttled warn). |
+| `joint_name` | string[] | `[j1..j6]` | – | Joint names published in `JointState.name`. A list shorter than `joint_axes` is not an error: the extra axes are dropped at configure with a warning, so the two always line up in the publish loop. |
+| `joint_feedback_rate` | int | `0` | Hz | Feedback publish rate. The timer period is `1000 / joint_feedback_rate` truncated to whole milliseconds, so prefer rates that divide 1000 (100, 125, 200, 250, 500). A value of `0` or less falls back to 100 Hz with a warning, but set it explicitly (both shipped configs use `100`). |
 | `encoder_joint_topic` | string | `/encoder_joint_topic/no_param` | – | Real-robot feedback topic; the deployment sets it to `/joint_states` (MoveIt / robot_state_publisher input). |
 | `isaacsim_joint_topic` | string | `/isaacsim_joint_topic/no_param` | – | Mirror of the same message for Isaac Sim (`/isaacsim/joint_command`). Published **before** the header stamp is filled in, i.e. with a zero stamp — Isaac consumes positions by name, not by time. |
 | `gazebo_joint_topic` | string | `/gazebo_joint_topic/no_param` | – | Positions only, as `Float64MultiArray`, for a Gazebo position controller. |
@@ -69,7 +69,8 @@ wrong. Every deployment supplies a YAML.
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
-| `joint_axes` | int[] | `[]` | – | WMX3 axis index per trajectory joint, positionally matched to the goal's `joint_names`. The goal's names are **logged, not matched** — the i-th position in the goal drives `joint_axes[i]`. Ordering agreement with the planner is a deployment responsibility. |
+| `joint_axes` | int[] | `[]` | – | WMX3 axis index per trajectory joint. |
+| `joint_name` | string[] | `[]` | – | Joint name per entry of `joint_axes`, same order. When the goal carries `joint_names`, each goal column is matched to its axis by name and a goal that names an unknown joint, repeats one, or leaves one out is rejected. Leave empty only to keep the old positional mapping, which the node warns about at startup. A length that does not match `joint_axes` is logged as an error and the list is dropped. |
 | `joint_trajectory_action` | string | `/joint_trajectory_action/no_param` | – | Name of the `FollowJointTrajectory` action server. Must equal the controller name MoveIt2 is configured to call (e.g. `/movensys_manipulator_arm_controller/follow_joint_trajectory`). |
 
 `MAX_TRAJ_POINTS` (1000) is a compile-time constant, not a parameter: it sizes the
@@ -91,7 +92,7 @@ WMX spline buffer allocated at `configure` and caps the accepted goal length.
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
 | `wmx_gripper_topic` | string | `/wmx_gripper_topic/no_param` | – | Name of the `std_srvs/SetBool` **service** (the parameter is named "topic" for historical reasons). CR3A uses `/wmx/set_gripper`. |
-| `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX output bit driven by the service. Both entries are read unconditionally, so a list shorter than 2 is out-of-bounds access. |
+| `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX output bit driven by the service. A list shorter than 2 falls back to `[0, 0]` with a warning. |
 
 `MANIPULATOR_MODEL` is an **environment variable**, not a parameter: when it equals
 `dobot_cr3a` (injected by the CR3A launch file via `additional_env`), `configure`
@@ -205,7 +206,7 @@ lifecycle state, or topic liveness (`/joint_states` at `joint_feedback_rate`), n
 exit codes.
 
 **Manual vs. controller arbitration.** `wmx_core_motion_node` refuses its own motion
-commands (`start_pos`, `start_mov`, `start_vel`, `start_jog`, `start_home`) while any
+services (`start_pos`, `start_mov`, `start_vel`, `start_jog`, `start_home`) while any
 node in its `motion_controllers` list is ACTIVE, so a manual jog cannot fight a running
 controller. `wmx/axes/stop` is never blocked, and the servo/config services stay open —
 the broadcaster needs `set_servo_on` to activate. See `reference_general_nodes.md`.
@@ -223,40 +224,43 @@ The latch is one-directional: a servo motion already in flight is not preempted
 when a planned goal starts. Keep MoveIt Servo paused (or accept that the first
 planned goal wins the race) if both can be commanded at once.
 
-**Goal execution** (`joint_trajectory_controller`, on a detached thread):
+**Goal execution** (`joint_trajectory_controller`, on one execution thread the node
+owns and joins):
 
-1. Reject if `points.size() > 1000` (abort, no motion).
-2. Fill the spline buffer from `positions` + `time_from_start`, normalize the first
-   timestamp to 0, drop a sub-millisecond final point.
-3. `StartCSplinePos(buffer 0, ...)`; a WMX error aborts the goal with
+1. Reject a second goal while one is running, and reject any goal while the node is
+   not ACTIVE.
+2. Reject if `points.size() > 1000` (abort, no motion).
+3. Map each goal column to its axis by `joint_name`, then fill the spline buffer from
+   `positions` + `time_from_start`, normalize the first timestamp to 0, drop a
+   sub-millisecond final point.
+4. `StartCSplinePos(buffer 0, ...)`; a WMX error aborts the goal with
    `result.error_code` set to the raw WMX code.
-4. Poll every 10 ms until `inPos` is set on every `joint_axes` entry, or the goal is
-   canceled — cancel issues `Stop` + `Wait` and reports `canceled`.
+5. Wait out the planned duration of the trajectory, then poll every 10 ms until
+   `motionComplete` and `inPos` are both set on every `joint_axes` entry. Cancel
+   issues `Stop` + `Wait` and reports `canceled`. A goal that has not finished 10 s
+   past its planned duration is aborted with `GOAL_TOLERANCE_VIOLATED` after a
+   `Stop`.
 
-No feedback messages are published during execution, and there is no path
-tolerance / goal tolerance check: `inPos` (WMX-side, from the axis parameters) is
-the completion criterion.
+The planned duration comes from the last `time_from_start` in the goal, so a goal
+cannot report success before the motion it asked for has had time to run. No
+feedback messages are published during execution, and there is no path tolerance or
+goal tolerance check beyond that deadline.
 
 **Process model.** Each node ships as its own executable, one process per node.
 `joint_state_broadcaster` runs on a `MultiThreadedExecutor` (its activate-time
 service calls need it); the other three run on the default single-threaded
-executor, with the trajectory controller's goal execution on a detached thread it
-manages itself. None is built as a composable component.
+executor. The trajectory controller runs its goal on a separate thread that the node
+joins on deactivate, cleanup and destruction, so no goal outlives the device handle.
+None is built as a composable component.
 
 ---
 
 ## Known limitations
 
-- **Goal shape is trusted.** The trajectory controller reads `positions.at(j)` for
-  every configured axis. A goal with fewer positions than `joint_axes` throws
-  inside the detached execution thread, which terminates the process. Constrain
-  this at the planner/config layer.
-- **Names are positional.** Neither `joint_axes` ↔ goal `joint_names` (trajectory
-  controller) nor `joint_name` ↔ `joint_axes` (broadcaster) is length-checked; a
-  mismatch is silent misordering or out-of-bounds access, not an error.
-- **No engine gate in the feedback loop.** `publishJointState()` does not check the
-  engine state or the `GetStatus` return, so while the engine is down the
-  broadcaster keeps publishing the last values it read. Watch the engine through
+- **No engine gate in the feedback loop.** `publishJointState()` checks the
+  `GetStatus` return and skips the cycle when it fails, but it does not check the
+  engine state, so an engine that stops without failing the read leaves the
+  broadcaster publishing the last values it saw. Watch the engine through
   `wmx/engine/get_engine_status` (the lifecycle manager already does, and takes
   these nodes down when it stops).
 - **`gripper_controller` hardcodes its SDK path.** It calls `CreateDevice("/opt/lmx/", ...)`
@@ -306,6 +310,7 @@ joint_state_broadcaster:
 joint_trajectory_controller:
   ros__parameters:
     joint_axes: [0, 1, 2, 3, 4, 5]
+    joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
     joint_trajectory_action: /movensys_manipulator_arm_controller/follow_joint_trajectory
 
 joint_position_controller:

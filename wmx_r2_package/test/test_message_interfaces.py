@@ -4,9 +4,7 @@ import unittest
 
 from std_msgs.msg import Header
 
-from wmx_r2_message.msg import AxesPose
 from wmx_r2_message.msg import AxesStatus
-from wmx_r2_message.msg import AxesVelocity
 from wmx_r2_message.srv import EcatGetMasterInfo
 from wmx_r2_message.srv import EcatRegisterRead
 from wmx_r2_message.srv import EcatResetStatistics
@@ -23,6 +21,8 @@ from wmx_r2_message.srv import SetEngine
 from wmx_r2_message.srv import SetIoBit
 from wmx_r2_message.srv import SetIoBytes
 from wmx_r2_message.srv import SetNodeState
+from wmx_r2_message.srv import StartAxesPose
+from wmx_r2_message.srv import StartAxesVelocity
 
 
 class TestAxesStatusMsg(unittest.TestCase):
@@ -66,36 +66,47 @@ class TestAxesStatusMsg(unittest.TestCase):
         self.assertTrue(hasattr(msg, 'motion_complete'))
 
 
-class TestAxesPoseMsg(unittest.TestCase):
-    """Verify AxesPose.msg fields."""
+class TestStartAxesPoseSrv(unittest.TestCase):
+    """Verify StartAxesPose.srv fields."""
 
-    def test_fields_exist(self):
-        msg = AxesPose()
+    def test_request_fields(self):
+        req = StartAxesPose.Request()
         for field in ['axis', 'target', 'velocity', 'acc', 'dec']:
-            self.assertTrue(hasattr(msg, field), f'Missing field: {field}')
+            self.assertTrue(hasattr(req, field), f'{field} missing')
 
-    def test_populate(self):
-        msg = AxesPose()
-        msg.axis = [0, 1]
-        msg.target = [100.0, 200.0]
-        msg.velocity = [50.0, 50.0]
-        msg.acc = [10.0, 10.0]
-        msg.dec = [10.0, 10.0]
-        self.assertEqual(len(msg.axis), 2)
+    def test_response_fields(self):
+        res = StartAxesPose.Response()
+        self.assertTrue(hasattr(res, 'success'))
+        self.assertTrue(hasattr(res, 'message'))
+
+    def test_assign_arrays(self):
+        req = StartAxesPose.Request()
+        req.axis = [0, 1]
+        req.target = [100.0, 200.0]
+        req.velocity = [50.0, 50.0]
+        req.acc = [10.0, 10.0]
+        req.dec = [10.0, 10.0]
+        self.assertEqual(len(req.axis), 2)
+        self.assertEqual(list(req.target), [100.0, 200.0])
 
 
-class TestAxesVelocityMsg(unittest.TestCase):
-    """Verify AxesVelocity.msg fields."""
+class TestStartAxesVelocitySrv(unittest.TestCase):
+    """Verify StartAxesVelocity.srv fields."""
 
-    def test_fields_exist(self):
-        msg = AxesVelocity()
+    def test_request_fields(self):
+        req = StartAxesVelocity.Request()
         for field in ['axis', 'velocity', 'acc', 'dec']:
-            self.assertTrue(hasattr(msg, field), f'Missing field: {field}')
+            self.assertTrue(hasattr(req, field), f'{field} missing')
 
-    def test_no_target_field(self):
-        """Verify AxesVelocity has no target field (unlike AxesPose)."""
-        msg = AxesVelocity()
-        self.assertFalse(hasattr(msg, 'target'))
+    def test_has_no_target(self):
+        """Verify StartAxesVelocity has no target field (unlike StartAxesPose)."""
+        req = StartAxesVelocity.Request()
+        self.assertFalse(hasattr(req, 'target'))
+
+    def test_response_fields(self):
+        res = StartAxesVelocity.Response()
+        self.assertTrue(hasattr(res, 'success'))
+        self.assertTrue(hasattr(res, 'message'))
 
 
 class TestSetEngineSrv(unittest.TestCase):

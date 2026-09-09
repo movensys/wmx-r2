@@ -3,3 +3,6 @@ float64[] target       # target position per axis
 float64[] velocity
 float64[] acc
 float64[] dec
+---
+bool success   # indicate successful run
+string message # response messages

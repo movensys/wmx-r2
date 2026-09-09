@@ -2,51 +2,31 @@
 
 **Note that this ROS2 Packages requires pre-installed WMX Linux.**
 
-## 1. Bashrc Configuration [~/.bashrc]
+## Bashrc Configuration [~/.bashrc]
 ```
 export ROS_DOMAIN_ID=70                         #use any number
 export ROS_DISTRO=jazzy                         #support {jazzy, humble}
+export CPU_ARCH=amd64                           #support {amd64, arm64}
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
-source /opt/ros/$ROS_DISTRO/setup.bash
-source ~/workspaces/movensys_ws/install/setup.bash
+source ~/workspaces/movensys_ws/src/wmx-r2/docker/wros.bash
 ```
 ```
+xhost +local:docker
 source ~/.bashrc
 ```
 
-### Dependencies 
-```
-sudo apt install -y ros-${ROS_DISTRO}-graph-msgs \
-                    ros-${ROS_DISTRO}-moveit-ros \
-                    ros-${ROS_DISTRO}-moveit-planners \
-                    ros-${ROS_DISTRO}-moveit-plugins \
-                    ros-${ROS_DISTRO}-moveit-setup-assistant \
-                    ros-${ROS_DISTRO}-moveit-configs-utils \
-                    ros-${ROS_DISTRO}-moveit-task-constructor-core \
-                    ros-${ROS_DISTRO}-ros2-control \
-                    ros-${ROS_DISTRO}-ros2-controllers \
-                    ros-${ROS_DISTRO}-controller-manager \
-                    ros-${ROS_DISTRO}-diff-drive-controller \
-                    ros-${ROS_DISTRO}-joint-trajectory-controller \
-                    ros-${ROS_DISTRO}-joint-state-broadcaster \
-                    ros-${ROS_DISTRO}-xacro \
-                    ros-${ROS_DISTRO}-topic-tools \
-                    ros-${ROS_DISTRO}-rmw-cyclonedds-cpp
-```
-
-## Setup
+## Git clone
 ```
 mkdir -p ~/workspaces/movensys_ws/src
 cd ~/workspaces/movensys_ws/src && \
    git clone https://github.com/movensys/wmx-r2.git
 ```
 
-## Build
+## Docker setup
 ```
-cd ~/workspaces/movensys_ws
-colcon build --packages-select wmx_r2_message
-source install/setup.bash
-colcon build
-source ~/.bashrc
+cd ~/workspaces/movensys_ws/src/wmx-r2/docker
+docker compose -f general.yaml -f wmx_r2.${CPU_ARCH}.yaml down
+docker compose -f general.yaml -f wmx_r2.${CPU_ARCH}.yaml build
+docker compose -f general.yaml -f wmx_r2.${CPU_ARCH}.yaml up -d
 ```
