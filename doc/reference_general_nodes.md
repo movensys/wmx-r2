@@ -44,8 +44,12 @@ ros2 topic pub --once /wmx/axes/start_vel wmx_r2_message/msg/AxesVelocity \
 
 ### Jog (hold-to-move)
 `/wmx/axes/start_jog` is a dead-man command: the publisher must keep republishing
-while the operator holds the control. The axis is stopped once refreshes stop
-arriving (`jog_timeout_ms`). The sign of `velocities` selects the direction.
+while the operator holds the control, and the axis stops once refreshes stop
+arriving (`jog_timeout_ms`). The sign of `velocity` selects the direction.
+
+If the jog control is a held keyboard key, the X11 auto-repeat rate caps how often refreshes go out. 
+Raise it with `xset r rate 150 30` (150 ms until the first repeat, 30 repeats/s)
+so the motion does not stutter.
 
 Jog requires the axis to be in **Position mode**, on top of the usual startup
 sequence above:
@@ -58,11 +62,11 @@ ros2 service call /wmx/axes/set_axis_command_mode wmx_r2_message/srv/SetAxes \
 ```
 # Positive direction. Ctrl-C acts as the release.
 ros2 topic pub -r 20 /wmx/axes/start_jog wmx_r2_message/msg/AxesVelocity \
-    "{axis: [0], velocity: [10000], acc: [100000], dec: [100000]}"
+    "{axis: [0], velocity: [1000], acc: [10000], dec: [10000]}"
 
 # Negative direction
 ros2 topic pub -r 20 /wmx/axes/start_jog wmx_r2_message/msg/AxesVelocity \
-    "{axis: [0], velocity: [-10000], acc: [100000], dec: [100000]}"
+    "{axis: [0], velocity: [-1000], acc: [10000], dec: [10000]}"
 ```
 
 #### Stop
@@ -70,9 +74,12 @@ ros2 topic pub -r 20 /wmx/axes/start_jog wmx_r2_message/msg/AxesVelocity \
 ros2 service call /wmx/axes/stop wmx_r2_message/srv/SetAxes "{axis: [0], data: [0]}"
 ```
 
-`wmx_core_motion_node`'s jog tuning (`jog_timeout_ms`, `jog_run_time_ms`,
-`jog_jerk_ratio`) is read once at startup, so set it in the launch config YAML
-rather than with `ros2 param set`. See **Behavior Notes** below.
+#### Notes
+- Publish faster than `jog_timeout_ms` (default `200`); the 20 Hz above leaves
+  margin.
+- `wmx_core_motion_node`'s jog tuning (`jog_timeout_ms`, `jog_run_time_ms`,
+  `jog_jerk_ratio`) is read once at startup, so set it in the launch config YAML
+  rather than with `ros2 param set`. See `wmx_r2_general_nodes_config.yaml`.
 
 ---
 
