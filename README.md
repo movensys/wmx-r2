@@ -55,8 +55,7 @@ industrial production equipment depends on.
 
 Research hardware is chosen to make a result provable. It is not chosen to make a
 product. A new perception, planning or control method is validated by beating an
-existing method under identical conditions. A cheap arm on USB or CAN is often
-the right choice for that.
+existing method under identical conditions. 
 
 The problem appears later. Running the same method on a machine that produces
 parts is a separate discipline: industrial communication, servo drives,
@@ -65,13 +64,13 @@ that gap normally means rewriting the motion layer for the target machine behind
 a vendor's closed toolchain.
 
 **WMX R2 removes the rewrite.** The same interface that drives a bench setup
-drives the production machine.
+drives the industrial grade production machine.
 
 ## Why WMX R2
 
 | | |
 |---|---|
-| **ROS2 and AI on the industrial machine** | MoveIt2, MoveIt Servo, Nav2 and Isaac ROS command EtherCAT servos through standard ROS2 actions, topics and services, with no vendor motion code |
+| **ROS2 and AI on the industrial machine** | MoveIt2, MoveIt Servo and Nav2 command EtherCAT servos through standard ROS2 actions and topics, without external motion controller |
 | **One IPC, no external controller** | Removing the external controller's TCP/IP hop and its redundant control stage cut mean absolute tracking error by 85% versus a conventional setup ([benchmark](https://movensys.github.io/wmx-r2-doc/)) |
 | **Any EtherCAT machine** | Nothing is baked into the launch files. A manipulator, a mobile base or a 50-axis machine differ only by the config, URDF and WMX parameter XML you pass in |
 | **Down to the register** | Axis, IO, EtherCAT master and engine control are all exposed as services, so commissioning and diagnostics need no extra tooling |
@@ -83,7 +82,7 @@ drives the production machine.
 
 > This package drives real motion hardware in real time. It is beyond a simulator.
 
-- **WMX Linux** (real-time patched) with the WMX3 SDK installed. See [WMX installation](https://movensys.github.io/wmx-r2-doc/getting_started/install_wmx3.html).
+- **WMX Linux** (real-time patched) with the WMX3 SDK installed. See [WMX installation](https://movensys.github.io/wmx-r2-doc/getting_started/index.html).
 - EtherCAT servo drives / IO reachable from the WMX3 master.
 - ROS2 **Humble** or **Jazzy**, with `rmw_cyclonedds` as the RMW.
 - Root for real-time scheduling: `sudo --preserve-env` on the host, or `wros` in the container.
@@ -171,25 +170,70 @@ ros2 service call /wmx/lifecycle/set_node_state wmx_r2_message/srv/SetNodeState 
 Transitions that take nodes down are applied in reverse bring-up order. The
 standard `ros2 lifecycle` CLI works on the nodes directly as well.
 
-### Trajectory control ([wmx_r2_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_manipulator.launch.py))
+### Manipulator control ([wmx_r2_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_manipulator.launch.py))
 
 ```mermaid
 ---
-title: Trajectory Control
+title: Manipulator Control
 ---
 flowchart LR;
-    A["MoveIt2"] -->|action| B[joint_trajectory_controller];
+    A["MoveIt2 move_group"] -->|FollowJointTrajectory| B[joint_trajectory_controller];
+    S["MoveIt Servo"] -->|JointTrajectory| P[joint_position_controller];
+    K["/wmx/set_gripper"] -->|SetBool| R[gripper_controller];
+    B -->|execution_active| P;
     B --> C[WMX3 API];
+    P --> C;
+    R --> C;
     C --> D[WMX Engine];
     D --> E[Robot];
-    E --> D[WMX Engine];
-    D --> C[WMX3 API];
+    E --> D;
+    D --> C;
     C --> F[joint_state_broadcaster];
     F --> G["/joint_states"];
 ```
 
-- `MoveIt2` -> `joint_trajectory_controller` -> WMX3 API -> WMX Engine -> Robot
-- Robot -> WMX Engine -> WMX3 API -> `joint_state_broadcaster` -> `/joint_states`
+Four nodes, each attaching to the WMX3 device itself:
+
+- `joint_trajectory_controller` takes planned goals from MoveIt2 as a
+  `FollowJointTrajectory` action and runs them as a WMX3 time-based C-spline.
+- `joint_position_controller` takes MoveIt Servo's streamed `JointTrajectory` and
+  runs it as WMX3 linear interpolation, so every axis arrives at the same instant.
+- `gripper_controller` drives one WMX IO output bit from a `std_srvs/SetBool`
+  service. Started only with `use_gripper:=true`.
+- `joint_state_broadcaster` publishes encoder feedback to `/joint_states`. It also
+  clears amp alarms and switches the servos on when it activates.
+
+The two motion controllers interlock over
+`/moveit2_trajectory/execution_active`. While a planned goal runs,
+`joint_position_controller` drops every streamed trajectory, so a servo command
+cannot fight a running trajectory. See
+[doc/reference_manipulator.md](doc/reference_manipulator.md).
+
+### Differential-drive control ([wmx_r2_differential.launch.py](wmx_r2_package/launch/wmx_r2_differential.launch.py))
+
+```mermaid
+---
+title: Differential-drive Control
+---
+flowchart LR;
+    A["Nav2 / teleop"] -->|"/cmd_vel_safe"| B[differential_drive_controller];
+    B --> C[WMX3 API];
+    C --> D[WMX Engine];
+    D --> E[Wheels];
+    E --> D[WMX Engine];
+    D --> C[WMX3 API];
+    C --> B;
+    B --> F["/odom_enc, /omega_enc"];
+```
+
+- `TwistStamped` on `/cmd_vel_safe` -> `differential_drive_controller` -> WMX3 API -> WMX Engine -> wheels
+- Wheels -> WMX Engine -> WMX3 API -> `differential_drive_controller` -> `/odom_enc` (`nav_msgs/Odometry`), `/omega_enc`
+
+The controller holds the kinematics and the dead-reckoning. It converts body
+velocity to wheel velocity, drives both wheels with `StartVel`, and integrates
+the encoder velocities back into an odometry pose. A stale command stops the
+wheels within `cmd_vel_timeout`. See
+[doc/reference_differential.md](doc/reference_differential.md).
 
 ## Packages
 
@@ -198,6 +242,17 @@ flowchart LR;
 | [wmx_r2_message](wmx_r2_message/) | Custom messages and services for axis, IO, EtherCAT, and engine control |
 | [wmx_r2_package](wmx_r2_package/) | Main nodes, launch files, and robot configurations |
 | [wmx_r2_control](wmx_r2_control/) | `ros2_control` hardware interface, URDF xacros, and controller configs |
+
+This repository is the **execution layer**. It implements the interfaces the
+planners drive, but ships no planner configuration of its own. The planning and
+perception stacks live in companion repositories:
+
+| Repository | Provides |
+|------------|----------|
+| [movensys-manipulator](https://github.com/movensys/movensys-manipulator) | MoveIt2 and Isaac cuMotion planning, Nvblox / YOLO / AprilTag perception |
+| [movensys-navigation](https://github.com/movensys/movensys-navigation) | Nav2 configuration, EKF odometry and SLAM for a differential-drive base |
+| [movensys-intelligence](https://github.com/movensys/movensys-intelligence) | VLM / LLM voice layer built on the manipulator stack |
+| [movensys-simulation](https://github.com/movensys/movensys-simulation) | Isaac Sim scenes for the manipulator and navigation scenarios |
 
 ## Nodes
 
@@ -232,13 +287,44 @@ robot of that kind. The per-robot examples live in
 
 ## MoveIt2 integration
 
-To connect with `movensys-manipulator`, set the action name in the manipulator
-config (example: `example/cr3a_manipulator_config.yaml`) to the controller name
+`joint_trajectory_controller` serves a `FollowJointTrajectory` action, and
+`joint_position_controller` subscribes to the `JointTrajectory` stream MoveIt
+Servo publishes. To connect with `movensys-manipulator`, set the names in the
+manipulator config (example: `example/cr3a_manipulator_config.yaml`) to what
 MoveIt2 is configured to call:
 
 ```yaml
 joint_trajectory_action: /movensys_manipulator_arm_controller/follow_joint_trajectory
+joint_trajectory_topic: /movensys_manipulator_arm_controller/joint_trajectory
 ```
+
+The action name must match the controller name in the MoveIt2 controllers YAML
+on the planning side. See
+[doc/reference_manipulator.md](doc/reference_manipulator.md).
+
+## Nav2 integration
+
+`differential_drive_controller` implements the interface Nav2 drives a base
+through. It takes `geometry_msgs/TwistStamped` velocity commands and publishes
+`nav_msgs/Odometry`, so the Nav2 controller server and the `robot_localization`
+EKF both connect without a bridge. To connect with `movensys-navigation`, set the
+topic names in the differential config (example:
+`example/diffbot_differential_config.yaml`):
+
+```yaml
+cmd_vel_topic: /cmd_vel_safe          # TwistStamped in, from the Nav2 controller
+encoder_odometry_topic: /odom_enc     # nav_msgs/Odometry out, the EKF odom0 input
+encoder_omega_topic: /omega_enc       # per-wheel velocity, JointState
+```
+
+Set `publish_tf: true` only when no EKF is running, otherwise two publishers
+fight over `odom -> base_link`. The `ros2_control` path is an alternative:
+`wmx_r2_control_differential.launch.py` spawns
+`diff_drive_controller/DiffDriveController` on `WmxSystemHardware` instead of
+this node. See [doc/reference_differential.md](doc/reference_differential.md).
+
+Both integrations are plain parameters, so no topic remapping is needed on either
+side.
 
 ## Documentation
 
