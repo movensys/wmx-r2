@@ -7,13 +7,13 @@ the math (kinematics, dead-reckoning, deltas) alongside the ROS wiring; the WMX3
 device access is isolated in `DifferentialDriveControllerApi`.
 
 ```
-/cmd_vel_safe ──────────▶ ┌──────────────────────────────┐ ──▶ /odom_enc    (Odometry)
- (TwistStamped)           │ differential_drive_controller │ ──▶ /omega_enc   (JointState)
-configure / activate ────▶│  (lifecycle node)             │ ──▶ /omega_cmd   (JointState)
- from wmx_engine_node     │  two loops @ rate (100 Hz)    │
-                          │  WMX3 CoreMotion StartVel /   │ ──▶ /tf odom→base_link (optional)
-                          │  GetStatus once per loop      │
-                          └──────────────────────────────┘
+/cmd_vel_safe ──────────────▶┌───────────────────────────────┐ ──▶ /odom_enc  (Odometry)
+ (TwistStamped)              │ differential_drive_controller │ ──▶ /omega_enc (JointState)
+configure / activate ───────▶│  (lifecycle)                  │ ──▶ /omega_cmd (JointState)
+ from                        │  two loops @ rate (100 Hz)    │
+ wmx_lifecycle_manager_node  │  WMX3 CoreMotion StartVel,    │ ──▶ /tf odom→base_link
+                             │  one GetStatus per loop       │     (optional)
+                             └───────────────────────────────┘
 ```
 
 ---
@@ -36,6 +36,12 @@ and one tightening:
 | `wmx_param_file` | **required** | Also fed to the xacro, so an empty value would blank the description's own default |
 | `urdf_file` | **required** | Robot description xacro, e.g. `urdf/diffbot.wmx.urdf.xacro` |
 | `controllers_file` | **required** | `ros2_control` controller manager YAML, e.g. `config/diffbot_controllers.yaml` |
+
+The two launch files run **different controllers**.
+`wmx_r2_differential.launch.py` runs this node. `wmx_r2_control_differential.launch.py`
+does **not**: it starts `ros2_control_node` with `WmxSystemHardware` and spawns
+`diff_drive_controller/DiffDriveController` under the same name, so everything
+below describes the standalone node only.
 
 No robot is baked into either launch file, see
 [launch_differential.md](launch_differential.md).
@@ -70,7 +76,7 @@ this node: it is imported once by `wmx_engine_node` through its
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
-| `rate` | int | `100` | Hz | Control-loop rate. One loop does **one** `GetStatus` and drives both the odometry and the command path. Must be > 0 — `configure` is refused otherwise. The timer period is `1000 / rate` truncated to whole milliseconds, so prefer rates that divide 1000 (100, 125, 200, 250, 500). |
+| `rate` | int | `100` | Hz | Rate of **both** loops: the control loop and the feedback loop each run at `rate` on their own wall timer and each issues its own `GetStatus`, so publishing can never delay a command. Must be > 0, or `configure` is refused. The timer period is `1000 / rate` truncated to whole milliseconds, so prefer rates that divide 1000 (100, 125, 200, 250, 500). |
 | `acc_time` | double | `1.0` | **ms** | `StartVel` trapezoidal profile acceleration time (`profile.accTimeMilliseconds`, `ProfileType::TimeAccTrapezoidal`). Note the unit: milliseconds — the default 1.0 ms is effectively an instant ramp; the WMX-side axis limits do the real shaping. Not guarded: passed to WMX unvalidated. |
 | `dec_time` | double | `1.0` | **ms** | Same as `acc_time` for deceleration. Also applies to the stale-command stop (see `cmd_vel_timeout`). |
 
@@ -98,7 +104,7 @@ arrival stamp and the comparison come from the same paused clock.
 | `cmd_omega_topic` | `/omega_cmd` | Per-wheel velocity command output (what the control loop sends to `StartVel`). |
 | `encoder_odometry_topic` | `/odom_enc` | Encoder odometry output (EKF `odom0` input). |
 | `encoder_omega_topic` | `/omega_enc` | Per-wheel encoder velocity output. |
-| `joint_name` | `["left_wheel_joint", "right_wheel_joint"]` | Wheel joint names published in `/omega_enc` and `/omega_cmd`, ordered `[left, right]` to match `left_axis`/`right_axis`. Needs 2 entries — `configure` is refused otherwise. |
+| `joint_name` | `["left_wheel_joint", "right_wheel_joint"]` | Wheel joint names published in `/omega_enc` and `/omega_cmd`, ordered `[left, right]` to match `left_axis`/`right_axis`. Needs at least 2 entries, or `configure` is refused; only the first two are used. |
 
 Topic names are plain parameters (not ROS remap-only), so the Toolkit can set them
 in the generated node config like any other value.
@@ -171,20 +177,22 @@ authoritative for the no-EKF fallback where this odometry feeds Nav2 directly.
 ## Lifecycle and runtime behaviour
 
 **Startup.** This is a managed (lifecycle) node. It starts `unconfigured` and
-does nothing until `wmx_engine_node` drives it — automatically once the engine
-communicates, or on demand through `wmx/lifecycle/set_node_state` /
-`ros2 lifecycle set`.
+does nothing until `wmx_lifecycle_manager_node` drives it: automatically once
+`wmx_engine_node` reports `Communicating`, or on demand through
+`wmx/lifecycle/set_node_state` / `ros2 lifecycle set`. List it in the manager's
+`managed_nodes` **after** the device-level nodes.
 
 `on_configure`:
 
 1. *Parameter check* (`parametersValid`) — `rate`, `wheel_radius`,
-   `wheel_to_wheel` must be > 0 and `joint_name` must hold two entries. Anything
-   else logs the offending value and fails the transition; there are **no silent
-   fallbacks**, so a bad config never runs with substituted values. The check
-   re-runs on every configure attempt, so `ros2 param set` followed by a retry
-   works — the node stays alive and `unconfigured` in between.
+   `wheel_to_wheel` must be > 0 and `joint_name` must hold at least two entries.
+   Anything else logs the offending value and fails the transition; there are
+   **no silent fallbacks**, so a bad config never runs with substituted values.
+   The check re-reads the values cached at construction, so a `ros2 param set`
+   followed by a retry changes nothing. Fix the YAML and restart the node.
 2. `CreateDevice(WMX3_SDK_PATH, DeviceTypeNormal, 10 s)` — any error fails the
-   transition and leaves the node `unconfigured` (the engine logs it).
+   transition and leaves the node `unconfigured` (the lifecycle manager logs it
+   and retries on the next discovery sweep).
 3. `SetDeviceName("differential_drive_controller")`.
 
 The WMX parameter XML is not imported here — `wmx_engine_node` does that once,
@@ -264,8 +272,9 @@ A deployment consists of two files plus the launch wiring
    the other general-node keys.
 2. **WMX parameter XML** — the axis file (example:
    `example/diffbot_wmx_parameters.xml`): axis-level
-   gear/feedback/limit/e-stop setup imported at node init. This is where the
+   gear/feedback/limit/e-stop setup. This is where the
    "axis unit = wheel rad/s" scaling and the hardware-level motion limits live.
+   `wmx_engine_node` imports it once, right after it creates the device.
 3. **Launch** — starts the general WMX nodes (engine etc.), the
    `joint_state_broadcaster`, and this node; injects `use_sim_time` and the
    engine's `wmx_param_file_path` from the `wmx_param_file` launch argument.
@@ -292,11 +301,38 @@ differential_drive_controller:
     encoder_odometry_topic: /odom_enc
     encoder_omega_topic: /omega_enc
 
+joint_state_broadcaster:
+  ros__parameters:
+    joint_feedback_rate: 100
+    joint_axes: [0, 1]
+    joint_name: ["drivewheel_left_joint", "drivewheel_right_joint"]
+    encoder_joint_topic: /joint_states
+    isaacsim_joint_topic: /isaacsim/joint_command
+    gazebo_velocity_joint_topic: /velocity_controller/commands
+    gazebo_velocity_joint_axes: [0, 1]
+
 wmx_engine_node:
   ros__parameters:
     core: -1                # RT engine CPU core (-1 = SDK default)
     affinity_mask: 0        # CPU affinity bitmask (0 = SDK default)
     wmx_param_file_path: "" # injected by launch
+
+wmx_core_motion_node:
+  ros__parameters:
+    axes_status_rate: 100
+    motion_controllers:     # this node owns the wheel axes while active
+      - differential_drive_controller
+    controller_resync_period: 0.2
+
+wmx_lifecycle_manager_node:
+  ros__parameters:
+    managed_nodes:          # device-level nodes first
+      - wmx_core_motion_node
+      - wmx_io_node
+      - wmx_ethercat_node
+      - joint_state_broadcaster
+      - differential_drive_controller
+    discovery_period: 1.0
 ```
 
 ---
@@ -313,7 +349,7 @@ What the Toolkit needs to template per robot / per deployment:
   configured); otherwise two publishers would fight over `odom → base_link`.
 - **Usually defaults:** topic names (already the autonomy contract), frames, `rate`,
   `cmd_vel_timeout`, `acc_time`/`dec_time`.
-- **Not parameterized (by design):** the lifecycle gate (`wmx_engine_node` owns it),
+- **Not parameterized (by design):** the lifecycle gate (`wmx_lifecycle_manager_node` owns it),
   the `/odom_enc` covariance values, servo-on/alarm-clear handling (engine/general
   nodes own these), and any gear-ratio scaling (WMX XML owns it).
 
