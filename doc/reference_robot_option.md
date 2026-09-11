@@ -72,7 +72,21 @@ with `ros2 param set`.
 
 All services answer `success` plus a `message` carrying the WMX3 call name, the
 error number and `ErrorToString` text. Every one takes `robot_id`, and every one
-except `set_robot_param` rejects an id that is not the registered one.
+except `set_robot_param` rejects an id that is not the registered one. Servo
+state is not among them: it belongs to `wmx_core_motion_node`.
+
+### Power
+
+This node has no servo service. `wmx_core_motion_node` owns servo state, and
+`wmx/axes/set_servo_on` stays reachable while the robot option holds the axes:
+
+```bash
+wros ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes \
+  "{axis: [0,1,2,3,4,5], data: [1,1,1,1,1,1]}"
+```
+
+The axis list is the `<Axis>` values of the robot parameter file, which for
+`example/cr3a_robot_option_parameters.xml` are `0` to `5`.
 
 ### Registration
 
@@ -92,21 +106,6 @@ robot after `release_robot` and re-reads a file edited at runtime. The response
 returns the `robot_id` and `num_joints` the engine accepted; both are what every
 later call must match. `release_robot` invalidates the id, and the status topic
 goes quiet until a robot is registered again.
-
-### Power
-
-| Name | Type | WMX3 call |
-|---|---|---|
-| `wmx/robot/set_servo_on` | `RobotSetServoOn` | `RobotConfig::GetAxisSelection` + `CoreMotion::axisControl->SetServoOn` |
-
-```bash
-wros ros2 service call /wmx/robot/set_servo_on wmx_r2_message/srv/RobotSetServoOn \
-  "{robot_id: 0, servo_on: true}"
-```
-
-The axis set comes from the registered robot parameter, so this switches exactly
-the robot's own axes and needs a robot registered first. It is the same SDK call
-`wmx/axes/set_servo_on` makes, addressed by robot instead of by axis list.
 
 ### Motion
 
@@ -271,7 +270,7 @@ registered.
 
 ### Interface types
 
-Every type this node uses lives in `wmx_r2_message`. Two messages and ten
+Every type this node uses lives in `wmx_r2_message`. Two messages and nine
 services, all added for the robot option:
 
 ```bash
@@ -282,7 +281,6 @@ wros ros2 interface show wmx_r2_message/msg/RobotStatus
 
 wros ros2 interface show wmx_r2_message/srv/RobotSetRobotParam
 wros ros2 interface show wmx_r2_message/srv/RobotId
-wros ros2 interface show wmx_r2_message/srv/RobotSetServoOn
 wros ros2 interface show wmx_r2_message/srv/RobotStartPtp
 wros ros2 interface show wmx_r2_message/srv/RobotStartMotion
 wros ros2 interface show wmx_r2_message/srv/RobotOverrideVelocity
@@ -293,7 +291,7 @@ wros ros2 interface show wmx_r2_message/srv/RobotCalcInverseKinematics
 ```
 
 `RobotId` is reused by six services, `RobotSetCoordinate` and
-`RobotGetCoordinate` by two each, which is why ten types cover eighteen
+`RobotGetCoordinate` by two each, which is why nine types cover seventeen
 services.
 
 The live graph, with the node active:
@@ -385,7 +383,7 @@ different things and are read by different components:
 | `RobotName` | `robotParam.robotName` | |
 | `RobotType` | `robotParam.robotType` | `RobotModel` enum, see below |
 | `Joint/JointType` | `jointParams[i].jointType` | `RotateXAxis`, `RotateYAxis`, `RotateZAxis` and the linear variants |
-| `Joint/Axis` | `jointParams[i].axis` | **WMX3 axis index**, and what `set_servo_on` switches |
+| `Joint/Axis` | `jointParams[i].axis` | **WMX3 axis index**, and the `axis` list to pass to `wmx/axes/set_servo_on` |
 | `Joint/JointOrigin` | `jointParams[i].jointOrigin` | offset from the previous joint, mm and radians |
 | `Joint/Max,MinAngle` | `jointParams[i].max,minAngle` | radians in the file, degrees in the API |
 | `Joint/Velocity,AccelerationLimit` | `jointParams[i]` limits | radians, hard limits |
@@ -482,7 +480,7 @@ communicating. Then, if `robot_param_file` is set, it imports the file and calls
 transition, so a bad path is caught at bring-up rather than at the first motion
 call. An empty `robot_param_file` only warns.
 
-**`on_activate`** advertises the eighteen services, creates the publisher and
+**`on_activate`** advertises the seventeen services, creates the publisher and
 starts the status timer.
 
 **`on_deactivate`** stops the timer, drops the publisher and the services, and
@@ -500,7 +498,8 @@ can only be driven through `wmx/robot/*`. Deactivating it
 
 `wmx/axes/stop` is never blocked, and neither are the servo and configuration
 services, so `set_servo_on`, `clear_amp_alarm` and `stop` stay reachable while
-the robot option holds the axes.
+the robot option holds the axes. That is deliberate: servo state has one owner,
+and it is not this node.
 
 The guard needs no code in this node. `wmx_core_motion_node` watches each listed
 name's `/<name>/transition_event` and `/<name>/get_state`, which every lifecycle

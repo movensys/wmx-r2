@@ -23,7 +23,6 @@
 #include "wmx_r2_message/srv/robot_override_velocity.hpp"
 #include "wmx_r2_message/srv/robot_set_coordinate.hpp"
 #include "wmx_r2_message/srv/robot_set_robot_param.hpp"
-#include "wmx_r2_message/srv/robot_set_servo_on.hpp"
 #include "wmx_r2_message/srv/robot_start_motion.hpp"
 #include "wmx_r2_message/srv/robot_start_ptp.hpp"
 
@@ -52,8 +51,6 @@ public:
   int numJoints() const;
 
   int updateRobotStatus(wmx3Api::RobotStatus & status, std::string & message);
-
-  int setServoOn(int32_t robotId, bool servoOn, std::string & message);
 
   int startPtp(
     int32_t robotId, int32_t mode, bool useCartesian,
@@ -140,7 +137,6 @@ private:
 
   rclcpp::Service<wmx_r2_message::srv::RobotSetRobotParam>::SharedPtr setRobotParamService_;
   rclcpp::Service<wmx_r2_message::srv::RobotId>::SharedPtr releaseRobotService_;
-  rclcpp::Service<wmx_r2_message::srv::RobotSetServoOn>::SharedPtr setServoOnService_;
   rclcpp::Service<wmx_r2_message::srv::RobotStartPtp>::SharedPtr startPtpService_;
   rclcpp::Service<wmx_r2_message::srv::RobotStartMotion>::SharedPtr startMotionService_;
   rclcpp::Service<wmx_r2_message::srv::RobotId>::SharedPtr stopMotionService_;
@@ -168,9 +164,6 @@ private:
   void releaseRobotCallback(
     const std::shared_ptr<wmx_r2_message::srv::RobotId::Request> request,
     std::shared_ptr<wmx_r2_message::srv::RobotId::Response> response);
-  void setServoOnCallback(
-    const std::shared_ptr<wmx_r2_message::srv::RobotSetServoOn::Request> request,
-    std::shared_ptr<wmx_r2_message::srv::RobotSetServoOn::Response> response);
   void startPtpCallback(
     const std::shared_ptr<wmx_r2_message::srv::RobotStartPtp::Request> request,
     std::shared_ptr<wmx_r2_message::srv::RobotStartPtp::Response> response);

@@ -42,7 +42,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
   "srv/RobotSetRobotParam.srv"
   "srv/RobotId.srv"
-  "srv/RobotSetServoOn.srv"
   "srv/RobotStartPtp.srv"
   "srv/RobotStartMotion.srv"
   "srv/RobotOverrideVelocity.srv"

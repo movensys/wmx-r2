@@ -290,30 +290,6 @@ int RobotOptionNodeApi::updateRobotStatus(wmx3Api::RobotStatus & status, std::st
   return err;
 }
 
-int RobotOptionNodeApi::setServoOn(int32_t robotId, bool servoOn, std::string & message)
-{
-  std::lock_guard<std::mutex> lock(robotMutex_);
-
-  int err = checkRobot(robotId, message);
-  if (err != ErrorCode::None) {
-    return err;
-  }
-
-  wmx3Api::AxisSelection axes =
-    wmx3Api::RobotConfig::GetAxisSelection(robotMotionParam_.robotParam);
-
-  err = robot_.mCoreMotion.axisControl->SetServoOn(&axes, servoOn);
-  if (err != ErrorCode::None) {
-    message = failureText("SetServoOn", robotIdText(robotId), err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  message = std::string("SetServoOn ") + (servoOn ? "on" : "off") + ". " + robotIdText(robotId);
-  RCLCPP_INFO(logger_, "%s", message.c_str());
-  return ErrorCode::None;
-}
-
 int RobotOptionNodeApi::startPtp(
   int32_t robotId, int32_t mode, bool useCartesian, const std::vector<double> & targetJoint,
   const CartesianPose & targetPose, char s, char e, char r, std::string & message)
@@ -831,10 +807,6 @@ RobotOptionNode::CallbackReturn RobotOptionNode::on_activate(
     "wmx/robot/release_robot",
     std::bind(&RobotOptionNode::releaseRobotCallback, this, _1, _2));
 
-  setServoOnService_ = this->create_service<wmx_r2_message::srv::RobotSetServoOn>(
-    "wmx/robot/set_servo_on",
-    std::bind(&RobotOptionNode::setServoOnCallback, this, _1, _2));
-
   startPtpService_ = this->create_service<wmx_r2_message::srv::RobotStartPtp>(
     "wmx/robot/start_ptp",
     std::bind(&RobotOptionNode::startPtpCallback, this, _1, _2));
@@ -920,7 +892,6 @@ RobotOptionNode::CallbackReturn RobotOptionNode::on_deactivate(
 
   setRobotParamService_.reset();
   releaseRobotService_.reset();
-  setServoOnService_.reset();
   startPtpService_.reset();
   startMotionService_.reset();
   stopMotionService_.reset();
@@ -1020,16 +991,6 @@ void RobotOptionNode::releaseRobotCallback(
 {
   std::string message;
   response->success = api_->releaseRobot(request->robot_id, message) == ErrorCode::None;
-  response->message = message;
-}
-
-void RobotOptionNode::setServoOnCallback(
-  const std::shared_ptr<wmx_r2_message::srv::RobotSetServoOn::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::RobotSetServoOn::Response> response)
-{
-  std::string message;
-  response->success =
-    api_->setServoOn(request->robot_id, request->servo_on, message) == ErrorCode::None;
   response->message = message;
 }
 

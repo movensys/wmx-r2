@@ -1,5 +1,0 @@
-int32 robot_id
-bool servo_on
----
-bool success
-string message
