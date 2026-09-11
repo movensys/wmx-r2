@@ -1,0 +1,6 @@
+int32 robot_id
+float64[] joint_position   # per joint, deg or mm
+---
+bool success
+RobotCartesianPose tool_pose
+string message

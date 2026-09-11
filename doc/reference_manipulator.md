@@ -437,9 +437,9 @@ At **runtime** the dynamic linker must be able to find the SDK's shared librarie
 installer's default) or `LD_LIBRARY_PATH=/opt/wmx3/lib` — relevant when running in
 containers that only mount the SDK.
 
-The manipulator launches need **root** for real-time scheduling; start them with
-`sudo --preserve-env` as shown in
-[launch_manipulator.md](launch_manipulator.md).
+The manipulator launches need **root** for real-time scheduling. `wros`
+(`docker/wros.bash`) already execs into the container as root, which is how
+[launch_manipulator.md](launch_manipulator.md) starts them.
 
 `joint_position_controller` has a launch test
 (`test/test_joint_position_controller.py`, no hardware required) exercised by

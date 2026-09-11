@@ -1,0 +1,9 @@
+int32 robot_id
+RobotCartesianPose tool_pose
+int8 s   # shoulder: 1 left, -1 right, 0 auto
+int8 e   # elbow: 1 above, -1 below, 0 auto
+int8 r   # wrist: 1 flip, -1 no flip, 0 auto
+---
+bool success
+float64[] joint_position
+string message

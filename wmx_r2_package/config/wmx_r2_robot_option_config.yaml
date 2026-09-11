@@ -1,0 +1,28 @@
+wmx_engine_node:
+  ros__parameters:
+    core: -1
+    affinity_mask: 0
+
+wmx_lifecycle_manager_node:
+  ros__parameters:
+    managed_nodes:
+      - wmx_core_motion_node
+      - wmx_io_node
+      - wmx_ethercat_node
+      - robot_option_node
+    discovery_period: 0.2
+
+wmx_core_motion_node:
+  ros__parameters:
+    axes_status_rate: 1
+    jog_timeout_ms: 200.0
+    jog_run_time_ms: 2000.0
+    jog_jerk_ratio: 0.75
+    motion_controllers:
+      - robot_option_node
+    controller_resync_period: 0.2
+
+robot_option_node:
+  ros__parameters:
+    robot_param_file: ""
+    robot_status_rate: 10

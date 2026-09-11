@@ -1,0 +1,7 @@
+string param_file   # absolute path to the robot parameter XML or URDF
+int32 robot_id      # robot id assigned to a URDF import, ignored for XML
+---
+bool success
+string message
+int32 robot_id      # id the kinematics engine registered
+int32 num_joints

@@ -1,0 +1,12 @@
+# Joint space point to point motion. Returns as soon as the engine accepts it.
+int32 robot_id
+int32 mode              # 0 pos (absolute), 1 mov (relative), 2 vel (jog)
+bool use_cartesian      # drive with target_pose instead of target_joint, pos and mov only
+float64[] target_joint  # per joint, deg or mm; jog mode takes -1, 0 or 1 as direction
+RobotCartesianPose target_pose
+int8 s                  # shoulder: 1 left, -1 right, 0 auto
+int8 e                  # elbow: 1 above, -1 below, 0 auto
+int8 r                  # wrist: 1 flip, -1 no flip, 0 auto
+---
+bool success
+string message

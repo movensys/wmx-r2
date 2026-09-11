@@ -116,6 +116,13 @@ target_link_libraries(wmx_ethercat_node ecapi wmx3api imdll)
 target_link_directories(wmx_ethercat_node PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(wmx_ethercat_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 
+add_executable(robot_option_node src/robot_option_node.cpp)
+ament_target_dependencies(robot_option_node rclcpp rclcpp_lifecycle std_msgs wmx_r2_message)
+target_include_directories(robot_option_node PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
+target_link_libraries(robot_option_node robotmotionapi kinematicsapi coordinateapi coremotionapi wmx3api imdll)
+target_link_directories(robot_option_node PRIVATE ${WMX3_SDK_PATH}/lib)
+target_compile_definitions(robot_option_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
+
 install(TARGETS
   joint_state_broadcaster
   joint_trajectory_controller
@@ -127,6 +134,7 @@ install(TARGETS
   wmx_core_motion_node
   wmx_io_node
   wmx_ethercat_node
+  robot_option_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

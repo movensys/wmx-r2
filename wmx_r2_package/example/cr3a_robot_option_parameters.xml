@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Robot ID="0">
+	<RobotName>CR3A</RobotName>
+	<RobotType>0</RobotType>
+	<Joint ID="0">
+		<JointType>RotateZAxis</JointType>
+		<Axis>0</Axis>
+		<JointOrigin x="0.000000" y="0.000000" z="128.300000" u="0.000000000000000000000000" v="0.000000000000000000000000" w="0.000000000000000000000000"/>
+		<MaxAngle>3.000000000000000000000000</MaxAngle>
+		<MinAngle>-3.000000000000000000000000</MinAngle>
+		<VelocityLimit>3.141592653589793115997963</VelocityLimit>
+		<AccelerationLimit>12.566370614359172463991854</AccelerationLimit>
+	</Joint>
+	<Joint ID="1">
+		<JointType>RotateZAxis</JointType>
+		<Axis>1</Axis>
+		<JointOrigin x="0.000000" y="0.000000" z="0.000000" u="1.570796326794896557998982" v="1.570796326794896557998982" w="0.000000000000000000000000"/>
+		<MaxAngle>1.100000000000000088817842</MaxAngle>
+		<MinAngle>-1.570000000000000062172489</MinAngle>
+		<VelocityLimit>3.141592653589793115997963</VelocityLimit>
+		<AccelerationLimit>12.566370614359172463991854</AccelerationLimit>
+	</Joint>
+	<Joint ID="2">
+		<JointType>RotateZAxis</JointType>
+		<Axis>2</Axis>
+		<JointOrigin x="-274.000000" y="0.000000" z="0.000000" u="0.000000000000000000000000" v="0.000000000000000000000000" w="0.000000000000000000000000"/>
+		<MaxAngle>0.200000000000000011102230</MaxAngle>
+		<MinAngle>-2.549999999999999822364316</MinAngle>
+		<VelocityLimit>3.892084231947354755476454</VelocityLimit>
+		<AccelerationLimit>15.568336927789419021905815</AccelerationLimit>
+	</Joint>
+	<Joint ID="3">
+		<JointType>RotateZAxis</JointType>
+		<Axis>3</Axis>
+		<JointOrigin x="-230.000000" y="0.000000" z="128.300000" u="0.000000000000000000000000" v="0.000000000000000000000000" w="-1.570796326794896557998982"/>
+		<MaxAngle>2.500000000000000000000000</MaxAngle>
+		<MinAngle>-2.500000000000000000000000</MinAngle>
+		<VelocityLimit>3.892084231947354755476454</VelocityLimit>
+		<AccelerationLimit>15.568336927789419021905815</AccelerationLimit>
+	</Joint>
+	<Joint ID="4">
+		<JointType>RotateZAxis</JointType>
+		<Axis>4</Axis>
+		<JointOrigin x="0.000000" y="-116.000000" z="0.000000" u="1.570796326794896557998982" v="0.000000000000000000000000" w="0.000000000000000000000000"/>
+		<MaxAngle>3.000000000000000000000000</MaxAngle>
+		<MinAngle>-0.100000000000000005551115</MinAngle>
+		<VelocityLimit>3.892084231947354755476454</VelocityLimit>
+		<AccelerationLimit>15.568336927789419021905815</AccelerationLimit>
+	</Joint>
+	<Joint ID="5">
+		<JointType>RotateZAxis</JointType>
+		<Axis>5</Axis>
+		<JointOrigin x="0.000000" y="105.000000" z="0.000000" u="-1.570796326794896557998982" v="0.000000000000000000000000" w="0.000000000000000000000000"/>
+		<MaxAngle>3.000000000000000000000000</MaxAngle>
+		<MinAngle>-3.000000000000000000000000</MinAngle>
+		<VelocityLimit>3.892084231947354755476454</VelocityLimit>
+		<AccelerationLimit>15.568336927789419021905815</AccelerationLimit>
+	</Joint>
+	<EndEffector x="0.000000" y="0.000000" z="0.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
+	<WorkCoordinate x="0.000000" y="0.000000" z="0.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
+	<ToolVelocity>1000.000000</ToolVelocity>
+	<ToolAcceleration>4000.000000</ToolAcceleration>
+	<ToolVelRotRatio>0.003141592653590</ToolVelRotRatio>
+	<AxisVelocity0>1.570796326794896557998982</AxisVelocity0>
+	<AxisAcceleration0>6.283185307179586231995927</AxisAcceleration0>
+	<AxisVelocity1>1.570796326794896557998982</AxisVelocity1>
+	<AxisAcceleration1>6.283185307179586231995927</AxisAcceleration1>
+	<AxisVelocity2>1.946042115973677377738227</AxisVelocity2>
+	<AxisAcceleration2>7.784168463894709510952907</AxisAcceleration2>
+	<AxisVelocity3>1.946042115973677377738227</AxisVelocity3>
+	<AxisAcceleration3>7.784168463894709510952907</AxisAcceleration3>
+	<AxisVelocity4>1.946042115973677377738227</AxisVelocity4>
+	<AxisAcceleration4>7.784168463894709510952907</AxisAcceleration4>
+	<AxisVelocity5>1.946042115973677377738227</AxisVelocity5>
+	<AxisAcceleration5>7.784168463894709510952907</AxisAcceleration5>
+	<VelOverride>0.100000</VelOverride>
+	<AccOverride>0.100000</AccOverride>
+	<ProfileType>Trapezoida</ProfileType>
+</Robot>

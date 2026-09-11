@@ -162,7 +162,7 @@ done
 | `jog_timeout_ms` | `200.0` | Axis stops this long after jog refreshes stop arriving |
 | `jog_run_time_ms` | `2000.0` | Maximum duration of one jog, enforced engine-side |
 | `jog_jerk_ratio` | `0.75` | Jerk ratio of the jog profile |
-| `motion_controllers` | `joint_trajectory_controller`, `differential_drive_controller`, `joint_position_controller` | While one of them is active it owns the axes and `start_pos`, `start_mov`, `start_vel`, `start_jog` and `start_home` answer `success: false`. `stop` and the servo/config services stay open |
+| `motion_controllers` | `joint_trajectory_controller`, `differential_drive_controller`, `joint_position_controller` | Any lifecycle node name, not just these three: `wmx_r2_robot_option_config.yaml` lists `robot_option_node` here. While one of them is active it owns the axes and `start_pos`, `start_mov`, `start_vel`, `start_jog` and `start_home` answer `success: false`. `stop` and the servo/config services stay open. A listed name that never appears on the graph is treated as active and blocks motion |
 | `controller_resync_period` | `0.2` | Seconds between re-queries of each controller's state |
 
 ---

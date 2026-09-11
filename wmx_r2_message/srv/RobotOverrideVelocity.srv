@@ -1,0 +1,7 @@
+int32 robot_id
+float64 vel_ratio   # 0.0 - 1.0
+float64 acc_ratio   # 0.0 - 1.0
+float64 dec_ratio   # 0.0 - 1.0
+---
+bool success
+string message

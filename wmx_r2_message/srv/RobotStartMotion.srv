@@ -1,0 +1,10 @@
+# Continuous path motion: sets the trajectory and starts it in one call.
+int32 robot_id
+int32 trajectory_type    # 0 line, 1 arc, 2 c-spline, 3 b-spline
+bool is_tool_coordinate  # line only: target_pose is in the tool frame
+RobotCartesianPose target_pose
+RobotCartesianPose[] through_pose  # arc: one via point; spline: the whole path
+float64 arc_angle        # arc only, deg; 0 runs the three point arc
+---
+bool success
+string message

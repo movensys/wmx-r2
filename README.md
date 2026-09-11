@@ -48,7 +48,7 @@ Full explanation, application examples and integration scenarios:
 - **WMX Linux** (real-time patched) with the WMX3 SDK installed. See [WMX installation](https://movensys.github.io/wmx-r2-doc/getting_started/index.html).
 - EtherCAT servo drives / IO reachable from the WMX3 master.
 - ROS2 **Humble** or **Jazzy**, with `rmw_cyclonedds` as the RMW.
-- Root for real-time scheduling: `sudo --preserve-env` on the host, or `wros` in the container.
+- Root for real-time scheduling: `wros` execs into the container as root.
 
 ## Quickstart
 
@@ -297,9 +297,11 @@ side.
 | [doc/launch_general_nodes.md](doc/launch_general_nodes.md) | Launch the WMX general nodes |
 | [doc/launch_manipulator.md](doc/launch_manipulator.md) | Launch a manipulator |
 | [doc/launch_differential.md](doc/launch_differential.md) | Launch the differential-drive base |
+| [doc/launch_robot_option.md](doc/launch_robot_option.md) | Launch the general nodes plus `robot_option_node` |
 | [doc/reference_general_nodes.md](doc/reference_general_nodes.md) | Every service and topic of the general nodes, with the startup sequence |
 | [doc/reference_manipulator.md](doc/reference_manipulator.md) | Manipulator node reference: parameters, arbitration, lifecycle |
 | [doc/reference_differential.md](doc/reference_differential.md) | Differential node reference: parameters, kinematics, odometry |
+| [doc/reference_robot_option.md](doc/reference_robot_option.md) | Robot option node reference: services, units, lifecycle |
 
 Full documentation, application examples and integration scenarios:
 **[movensys.github.io/wmx-r2-doc](https://movensys.github.io/wmx-r2-doc/)**
