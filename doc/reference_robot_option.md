@@ -1,6 +1,6 @@
 # Robot Option Reference
 
-`robot_option_node` (`wmx_r2_package/src/robot_option_node.cpp`) is a single
+`wmx_robot_option_node` (`wmx_r2_package/src/wmx_robot_option_node.cpp`) is a single
 rclcpp lifecycle node that exposes the **WMX3 Robot Option**: the licensed
 kinematics and robot-motion layer (`KinematicsApi.h`, `RobotMotionApi.h`,
 `CoordinateApi.h`) that sits above CoreMotion. It attaches to the WMX3 device
@@ -11,7 +11,7 @@ check `doc/launch_robot_option.md`
 
 ```
  set_robot_param ───────────▶┌──────────────────────────────┐
-  (XML / URDF)               │ robot_option_node            │──▶ WMX3 Kinematics
+  (XML / URDF)               │ wmx_robot_option_node            │──▶ WMX3 Kinematics
                              │  (lifecycle)                 │    SetRobotParam
  start_ptp ─────────────────▶│                              │──▶ StartPTPPos
   (joint / cartesian)        │  one robotId, tool index 0   │
@@ -35,12 +35,12 @@ a time.
 ## Launch arguments
 
 `wmx_r2_robot_option.launch.py` starts the general nodes
-(`wmx_r2_general_nodes.launch.py`) plus `robot_option_node`.
+(`wmx_r2_general_nodes.launch.py`) plus `wmx_robot_option_node`.
 
 | Argument | Default | Description |
 |---|---|---|
 | `use_sim_time` | `false` | Use simulation clock |
-| `config_file` | `config/wmx_r2_robot_option_config.yaml` | YAML with the general node and `robot_option_node` parameters. Unlike the other robot launches this one defaults to a shipped file, because the node needs `robot_option_node` listed in `managed_nodes` to be brought up at all |
+| `config_file` | `config/wmx_r2_robot_option_config.yaml` | YAML with the general node and `wmx_robot_option_node` parameters. Unlike the other robot launches this one defaults to a shipped file, because the node needs `wmx_robot_option_node` listed in `managed_nodes` to be brought up at all |
 | `wmx_param_file` | `""` | WMX3 axis parameter XML imported at engine start. Empty imports nothing |
 | `robot_param_file` | `""` | Robot parameter XML or URDF registered at configure. Overrides `robot_param_file` from `config_file`; empty registers nothing and leaves the node waiting for `wmx/robot/set_robot_param` |
 
@@ -299,8 +299,8 @@ The live graph, with the node active:
 ```bash
 wros ros2 service list -t | grep /wmx/robot/
 wros ros2 topic list -t | grep /wmx/robot/
-wros ros2 param list /robot_option_node
-wros ros2 lifecycle get /robot_option_node
+wros ros2 param list /wmx_robot_option_node
+wros ros2 lifecycle get /wmx_robot_option_node
 ```
 
 ---
@@ -342,7 +342,7 @@ different things and are read by different components:
 | | `wmx_param_file` | `robot_param_file` |
 |---|---|---|
 | Describes | axes: gear ratio, units, polarity, encoder, limits | robot: model, joint geometry, limits, motion profile |
-| Read by | `wmx_engine_node` at engine start | `robot_option_node` at configure |
+| Read by | `wmx_engine_node` at engine start | `wmx_robot_option_node` at configure |
 | SDK call | `CoreMotion::config->ImportAndSetAll` | `RobotConfig::ImportParamXML` + `SetRobotParam` |
 | Shipped | `config/wmx_parameters.xml`, `example/cr3a_wmx_parameters.xml` | `example/cr3a_robot_option_parameters.xml` |
 | SDK samples | `/opt/wmx3/robot_sample/common/wmx_parameter_*.xml` | `/opt/wmx3/robot_sample/common/robotParamXML_*.xml` |
@@ -468,13 +468,13 @@ The node starts `unconfigured` and does nothing until
 reports `Communicating`, or on demand:
 
 ```bash
-wros ros2 lifecycle set /robot_option_node configure
-wros ros2 lifecycle set /robot_option_node activate
+wros ros2 lifecycle set /wmx_robot_option_node configure
+wros ros2 lifecycle set /wmx_robot_option_node activate
 ```
 
 **`on_configure`** attaches to the WMX3 device with
 `CreateDevice(WMX3_SDK_PATH, DeviceTypeNormal, 10 s)` and names it
-`robot_option_node`; a lock-busy failure reports that the engine may not be
+`wmx_robot_option_node`; a lock-busy failure reports that the engine may not be
 communicating. Then, if `robot_param_file` is set, it imports the file and calls
 `SetRobotParam`. A failure there closes the device again and fails the
 transition, so a bad path is caught at bring-up rather than at the first motion
@@ -489,12 +489,12 @@ keeps the device attached and the robot registered.
 **`on_cleanup`** closes the device and marks the robot unregistered.
 `on_shutdown` deactivates first if it was active, then cleans up.
 
-**Arbitration.** `robot_option_node` is listed in the `motion_controllers` of
+**Arbitration.** `wmx_robot_option_node` is listed in the `motion_controllers` of
 `wmx_core_motion_node`, so it owns the axes the same way a manipulator
 controller does. While it is `active`, `wmx/axes/start_pos`, `start_mov`,
 `start_vel`, `start_jog` and `start_home` answer `success: false` and the axes
 can only be driven through `wmx/robot/*`. Deactivating it
-(`ros2 lifecycle set /robot_option_node deactivate`) hands the axes back.
+(`ros2 lifecycle set /wmx_robot_option_node deactivate`) hands the axes back.
 
 `wmx/axes/stop` is never blocked, and neither are the servo and configuration
 services, so `set_servo_on`, `clear_amp_alarm` and `stop` stay reachable while
@@ -557,9 +557,9 @@ warning per second.
 A deployment is one YAML plus the two parameter files:
 
 1. **ROS parameter YAML**, `config/wmx_r2_robot_option_config.yaml`. Carries the
-   `robot_option_node` block plus `wmx_engine_node`,
+   `wmx_robot_option_node` block plus `wmx_engine_node`,
    `wmx_lifecycle_manager_node` and `wmx_core_motion_node`.
-   `robot_option_node` must appear twice: in `managed_nodes` after the
+   `wmx_robot_option_node` must appear twice: in `managed_nodes` after the
    device-level nodes so it is brought up, and in the `motion_controllers` of
    `wmx_core_motion_node` so it owns the axes while active. None of the
    manipulator controllers are listed, since none run here. An entry of `""` is
@@ -582,7 +582,7 @@ Paths are handed to the SDK unchanged, so use absolute paths.
 
 ## Build
 
-`robot_option_node` compiles against the WMX3 SDK at the CMake cache path
+`wmx_robot_option_node` compiles against the WMX3 SDK at the CMake cache path
 `WMX3_SDK_PATH` (default `/opt/wmx3`), and links `robotmotionapi`,
 `kinematicsapi`, `coordinateapi`, `coremotionapi`, `wmx3api` and `imdll`. The
 first three are what separate it from the other nodes in the package.

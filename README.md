@@ -297,7 +297,7 @@ side.
 | [doc/launch_general_nodes.md](doc/launch_general_nodes.md) | Launch the WMX general nodes |
 | [doc/launch_manipulator.md](doc/launch_manipulator.md) | Launch a manipulator |
 | [doc/launch_differential.md](doc/launch_differential.md) | Launch the differential-drive base |
-| [doc/launch_robot_option.md](doc/launch_robot_option.md) | Launch the general nodes plus `robot_option_node` |
+| [doc/launch_robot_option.md](doc/launch_robot_option.md) | Launch the general nodes plus `wmx_robot_option_node` |
 | [doc/reference_general_nodes.md](doc/reference_general_nodes.md) | Every service and topic of the general nodes, with the startup sequence |
 | [doc/reference_manipulator.md](doc/reference_manipulator.md) | Manipulator node reference: parameters, arbitration, lifecycle |
 | [doc/reference_differential.md](doc/reference_differential.md) | Differential node reference: parameters, kinematics, odometry |

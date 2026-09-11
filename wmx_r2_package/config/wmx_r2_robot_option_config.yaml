@@ -9,7 +9,7 @@ wmx_lifecycle_manager_node:
       - wmx_core_motion_node
       - wmx_io_node
       - wmx_ethercat_node
-      - robot_option_node
+      - wmx_robot_option_node
     discovery_period: 0.2
 
 wmx_core_motion_node:
@@ -19,10 +19,10 @@ wmx_core_motion_node:
     jog_run_time_ms: 2000.0
     jog_jerk_ratio: 0.75
     motion_controllers:
-      - robot_option_node
+      - wmx_robot_option_node
     controller_resync_period: 0.2
 
-robot_option_node:
+wmx_robot_option_node:
   ros__parameters:
     robot_param_file: ""
     robot_status_rate: 10

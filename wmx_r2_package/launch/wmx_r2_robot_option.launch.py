@@ -10,7 +10,7 @@ from launch_ros.actions import LifecycleNode
 PKG_SHARE = get_package_share_directory('wmx_r2_package')
 
 
-def launch_robot_option_node(context):
+def launch_wmx_robot_option_node(context):
     use_sim_time = LaunchConfiguration('use_sim_time')
     config_file = LaunchConfiguration('config_file').perform(context)
 
@@ -24,8 +24,8 @@ def launch_robot_option_node(context):
     return [
         LifecycleNode(
             package='wmx_r2_package',
-            executable='robot_option_node',
-            name='robot_option_node',
+            executable='wmx_robot_option_node',
+            name='wmx_robot_option_node',
             namespace='',
             parameters=parameters,
             output='screen',
@@ -56,7 +56,7 @@ def generate_launch_description():
             'config_file',
             default_value=os.path.join(
                 PKG_SHARE, 'config', 'wmx_r2_robot_option_config.yaml'),
-            description='YAML with the general node and robot_option_node parameters'
+            description='YAML with the general node and wmx_robot_option_node parameters'
         ),
         DeclareLaunchArgument(
             'wmx_param_file',
@@ -74,5 +74,5 @@ def generate_launch_description():
         ),
 
         start_wmx_r2_general_nodes,
-        OpaqueFunction(function=launch_robot_option_node),
+        OpaqueFunction(function=launch_wmx_robot_option_node),
     ])

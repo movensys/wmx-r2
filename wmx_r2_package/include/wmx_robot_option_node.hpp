@@ -1,8 +1,8 @@
 // Copyright 2026 Movensys Corporation.
 // Licensed under the MIT License. See LICENSE.txt for details.
 
-#ifndef ROBOT_OPTION_NODE_HPP_
-#define ROBOT_OPTION_NODE_HPP_
+#ifndef WMX_ROBOT_OPTION_NODE_HPP_
+#define WMX_ROBOT_OPTION_NODE_HPP_
 
 #include <memory>
 #include <mutex>
@@ -32,11 +32,11 @@
 #include "KinematicsApi.h"
 #include "RobotMotionApi.h"
 
-class RobotOptionNodeApi
+class WmxRobotOptionNodeApi
 {
 public:
-  explicit RobotOptionNodeApi(const rclcpp::Logger & logger);
-  ~RobotOptionNodeApi();
+  explicit WmxRobotOptionNodeApi(const rclcpp::Logger & logger);
+  ~WmxRobotOptionNodeApi();
 
   int createDevice(std::string & message);
   void closeDevice();
@@ -98,7 +98,7 @@ private:
 
   rclcpp::Logger logger_;
 
-  const char * deviceName_ = "robot_option_node";
+  const char * deviceName_ = "wmx_robot_option_node";
   unsigned int timeout_ = 10000;
 
   mutable std::mutex robotMutex_;
@@ -109,14 +109,14 @@ private:
   wmx3Api::RobotMotionParam robotMotionParam_;
 };
 
-class RobotOptionNode : public rclcpp_lifecycle::LifecycleNode
+class WmxRobotOptionNode : public rclcpp_lifecycle::LifecycleNode
 {
 public:
   using CallbackReturn =
     rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
-  RobotOptionNode();
-  ~RobotOptionNode() override;
+  WmxRobotOptionNode();
+  ~WmxRobotOptionNode() override;
 
   CallbackReturn on_configure(const rclcpp_lifecycle::State & previous_state) override;
   CallbackReturn on_activate(const rclcpp_lifecycle::State & previous_state) override;
@@ -125,7 +125,7 @@ public:
   CallbackReturn on_shutdown(const rclcpp_lifecycle::State & previous_state) override;
 
 private:
-  std::unique_ptr<RobotOptionNodeApi> api_;
+  std::unique_ptr<WmxRobotOptionNodeApi> api_;
 
   std::string robotParamFile_;
   int rate_ = 10;
@@ -211,4 +211,4 @@ private:
     std::shared_ptr<wmx_r2_message::srv::RobotCalcInverseKinematics::Response> response);
 };
 
-#endif  // ROBOT_OPTION_NODE_HPP_
+#endif  // WMX_ROBOT_OPTION_NODE_HPP_
