@@ -206,8 +206,8 @@
 		</EmergencyStopParam>
 		<AxisParam>
 			<AxisCommandMode>0</AxisCommandMode>
-			<AxisGearRatioNumerator>1000000.000000</AxisGearRatioNumerator>
-			<AxisGearRatioDenominator>1.000000</AxisGearRatioDenominator>
+			<AxisGearRatioNumerator>8388608.000000</AxisGearRatioNumerator>
+			<AxisGearRatioDenominator>0.0100000</AxisGearRatioDenominator>
 			<SingleTurnMode>0</SingleTurnMode>
 			<SingleTurnEncoderCount>65536</SingleTurnEncoderCount>
 			<MaxTrqLimit>300.000000</MaxTrqLimit>
@@ -414,8 +414,8 @@
 		</EmergencyStopParam>
 		<AxisParam>
 			<AxisCommandMode>0</AxisCommandMode>
-			<AxisGearRatioNumerator>1000000.000000</AxisGearRatioNumerator>
-			<AxisGearRatioDenominator>1.000000</AxisGearRatioDenominator>
+			<AxisGearRatioNumerator>8388608.000000</AxisGearRatioNumerator>
+			<AxisGearRatioDenominator>0.0100000</AxisGearRatioDenominator>
 			<SingleTurnMode>0</SingleTurnMode>
 			<SingleTurnEncoderCount>65536</SingleTurnEncoderCount>
 			<MaxTrqLimit>300.000000</MaxTrqLimit>
@@ -622,8 +622,8 @@
 		</EmergencyStopParam>
 		<AxisParam>
 			<AxisCommandMode>0</AxisCommandMode>
-			<AxisGearRatioNumerator>1000000.000000</AxisGearRatioNumerator>
-			<AxisGearRatioDenominator>1.000000</AxisGearRatioDenominator>
+			<AxisGearRatioNumerator>8388608.000000</AxisGearRatioNumerator>
+			<AxisGearRatioDenominator>0.0100000</AxisGearRatioDenominator>
 			<SingleTurnMode>0</SingleTurnMode>
 			<SingleTurnEncoderCount>65536</SingleTurnEncoderCount>
 			<MaxTrqLimit>300.000000</MaxTrqLimit>
