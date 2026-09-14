@@ -160,8 +160,8 @@ DifferentialDriveController::DifferentialDriveController()
   controlCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
   DifferentialDriveControllerApi::Config config;
-  config.accTimeMilliseconds = accTime_;
-  config.decTimeMilliseconds = decTime_;
+  config.accTimeMilliseconds = accTime_ * 1000.0;
+  config.decTimeMilliseconds = decTime_ * 1000.0;
   api_ = std::make_unique<DifferentialDriveControllerApi>(this->get_logger(), config);
 
   RCLCPP_INFO(
@@ -586,7 +586,8 @@ void DifferentialDriveController::setRosParameter()
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
   RCLCPP_INFO(this->get_logger(), "left_axis: %d, right_axis: %d", leftAxis_, rightAxis_);
   RCLCPP_INFO(this->get_logger(), "rate: %d", rate_);
-  RCLCPP_INFO(this->get_logger(), "acc_time: %f, dec_time: %f", accTime_, decTime_);
+  RCLCPP_INFO(
+    this->get_logger(), "acc_time: %f s, dec_time: %f s", accTime_, decTime_);
   RCLCPP_INFO(this->get_logger(), "wheel_radius: %f", wheelRadius_);
   RCLCPP_INFO(this->get_logger(), "wheel_to_wheel: %f", wheelToWheel_);
   RCLCPP_INFO(this->get_logger(), "cmd_vel_timeout: %f", cmdVelTimeout_);

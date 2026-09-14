@@ -77,6 +77,14 @@ wros ros2 service call /wmx/axes/start_pos wmx_r2_message/srv/StartAxesPose \
     '"{axis: [0,1], target: [8388608, 10000], velocity: [1000000, 5000], acc: [100000, 1000], dec: [100000, 1000]}"'
 ```
 
+`target`, `velocity`, `acc` and `dec` are in the **axis user unit**, set by the
+gear ratio in the axis parameter XML. `config/wmx_parameters.xml` leaves it at
+1:1, so these numbers are raw encoder counts and counts per second, which is why
+they look so large — they are not degrees. The robot files
+(`example/cr3a_wmx_parameters.xml` and friends) use 2*pi instead, which makes the
+same fields **radians** and **rad/s**. See
+[doc/reference_general_nodes.md](doc/reference_general_nodes.md#units-and-conventions).
+
 Full startup sequence and the complete service/topic catalog:
 [doc/reference_general_nodes.md](doc/reference_general_nodes.md).
 

@@ -166,8 +166,28 @@ manager discovers each node under its fully-qualified name, and
   ratio) must be configured WMX-side — via the axis parameter XML — so that one
   axis user unit = 1 rad at the joint, matching the URDF. There is no gear-ratio
   or offset parameter in any of these nodes.
-- Velocity feedback is the servo's `actualVelocity` (same user unit per second),
-  not a numerical derivative of position.
+- The shipped arm files do exactly that: `example/cr3a_wmx_parameters.xml` and
+  `cr5a_wmx_parameters.xml` set `AxisGearRatioDenominator` to
+  `6.283185307179586` (2*pi), so **one user unit is one radian** and everything
+  below is already in ROS units — no conversion anywhere in the chain:
+
+  | Field | Unit |
+  |---|---|
+  | `JointState.position`, arm joints (`/joint_states`, `/isaacsim/joint_command`) | **rad** |
+  | `JointState.velocity`, arm joints | **rad/s** |
+  | `JointState.effort` | never filled, always empty |
+  | `JointState.position`, gripper joints | **m** — `picker_*_joint` is prismatic, `gripper_open_value` 0.0 to `gripper_close_value` 0.045 |
+  | `FollowJointTrajectory` / `JointTrajectory` `positions` | **rad** (arm), **m** (gripper) |
+  | `time_from_start` | ROS duration, converted to **ms** for WMX |
+  | `Float64MultiArray.data` on the Gazebo position topic | **rad**, then the gripper values in **m** |
+  | `Float64MultiArray.data` on the Gazebo velocity topic | **rad/s**, no gripper entries |
+  | `joint_feedback_rate` | Hz |
+  | `accel_ratio`, `default_velocity`, `min_step` (`joint_position_controller`) | ratio, user unit / s, user unit |
+
+  This is why MoveIt, RViz, Isaac Sim and Gazebo all read correctly without a
+  conversion step: they expect radians and metres, and the axes deliver them.
+- Velocity feedback is the servo's `actualVelocity` (same user unit per second,
+  so rad/s here), not a numerical derivative of position.
 - `joint_trajectory_controller` is **time-based**: it consumes `positions` and
   `time_from_start` only. `velocities` and `accelerations` in the goal are logged
   and discarded — the WMX C-spline derives the profile from the position/time

@@ -3,8 +3,8 @@ differential_drive_controller:
     left_axis: 0
     right_axis: 1
     rate: 100
-    acc_time: 1.0
-    dec_time: 1.0
+    acc_time: 1.0   # seconds
+    dec_time: 1.0   # seconds
     wheel_radius: 0.095
     wheel_to_wheel: 0.55
     cmd_vel_timeout: 0.25
