@@ -11,7 +11,7 @@ check `doc/launch_robot_option.md`
 
 ```
  set_robot_param ───────────▶┌──────────────────────────────┐
-  (XML / URDF)               │ wmx_robot_option_node            │──▶ WMX3 Kinematics
+  (XML / URDF)               │ wmx_robot_option_node        │──▶ WMX3 Kinematics
                              │  (lifecycle)                 │    SetRobotParam
  start_motion ──────────────▶│                              │──▶ StartPTPPos or
   (ptp / line)               │  one robotId, tool index 0   │    SetMotion + StartMotion
@@ -20,7 +20,7 @@ check `doc/launch_robot_option.md`
  stop_motion ───────────────▶│                              │──▶ StopMotion
  e_stop / release_e_stop     │                              │
                              │                              │──▶ /wmx/robot/status
- calc_*_kinematics ─────────▶│  UpdateRobotStatus @ rate    │    (RobotStatus)
+ set/get_tool_coordinate ───▶│  UpdateRobotStatus @ rate    │    (RobotStatus)
                              └──────────────────────────────┘
 ```
 
