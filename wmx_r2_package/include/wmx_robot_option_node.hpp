@@ -48,7 +48,7 @@ public:
   int setRobotParam(
     const std::string & paramFile, int32_t robotId, int32_t & outRobotId, int32_t & numJoints,
     std::string & message);
-  
+
   int updateRobotStatus(wmx3Api::RobotStatus & status, std::string & message);
 
   int startMotion(

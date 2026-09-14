@@ -60,12 +60,12 @@ link and joint limits, motion profile) and is imported here.
 | Parameter | Default | Meaning |
 |---|---|---|
 | `robot_param_file` | `""` | Absolute path to the robot parameter file, read once at `on_configure`. A `.urdf` suffix (case-insensitive) selects `ImportParamURDF`, anything else `ImportParamXML`. Empty logs a warning and configures anyway |
+| `robot_status_rate` | `1` | `wmx/robot/status` rate in Hz. Values `<= 0` fall back to 10 |
 
 An XML takes its robot id from its own `<Robot ID="...">`. A URDF has no id to
 take, so the one registered at configure is hardcoded to `0`; the `robot_id`
 field on `wmx/robot/set_robot_param` is the only way to register a URDF under a
 different id at runtime, and XML imports ignore it.
-| `robot_status_rate` | `10` | `wmx/robot/status` rate in Hz. Values `<= 0` fall back to 10 |
 
 Parameters are read once in the constructor, so set them in the config YAML, not
 with `ros2 param set`.
@@ -73,6 +73,11 @@ with `ros2 param set`.
 ---
 
 ## Services and topics
+
+Payloads below are spelled `'"{...}"'`: `wros` hands the whole command to the
+container's shell as one string, and only quotes inside the argument survive
+that second parse. From a shell already inside the container, plain `"{...}"` is
+the right form.
 
 All services answer `success` plus a `message` carrying the WMX3 call name, the
 error number and `ErrorToString` text. Every one takes `robot_id`, and every one
@@ -86,7 +91,7 @@ This node has no servo service. `wmx_core_motion_node` owns servo state, and
 
 ```bash
 wros ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes \
-  "{axis: [0,1,2,3,4,5], data: [1,1,1,1,1,1]}"
+  '"{axis: [0,1,2,3,4,5], data: [1,1,1,1,1,1]}"'
 ```
 
 The axis list is the `<Axis>` values of the robot parameter file, which for
@@ -101,8 +106,8 @@ The axis list is the `<Axis>` values of the robot parameter file, which for
 
 ```bash
 wros ros2 service call /wmx/robot/set_robot_param wmx_r2_message/srv/RobotSetRobotParam \
-  "{param_file: '/opt/wmx3/robot_sample/common/robotParamXML_MZ07L.xml', robot_id: 0}"
-wros ros2 service call /wmx/robot/release_robot wmx_r2_message/srv/RobotId "{robot_id: 0}"
+  '"{param_file: /opt/wmx3/robot_sample/common/robotParamXML_MZ07L.xml, robot_id: 0}"'
+wros ros2 service call /wmx/robot/release_robot wmx_r2_message/srv/RobotId '"{robot_id: 0}"'
 ```
 
 `set_robot_param` replaces whatever was registered before, so it re-registers a
@@ -145,41 +150,44 @@ A `path: 0` move is PTP: each joint runs its own profile and they synchronize
 only at the endpoints, so the tool traces a curve. Only `path: 1` controls the
 shape of the tool path.
 
+The joint values below are the CR3A ones and sit inside the limits of
+`example/cr3a_robot_option_parameters.xml`.
+
 ```bash
-# 1  ptp / joint / pos  - drive every joint to an absolute value
+# 1  ptp / joint / pos  - drive every joint to an absolute value, the CR3A initial pose
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  "{robot_id: 0, mode: 0, target_type: 0, path: 0,
-    target_joint: [0.0, 0.0, 0.0, 0.0, -90.0, 0.0]}"
+  '"{robot_id: 0, mode: 0, target_type: 0, path: 0,
+    target_joint: [0.0, 0.0, -90.0, 0.0, 90.0, 0.0]}"'
 
 # 2  ptp / joint / mov  - rotate joint 3 by +15 deg, hold the rest
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  "{robot_id: 0, mode: 1, target_type: 0, path: 0,
-    target_joint: [0.0, 0.0, 15.0, 0.0, 0.0, 0.0]}"
+  '"{robot_id: 0, mode: 1, target_type: 0, path: 0,
+    target_joint: [0.0, 0.0, 15.0, 0.0, 0.0, 0.0]}"'
 
 # 3  ptp / pose / pos  - absolute tool pose, path not controlled
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  "{robot_id: 0, mode: 0, target_type: 1, path: 0,
+  '"{robot_id: 0, mode: 0, target_type: 1, path: 0,
     target_pose: {x: 400.0, y: 0.0, z: 300.0, u: 180.0, v: 0.0, w: 0.0},
-    s: 0, e: 0, r: 0}"
+    s: 0, e: 0, r: 0}"'
 
 # 4  ptp / pose / mov  - shift the tool 50 mm in work x, path not controlled
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  "{robot_id: 0, mode: 1, target_type: 1, path: 0,
+  '"{robot_id: 0, mode: 1, target_type: 1, path: 0,
     target_pose: {x: 50.0, y: 0.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0},
-    s: 0, e: 0, r: 0}"
+    s: 0, e: 0, r: 0}"'
 
 # 5  line / pose / pos  - absolute tool pose, straight tool path
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  "{robot_id: 0, mode: 0, target_type: 1, path: 1,
-    target_pose: {x: 400.0, y: 0.0, z: 300.0, u: 180.0, v: 0.0, w: 0.0}}"
+  '"{robot_id: 0, mode: 0, target_type: 1, path: 1,
+    target_pose: {x: 400.0, y: 0.0, z: 300.0, u: 180.0, v: 0.0, w: 0.0}}"'
 
 # 6  line / pose / mov  - retract 50 mm along the TOOL z axis, straight path
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  "{robot_id: 0, mode: 1, target_type: 1, path: 1,
-    target_pose: {x: 0.0, y: 0.0, z: -50.0, u: 0.0, v: 0.0, w: 0.0}}"
+  '"{robot_id: 0, mode: 1, target_type: 1, path: 1,
+    target_pose: {x: 0.0, y: 0.0, z: -50.0, u: 0.0, v: 0.0, w: 0.0}}"'
 
 # stop the running move
-wros ros2 service call /wmx/robot/stop_motion wmx_r2_message/srv/RobotId "{robot_id: 0}"
+wros ros2 service call /wmx/robot/stop_motion wmx_r2_message/srv/RobotId '"{robot_id: 0}"'
 ```
 
 `s`, `e` and `r` are the inverse-kinematics configuration flags, read only by
@@ -204,7 +212,7 @@ the profile in the robot parameter file.
 ```bash
 wros ros2 service call /wmx/robot/override_velocity_by_ratio \
   wmx_r2_message/srv/RobotOverrideVelocityByRatio \
-  "{robot_id: 0, vel_ratio: 0.5, acc_ratio: 1.0, dec_ratio: 1.0}"
+  '"{robot_id: 0, vel_ratio: 0.5, acc_ratio: 1.0, dec_ratio: 1.0}"'
 ```
 
 ### Coordinates
@@ -217,8 +225,8 @@ wros ros2 service call /wmx/robot/override_velocity_by_ratio \
 ```bash
 # 100 mm tool offset along flange z
 wros ros2 service call /wmx/robot/set_tool_coordinate wmx_r2_message/srv/RobotSetCoordinate \
-  "{robot_id: 0, pose: {x: 0.0, y: 0.0, z: 100.0}}"
-wros ros2 service call /wmx/robot/get_tool_coordinate wmx_r2_message/srv/RobotGetCoordinate "{robot_id: 0}"
+  '"{robot_id: 0, pose: {x: 0.0, y: 0.0, z: 100.0}}"'
+wros ros2 service call /wmx/robot/get_tool_coordinate wmx_r2_message/srv/RobotGetCoordinate '"{robot_id: 0}"'
 ```
 
 ### Status
@@ -428,24 +436,31 @@ it is sourced:
 
 | Field | Source |
 |---|---|
-| `JointOrigin`, `MaxAngle`, `MinAngle` | the CR3A description, `movensys_manipulator_description/urdf/dobot_cr3a/dobot_cr3a.xacro`, read into the WMX joint-origin form with the SDK's own `ImportParamURDF` and written back as type `0` |
+| `JointOrigin`, `MaxAngle`, `MinAngle` | the CR3A description, `movensys_manipulator_description/urdf/dobot_cr3a/dobot_cr3a.xacro`, read into the WMX joint-origin form with the SDK's own `ImportParamURDF` and written back as type `0`. Keep the two in step by hand: the flat `movensys_manipulator.urdf` export in that package is older than the xacro and still carries the wider J2 range |
 | `Axis` | the `joint_axes` of `example/cr3a_manipulator_config.yaml`, so `0` to `5` |
-| `VelocityLimit` | Dobot CR A Series User Guide V1.8, Appendix A Table 1: J1 and J2 180 deg/s, J3 to J6 223 deg/s |
-| `ToolVelocity` | half the guide's 2 m/s rated linear speed, so 1000 mm/s |
-| `AccelerationLimit`, `ToolAcceleration` | **derived, not published.** Dobot gives no acceleration figure anywhere in the guide. Taken as rated speed reached from rest in 0.25 s |
-| `AxisVelocity*`, `AxisAcceleration*` | half the limits above, so 90 deg/s on J1 and J2 and 111.5 deg/s on J3 to J6 |
-| `VelOverride`, `AccOverride` | `0.1`, a 10% derate on top of that for bring-up. Raise it with `override_velocity_by_ratio` |
+| `VelocityLimit` | the same xacro, `joint_vel` 3.0 rad/s on every joint. That is under the Dobot CR A Series User Guide V1.8, Appendix A Table 1 rating on all six (J1 and J2 180 deg/s, J3 to J6 223 deg/s) |
+| `AccelerationLimit` | **derived, not published.** Dobot gives no acceleration figure anywhere in the guide. Taken as `VelocityLimit` reached from rest in 0.25 s, so 12 rad/s² |
+| `ToolVelocity`, `ToolAcceleration` | `1400` mm/s, 70% of the guide's 2 m/s rated linear speed, and that speed reached from rest in 0.5 s |
+| `AxisVelocity*`, `AxisAcceleration*` | the PTP profile actually commanded, not a figure from the guide: `0.5236` rad/s (30 deg/s) and `1.0472` rad/s² (60 deg/s²) on every joint, a bring-up derate well under the limits above |
+| `VelOverride`, `AccOverride` | `0.01`, a 1% derate for bring-up. Note the axis user unit is the radian (`AxisGearRatioDenominator` is 2*pi in `example/cr3a_wmx_parameters.xml`), so this profile reaches the axes as 0.3 rad/s, about 17 deg/s. Change it for one motion with `override_velocity_by_ratio` |
+
+The joint limits are radians in the file and match the xacro one for one:
+
+| | J1 | J2 | J3 | J4 | J5 | J6 |
+|---|---|---|---|---|---|---|
+| `MinAngle` | -3.0 | -1.57 | -2.55 | -2.5 | -0.1 | -3.0 |
+| `MaxAngle` | 3.0 | 1.1 | 0.2 | 2.5 | 3.0 | 3.0 |
 
 Two things still need checking against the arm. The 0.25 s acceleration figure
 is an assumption, not a specification. And the joint limits are the
-description's, which are tighter than the guide's mechanical range (J3 is
--146 to 11.5 deg here against a rated +-155 deg), so the engine will refuse
-poses the arm could physically reach. Tighter is the safe direction, but confirm
-it suits the cell.
+description's, which are tighter and more lopsided than the guide's mechanical
+range (J3 is -146 to 11.5 deg here against a rated +-155 deg, and J5 only -5.7
+to 171.9 deg), so the engine will refuse poses the arm could physically reach.
+Tighter is the safe direction, but confirm it suits the cell.
 
 ```bash
 wros ros2 service call /wmx/robot/set_robot_param wmx_r2_message/srv/RobotSetRobotParam \
-  "{param_file: '/opt/wmx3/robot_sample/common/robotParamXML_MZ07L.xml', robot_id: 0}"
+  '"{param_file: /opt/wmx3/robot_sample/common/robotParamXML_MZ07L.xml, robot_id: 0}"'
 ```
 
 ---

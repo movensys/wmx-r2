@@ -14,10 +14,10 @@
 		<JointType>RotateZAxis</JointType>
 		<Axis>0</Axis>
 		<JointOrigin x="0.000000" y="0.000000" z="128.300000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
-		<MaxAngle>3.140004403970478197294369</MaxAngle>
-		<MinAngle>-3.140004403970478197294369</MinAngle>
-		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
-		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
+		<MaxAngle>3.000000000000000000000000</MaxAngle>
+		<MinAngle>-3.000000000000000000000000</MinAngle>
+		<VelocityLimit>3.000000000000000000000000</VelocityLimit>
+		<AccelerationLimit>12.000000000000000000000000</AccelerationLimit>
 	</Joint>
 	<link name="">
 		<inertial>
@@ -30,10 +30,10 @@
 		<JointType>RotateZAxis</JointType>
 		<Axis>1</Axis>
 		<JointOrigin x="0.000000" y="0.000000" z="0.000000" u="1.570800000000000" v="1.570800000000000" w="0.000000000000000"/>
-		<MaxAngle>3.140004403970478197294369</MaxAngle>
-		<MinAngle>-3.140004403970478197294369</MinAngle>
-		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
-		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
+		<MaxAngle>1.100000000000000088817842</MaxAngle>
+		<MinAngle>-1.570000000000000062172489</MinAngle>
+		<VelocityLimit>3.000000000000000000000000</VelocityLimit>
+		<AccelerationLimit>12.000000000000000000000000</AccelerationLimit>
 	</Joint>
 	<link name="">
 		<inertial>
@@ -46,10 +46,10 @@
 		<JointType>RotateZAxis</JointType>
 		<Axis>2</Axis>
 		<JointOrigin x="-274.000000" y="0.000000" z="0.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
-		<MaxAngle>2.860001232073028365476830</MaxAngle>
-		<MinAngle>-2.860001232073028365476830</MinAngle>
-		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
-		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
+		<MaxAngle>0.200000000000000011102230</MaxAngle>
+		<MinAngle>-2.549999999999999822364316</MinAngle>
+		<VelocityLimit>3.000000000000000000000000</VelocityLimit>
+		<AccelerationLimit>12.000000000000000000000000</AccelerationLimit>
 	</Joint>
 	<link name="">
 		<inertial>
@@ -62,10 +62,10 @@
 		<JointType>RotateZAxis</JointType>
 		<Axis>3</Axis>
 		<JointOrigin x="-230.000000" y="0.000000" z="128.300000" u="0.000000000000000" v="0.000000000000000" w="-1.570800000000000"/>
-		<MaxAngle>3.140004403970478197294369</MaxAngle>
-		<MinAngle>-3.140004403970478197294369</MinAngle>
-		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
-		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
+		<MaxAngle>2.500000000000000000000000</MaxAngle>
+		<MinAngle>-2.500000000000000000000000</MinAngle>
+		<VelocityLimit>3.000000000000000000000000</VelocityLimit>
+		<AccelerationLimit>12.000000000000000000000000</AccelerationLimit>
 	</Joint>
 	<link name="">
 		<inertial>
@@ -78,10 +78,10 @@
 		<JointType>RotateZAxis</JointType>
 		<Axis>4</Axis>
 		<JointOrigin x="0.000000" y="-116.000000" z="0.000000" u="1.570800000000000" v="0.000000000000000" w="0.000000000000000"/>
-		<MaxAngle>3.140004403970478197294369</MaxAngle>
-		<MinAngle>-3.140004403970478197294369</MinAngle>
-		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
-		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
+		<MaxAngle>3.000000000000000000000000</MaxAngle>
+		<MinAngle>-0.100000000000000005551115</MinAngle>
+		<VelocityLimit>3.000000000000000000000000</VelocityLimit>
+		<AccelerationLimit>12.000000000000000000000000</AccelerationLimit>
 	</Joint>
 	<link name="">
 		<inertial>
@@ -94,10 +94,10 @@
 		<JointType>RotateZAxis</JointType>
 		<Axis>5</Axis>
 		<JointOrigin x="0.000000" y="105.000000" z="0.000000" u="-1.570800000000000" v="0.000000000000000" w="0.000000000000000"/>
-		<MaxAngle>6.279991354648436718832727</MaxAngle>
-		<MinAngle>-6.279991354648436718832727</MinAngle>
-		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
-		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
+		<MaxAngle>3.000000000000000000000000</MaxAngle>
+		<MinAngle>-3.000000000000000000000000</MinAngle>
+		<VelocityLimit>3.000000000000000000000000</VelocityLimit>
+		<AccelerationLimit>12.000000000000000000000000</AccelerationLimit>
 	</Joint>
 	<link name="">
 		<inertial>

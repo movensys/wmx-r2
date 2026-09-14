@@ -54,7 +54,11 @@ Full explanation, application examples and integration scenarios:
 
 Set up `~/.bashrc`, clone and start the container first: see
 [doc/first_setup.md](doc/first_setup.md). `wros` runs a command inside the
-container as root with ROS and the workspace sourced.
+container as root with ROS and the workspace sourced. It passes the command on
+as one string, so the container's shell parses it a second time: a YAML payload
+needs its double quotes to survive that pass, hence the `'"{...}"'` spelling in
+every service call below. A payload run from a shell already inside the
+container takes plain `"{...}"`.
 
 ```bash
 # 1. Build (messages first, then the rest)
@@ -68,9 +72,9 @@ wros ros2 launch wmx_r2_package wmx_r2_general_nodes.launch.py \
     'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/config/wmx_parameters.xml'
 
 # 3. Bring axes online and command a move
-wros ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{axis: [0,1], data: [1,1]}"
+wros ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes '"{axis: [0,1], data: [1,1]}"'
 wros ros2 service call /wmx/axes/start_pos wmx_r2_message/srv/StartAxesPose \
-    "{axis: [0,1], target: [8388608, 10000], velocity: [1000000, 5000], acc: [100000, 1000], dec: [100000, 1000]}"
+    '"{axis: [0,1], target: [8388608, 10000], velocity: [1000000, 5000], acc: [100000, 1000], dec: [100000, 1000]}"'
 ```
 
 Full startup sequence and the complete service/topic catalog:
