@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <Robot ID="0">
 	<RobotName>CR3A</RobotName>
-	<RobotType>5</RobotType>
+	<RobotType>0</RobotType>
 	<BaseCoordinate x="0.000000" y="0.000000" z="0.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
 	<link name="base">
 		<inertial>
@@ -131,8 +131,8 @@
 	<AxisAcceleration4>1.047197551196597631317786</AxisAcceleration4>
 	<AxisVelocity5>0.523598775598298815658893</AxisVelocity5>
 	<AxisAcceleration5>1.047197551196597631317786</AxisAcceleration5>
-	<VelOverride>0.010000</VelOverride>
-	<AccOverride>0.010000</AccOverride>
+	<VelOverride>0.10000</VelOverride>
+	<AccOverride>0.10000</AccOverride>
 	<ProfileType>Trapezoida</ProfileType>
 	<TorqueConstants>
 		<CurrentConstants0>0.000000000000000000000000</CurrentConstants0>

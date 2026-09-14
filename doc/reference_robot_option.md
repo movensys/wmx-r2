@@ -174,32 +174,33 @@ wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMoti
   '"{robot_id: 0, mode: 0, target_type: 0, path: 0,
     target_joint: [0.0, 0.0, -90.0, 0.0, 90.0, 0.0]}"'
 
-# 2  ptp / joint / mov  - rotate joint 3 by +15 deg, hold the rest
+# 4  ptp / pose / mov  - shift the tool 50 mm in work x, path not controlled
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  '"{robot_id: 0, mode: 1, target_type: 0, path: 0,
-    target_joint: [0.0, 0.0, 15.0, 0.0, 0.0, 0.0]}"'
+  '"{robot_id: 0, mode: 1, target_type: 1, path: 0,
+    target_pose: {x: 0.0, y: 50.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0},
+    s: 0, e: 0, r: 0}"'
+
+# 6  line / pose / mov  - retract 50 mm along the TOOL z axis, straight path
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  '"{robot_id: 0, mode: 1, target_type: 1, path: 1,
+    target_pose: {x: 50.0, y: 0.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0}}"'
 
 # 3  ptp / pose / pos  - absolute tool pose, path not controlled
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
   '"{robot_id: 0, mode: 0, target_type: 1, path: 0,
-    target_pose: {x: 400.0, y: 0.0, z: 300.0, u: 180.0, v: 0.0, w: 0.0},
-    s: 0, e: 0, r: 0}"'
-
-# 4  ptp / pose / mov  - shift the tool 50 mm in work x, path not controlled
-wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  '"{robot_id: 0, mode: 1, target_type: 1, path: 0,
-    target_pose: {x: 50.0, y: 0.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0},
+    target_pose: {x: 345.0, y: -200, z: 163.0, u: 180.0, v: 0.0, w: -90.0},
     s: 0, e: 0, r: 0}"'
 
 # 5  line / pose / pos  - absolute tool pose, straight tool path
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
   '"{robot_id: 0, mode: 0, target_type: 1, path: 1,
-    target_pose: {x: 400.0, y: 0.0, z: 300.0, u: 180.0, v: 0.0, w: 0.0}}"'
+    target_pose: {x: 345.0, y: -128, z: 163.0, u: 180.0, v: 0.0, w: -90.0}}"'
 
-# 6  line / pose / mov  - retract 50 mm along the TOOL z axis, straight path
+
+# 2  ptp / joint / mov  - rotate joint 3 by +15 deg, hold the rest
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  '"{robot_id: 0, mode: 1, target_type: 1, path: 1,
-    target_pose: {x: 0.0, y: 0.0, z: -50.0, u: 0.0, v: 0.0, w: 0.0}}"'
+  '"{robot_id: 0, mode: 1, target_type: 0, path: 0,
+    target_joint: [0.0, 0.0, 15.0, 0.0, 0.0, 0.0]}"'
 
 # stop the running move
 wros ros2 service call /wmx/robot/stop_motion wmx_r2_message/srv/RobotId '"{robot_id: 0}"'
@@ -211,6 +212,27 @@ rows 3 and 4. They map to `RobotState::serShapeFlag`: `s` shoulder (`1` left,
 flip), `0` auto on all three. Rows 5 and 6 ignore them: the engine picks the
 configuration that keeps the tool on the line. Rows 1 and 2 ignore them too,
 since a joint target already fixes the configuration.
+
+**When IK fails.** A pose target answers
+`Error=163857 (Inverse kinematic computation iteration exceeded the limit)` when
+the solver does not converge, which is not the same as the point being out of
+reach. The solver is iterative and seeds from the **current** joint position, so
+the first thing to rule out is a bad starting configuration: send a joint target
+(rows 1 and 2, no IK involved) to park the arm somewhere sane, then re-issue the
+pose. `[0, 0, -90, 0, 90, 0]` is a good seed on the CR3A.
+
+Two properties of this cell are worth knowing before blaming the target:
+
+- **`w` is about -90, not 0, for anything on the table.** `robot_joint` in the
+  CR3A description mounts the arm yawed -90 degrees relative to the table, so
+  every working pose in `movensys-manipulator` lands near `w: -90`. The
+  perception scan pose, for instance, is `x: 345, y: -200, z: 316, u: 180,
+  v: 0, w: -90`. `w: 0` is reachable but is a wrist branch the cell never uses.
+- **Close and high runs out of workspace before far and low does.** J2 is capped
+  at 1.1 rad (63 deg) by the description, so raising `z` while keeping `x` small
+  is what leaves the reachable set. At `u: 180, v: 0`, `(200, 0, 200)`,
+  `(200, 0, 300)`, `(300, 0, 300)` and `(400, 0, 300)` all have in-limit
+  solutions; `(200, 0, 400)` has none. Move outward as you go up.
 
 **Stopping.** `stop_motion` decelerates the current motion to a controlled halt,
 leaving the robot short of its target. There is no pause or resume: a stopped
