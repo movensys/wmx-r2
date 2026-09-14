@@ -96,6 +96,7 @@ wrong. Every deployment supplies a YAML.
 | `gazebo_velocity_joint_topic` | string | `""` | – | Joint **velocities** as `Float64MultiArray`, for a Gazebo velocity controller. Sending positions here would command a continuous joint its own accumulated angle. |
 | `gazebo_velocity_joint_axes` | int[] | `[]` | – | As above, for the velocity topic. A mobile manipulator sets all four: wheel axes on the velocity topic, arm axes on the position topic. |
 | `gripper_joint_name` | string[] | `[]` | – | Extra joint names appended to the feedback message so the gripper shows up in RViz/MoveIt. Empty = no gripper. |
+| `rpm_axes` | int[] | `[]` | – | Axes, by WMX axis number as listed in `joint_axes`, whose user unit is the rpm convention: `AxisGearRatioDenominator` 60, so 60 user units make one revolution and an axis velocity of `1.0` is 1 rpm. Position and velocity for these axes are multiplied by 2*pi/60 before anything is published, so `/joint_states`, `/isaacsim/joint_command` and both Gazebo topics stay in rad and rad/s. Empty (the default) converts nothing, which is right for the 2*pi-scaled arm files. An axis not in `joint_axes` is ignored. |
 | `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX **output** bit read back for gripper state. |
 | `gripper_open_value` | double | `0.0` | m or rad | Joint value reported for every `gripper_joint_name` while the output bit is 0. |
 | `gripper_close_value` | double | `0.0` | m or rad | Joint value reported while the bit is 1, e.g. `0.045`. |

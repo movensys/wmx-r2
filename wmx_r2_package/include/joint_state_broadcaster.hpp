@@ -83,6 +83,7 @@ private:
   float gripperOpenValue_ = 0.0f;
   float gripperCloseValue_ = 0.0f;
   std::vector<int64_t> jointAxes_;
+  std::vector<int64_t> rpmAxes_;
   std::vector<std::string> jointNames_;
   std::vector<std::string> gripperJointNames_;
   std::vector<int64_t> gripperAddress_;

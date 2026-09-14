@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <thread>
 
 #include "wmx_qos_compat.hpp"
@@ -189,6 +190,7 @@ void JointStateBroadcaster::setRosParameter()
 {
   jointAxes_ = this->declare_parameter<std::vector<int64_t>>("joint_axes", std::vector<int64_t>{});
   jointFeedbackRate_ = this->declare_parameter<int>("joint_feedback_rate", 0);
+  rpmAxes_ = this->declare_parameter<std::vector<int64_t>>("rpm_axes", std::vector<int64_t>{});
   gripperOpenValue_ = this->declare_parameter<float>("gripper_open_value", 0);
   gripperCloseValue_ = this->declare_parameter<float>("gripper_close_value", 0);
   jointNames_ = this->declare_parameter<std::vector<std::string>>(
@@ -477,6 +479,16 @@ void JointStateBroadcaster::publishJointState()
       this->get_logger(), *this->get_clock(), 1000,
       "Joint state not published: %s", message.c_str());
     return;
+  }
+
+  for (size_t i = 0; i < feedback.size() && i < jointAxes_.size(); ++i) {
+    if (std::find(rpmAxes_.begin(), rpmAxes_.end(), jointAxes_[i]) == rpmAxes_.end()) {
+      continue;
+    }
+
+    constexpr double radPerRpmUnit = 2.0 * M_PI / 60.0;
+    feedback[i].actualPos *= radPerRpmUnit;
+    feedback[i].actualVelocity *= radPerRpmUnit;
   }
 
   sensor_msgs::msg::JointState encoderJointMsg;

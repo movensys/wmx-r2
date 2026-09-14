@@ -66,6 +66,7 @@ has no effect on behaviour — restart the node to apply new values.
 | `right_axis` | int | `1` | – | WMX3 axis index of the right wheel. Same rules as `left_axis`. |
 | `wheel_radius` | double | `0.095` | m | Drive-wheel radius `R`. Must be > 0 — `configure` is refused otherwise. |
 | `wheel_to_wheel` | double | `0.55` | m | Wheel separation `L` (distance between the two drive wheels). Must be > 0 — `configure` is refused otherwise. |
+| `wheel_velocity_unit` | string | `"rad/s"` | – | Unit the **axes** are scaled in, not the unit of any ROS topic. `"rad/s"` for an axis whose `AxisGearRatioDenominator` is 2*pi (`example/diffbot_wmx_parameters.xml`); `"rpm"` for one scaled at 60 (`example/diffbot_wmx_parameters_rpm.xml`), which multiplies commands by 60/(2*pi) and divides feedback by the same. `"rad"`, `"rad_s"`, `"RPM"` and `"rev/min"` are accepted spellings; anything else warns and falls back to `"rad/s"`. Read once in the constructor. |
 
 The WMX parameter XML (axis gear/feedback/limit setup) is **not** a parameter of
 this node: it is imported once by `wmx_engine_node` through its
@@ -165,9 +166,17 @@ authoritative for the no-EKF fallback where this odometry feeds Nav2 directly.
   parameter in the node.
 - `example/diffbot_wmx_parameters.xml` does that: `AxisGearRatioDenominator` is
   `6.283185307179586` (2*pi), so one user unit is one radian at the wheel and the
-  numbers on `wmx/axes/*` for these two axes are rad and rad/s. Point the engine
-  at a file with a different ratio and every velocity in this node silently means
-  something else.
+  numbers on `wmx/axes/*` for these two axes are rad and rad/s.
+- If the axes are scaled some other way, say so with `wheel_velocity_unit` rather
+  than leaving the mismatch to be discovered on the floor.
+  `example/diffbot_wmx_parameters_rpm.xml` sets the denominator to `60`, so one
+  user unit is 1/60 of a turn, an axis velocity of `1.0` is **1 rpm** and an axis
+  position of `60.0` is one revolution. Pair it with
+  `example/diffbot_differential_config_rpm.yaml`, which sets
+  `wheel_velocity_unit: "rpm"` here and `rpm_axes: [0, 1]` on the broadcaster.
+  **Every ROS topic stays in rad/s either way** — the conversion lives at the WMX
+  boundary, in `DifferentialDriveControllerApi::startVel` on the way out and in
+  `getStatus` on the way back.
 - Lengths are **metres** throughout: `wheel_radius`, `wheel_to_wheel`,
   `/odom_enc` position and `linear.x`. Angles are **radians**: `angular.z`,
   `/omega_cmd` and `/omega_enc` velocities, and the yaw inside the `/odom_enc`
