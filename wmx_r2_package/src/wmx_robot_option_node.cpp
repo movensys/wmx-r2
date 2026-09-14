@@ -22,9 +22,13 @@ namespace
 {
 constexpr int maxJoints = wmx3Api::kinematics::constants::MAX_NUMBER_OF_JOINT;
 
-// A URDF carries no robot id, so the one registered at configure is always 0.
-// An XML takes its id from the file's own <Robot ID="..."> instead.
 constexpr int32_t kUrdfRobotId = 0;
+
+// Mirrors the target_type and path fields of RobotStartMotion.srv.
+constexpr int32_t kTargetJoint = 0;
+constexpr int32_t kTargetPose = 1;
+constexpr int32_t kPathPtp = 0;
+constexpr int32_t kPathLine = 1;
 
 std::string errorToString(int err)
 {
@@ -77,17 +81,6 @@ wmx_r2_message::msg::RobotCartesianPose toPoseMsg(const CartesianPose & pose)
   return msg;
 }
 
-std::vector<CartesianPose> toCartesianPoses(
-  const std::vector<wmx_r2_message::msg::RobotCartesianPose> & poses)
-{
-  std::vector<CartesianPose> result;
-  result.reserve(poses.size());
-  for (const auto & pose : poses) {
-    result.push_back(toCartesianPose(pose));
-  }
-  return result;
-}
-
 }  // namespace
 
 WmxRobotOptionNodeApi::WmxRobotOptionNodeApi(const rclcpp::Logger & logger)
@@ -97,6 +90,7 @@ WmxRobotOptionNodeApi::WmxRobotOptionNodeApi(const rclcpp::Logger & logger)
 
 WmxRobotOptionNodeApi::~WmxRobotOptionNodeApi()
 {
+  releaseRobotIfLoaded();
   closeDevice();
 }
 
@@ -259,6 +253,16 @@ int WmxRobotOptionNodeApi::releaseRobot(int32_t robotId, std::string & message)
   return ErrorCode::None;
 }
 
+void WmxRobotOptionNodeApi::releaseRobotIfLoaded()
+{
+  if (!hasRobot()) {
+    return;
+  }
+
+  std::string message;
+  releaseRobot(robotId(), message);
+}
+
 int WmxRobotOptionNodeApi::updateRobotStatus(wmx3Api::RobotStatus & status, std::string & message)
 {
   std::lock_guard<std::mutex> lock(robotMutex_);
@@ -272,7 +276,6 @@ int WmxRobotOptionNodeApi::updateRobotStatus(wmx3Api::RobotStatus & status, std:
   const int errorBit = robot_.UpdateRobotStatus(
     robotMotionParam_.robotParam.robotId, status, errorCode);
 
-  // The motion error bit reports robot state, not a read failure: it belongs in the status.
   const int readBits = errorBit & ~(1 << wmx3Api::RobotStatus::ErrorBit::ERROR_BIT_MOTION_ERROR);
   if (readBits == 0) {
     return ErrorCode::None;
@@ -290,168 +293,98 @@ int WmxRobotOptionNodeApi::updateRobotStatus(wmx3Api::RobotStatus & status, std:
   return err;
 }
 
-int WmxRobotOptionNodeApi::startPtp(
-  int32_t robotId, int32_t mode, bool useCartesian, const std::vector<double> & targetJoint,
-  const CartesianPose & targetPose, char s, char e, char r, std::string & message)
+int WmxRobotOptionNodeApi::startMotion(
+  int32_t robotId, int32_t mode, int32_t targetType, int32_t path,
+  const std::vector<double> & targetJoint, const CartesianPose & targetPose,
+  char s, char e, char r, std::string & message)
 {
   std::lock_guard<std::mutex> lock(robotMutex_);
 
   int err = checkRobot(robotId, message);
   if (err != ErrorCode::None) {
     return err;
+  }
+
+  if (mode != PTPParam::PTPMode::Pos && mode != PTPParam::PTPMode::Mov) {
+    message = "Unknown mode " + std::to_string(mode) + ". Use 0 pos or 1 mov.";
+    return ErrorCode::ArgumentOutOfRange;
+  }
+
+  if (targetType != kTargetJoint && targetType != kTargetPose) {
+    message = "Unknown target_type " + std::to_string(targetType) +
+      ". Use 0 joint or 1 pose.";
+    return ErrorCode::ArgumentOutOfRange;
   }
 
   const wmx3Api::kinematics::RobotParam & param = robotMotionParam_.robotParam;
   const wmx3Api::RobotMotionProfile & profile = robotMotionParam_.profile;
-  double joints[maxJoints] = {};
+  const bool relative = mode == PTPParam::PTPMode::Mov;
 
-  switch (mode) {
-    case PTPParam::PTPMode::Pos:
-      if (useCartesian) {
-        err = robot_.mKinematics.StartPTPPos(
-          wmx3Api::PtpMotionParam::PtpPosParam(param, profile), targetPose, s, e, r);
-      } else {
-        err = fillJoints(targetJoint, joints, message);
+  switch (path) {
+    case kPathLine: {
+        if (targetType != kTargetPose) {
+          message = "A line needs target_type 1 pose; joint targets have no "
+            "straight line to follow.";
+          return ErrorCode::ArgumentOutOfRange;
+        }
+
+        err = robot_.mKinematics.SetMotion(
+          robotId,
+          wmx3Api::TrajectoryMotionParam::TrajectoryLineMotionParam(
+            profile, targetPose, relative));
         if (err != ErrorCode::None) {
+          message = failureText("SetMotion", robotIdText(robotId) + " line", err);
+          RCLCPP_ERROR(logger_, "%s", message.c_str());
           return err;
         }
-        err = robot_.mKinematics.StartPTPPos(
-          wmx3Api::PtpMotionParam::PtpPosParam(param, profile, joints));
-      }
-      break;
 
-    case PTPParam::PTPMode::Mov:
-      if (useCartesian) {
-        err = robot_.mKinematics.StartPTPPos(
-          wmx3Api::PtpMotionParam::PtpMovParam(param, profile), targetPose, s, e, r);
-      } else {
-        err = fillJoints(targetJoint, joints, message);
+        err = robot_.mKinematics.StartMotion(robotId);
         if (err != ErrorCode::None) {
+          message = failureText("StartMotion", robotIdText(robotId), err);
+          RCLCPP_ERROR(logger_, "%s", message.c_str());
+          robot_.mKinematics.ClearMotion(robotId);
           return err;
         }
-        err = robot_.mKinematics.StartPTPPos(
-          wmx3Api::PtpMotionParam::PtpMovParam(param, profile, joints));
+        break;
       }
-      break;
 
-    case PTPParam::PTPMode::Vel:
-      err = fillJoints(targetJoint, joints, message);
-      if (err != ErrorCode::None) {
-        return err;
+    case kPathPtp: {
+        double joints[maxJoints] = {};
+        if (targetType == kTargetJoint) {
+          err = fillJoints(targetJoint, joints, message);
+          if (err != ErrorCode::None) {
+            return err;
+          }
+          err = relative ?
+            robot_.mKinematics.StartPTPPos(
+            wmx3Api::PtpMotionParam::PtpMovParam(param, profile, joints)) :
+            robot_.mKinematics.StartPTPPos(
+            wmx3Api::PtpMotionParam::PtpPosParam(param, profile, joints));
+        } else {
+          err = relative ?
+            robot_.mKinematics.StartPTPPos(
+            wmx3Api::PtpMotionParam::PtpMovParam(param, profile), targetPose, s, e, r) :
+            robot_.mKinematics.StartPTPPos(
+            wmx3Api::PtpMotionParam::PtpPosParam(param, profile), targetPose, s, e, r);
+        }
+
+        if (err != ErrorCode::None) {
+          message = failureText(
+            "StartPTPPos", robotIdText(robotId) + " mode=" + std::to_string(mode), err);
+          RCLCPP_ERROR(logger_, "%s", message.c_str());
+          return err;
+        }
+        break;
       }
-      err = robot_.mKinematics.StartPTPPos(
-        wmx3Api::PtpMotionParam::PtpJogParam(param, profile, joints));
-      break;
 
     default:
-      message = "Unknown mode " + std::to_string(mode) + ". Use 0 pos, 1 mov or 2 vel.";
+      message = "Unknown path " + std::to_string(path) + ". Use 0 ptp or 1 line.";
       return ErrorCode::ArgumentOutOfRange;
   }
 
-  if (err != ErrorCode::None) {
-    message = failureText(
-      "StartPTPPos", robotIdText(robotId) + " mode=" + std::to_string(mode), err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  message = "StartPTPPos done. " + robotIdText(robotId) + " mode=" + std::to_string(mode);
-  RCLCPP_INFO(logger_, "%s", message.c_str());
-  return ErrorCode::None;
-}
-
-int WmxRobotOptionNodeApi::startMotion(
-  int32_t robotId, int32_t trajectoryType, bool isToolCoordinate, const CartesianPose & targetPose,
-  const std::vector<CartesianPose> & throughPose, double arcAngle, std::string & message)
-{
-  std::lock_guard<std::mutex> lock(robotMutex_);
-
-  int err = checkRobot(robotId, message);
-  if (err != ErrorCode::None) {
-    return err;
-  }
-
-  const wmx3Api::RobotMotionProfile & profile = robotMotionParam_.profile;
-
-  wmx3Api::coordinate::PoseArray poseArray;
-  if (!throughPose.empty()) {
-    poseArray.allocate(static_cast<int>(throughPose.size()));
-    for (size_t i = 0; i < throughPose.size(); ++i) {
-      poseArray.poseArray[i].point = throughPose[i].point;
-      poseArray.poseArray[i].rotation = throughPose[i].rotation;
-    }
-  }
-
-  switch (trajectoryType) {
-    case 0:
-      err = robot_.mKinematics.SetMotion(
-        robotId,
-        wmx3Api::TrajectoryMotionParam::TrajectoryLineMotionParam(
-          profile, targetPose, isToolCoordinate));
-      break;
-
-    case 1:
-      if (poseArray.numPoints != 1) {
-        message = "An arc needs exactly one through_pose, got " +
-          std::to_string(throughPose.size()) + ".";
-        poseArray.destroy();
-        return ErrorCode::ArgumentOutOfRange;
-      }
-      err = arcAngle == 0.0 ?
-        robot_.mKinematics.SetMotion(
-        robotId,
-        wmx3Api::TrajectoryMotionParam::TrajectoryArcMotionParam(profile, targetPose),
-        poseArray) :
-        robot_.mKinematics.SetMotion(
-        robotId,
-        wmx3Api::TrajectoryMotionParam::TrajectoryArcMotionParam(profile, targetPose, arcAngle),
-        poseArray);
-      break;
-
-    case 2:
-    case 3:
-      if (poseArray.numPoints < 2) {
-        message = "A spline needs at least two through_pose points, got " +
-          std::to_string(throughPose.size()) + ".";
-        poseArray.destroy();
-        return ErrorCode::ArgumentOutOfRange;
-      }
-      err = trajectoryType == 2 ?
-        robot_.mKinematics.SetMotion(
-        robotId,
-        wmx3Api::TrajectoryMotionParam::TrajectoryCSplineMotionParam(profile), poseArray) :
-        robot_.mKinematics.SetMotion(
-        robotId,
-        wmx3Api::TrajectoryMotionParam::TrajectoryBSplineMotionParam(profile), poseArray);
-      break;
-
-    default:
-      message = "Unknown trajectory_type " + std::to_string(trajectoryType) +
-        ". Use 0 line, 1 arc, 2 c-spline or 3 b-spline.";
-      poseArray.destroy();
-      return ErrorCode::ArgumentOutOfRange;
-  }
-
-  poseArray.destroy();
-
-  if (err != ErrorCode::None) {
-    message = failureText(
-      "SetMotion", robotIdText(robotId) + " trajectory_type=" + std::to_string(trajectoryType),
-      err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  err = robot_.mKinematics.StartMotion(robotId);
-  if (err != ErrorCode::None) {
-    message = failureText("StartMotion", robotIdText(robotId), err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    robot_.mKinematics.ClearMotion(robotId);
-    return err;
-  }
-
-  message = "StartMotion done. " + robotIdText(robotId) + " trajectory_type=" +
-    std::to_string(trajectoryType);
+  message = std::string(path == kPathLine ? "Line" : "PTP") + " motion started. " +
+    robotIdText(robotId) + " mode=" + std::to_string(mode) +
+    " target_type=" + std::to_string(targetType);
   RCLCPP_INFO(logger_, "%s", message.c_str());
   return ErrorCode::None;
 }
@@ -473,48 +406,6 @@ int WmxRobotOptionNodeApi::stopMotion(int32_t robotId, std::string & message)
   }
 
   message = "StopMotion done. " + robotIdText(robotId);
-  RCLCPP_INFO(logger_, "%s", message.c_str());
-  return ErrorCode::None;
-}
-
-int WmxRobotOptionNodeApi::pauseMotion(int32_t robotId, std::string & message)
-{
-  std::lock_guard<std::mutex> lock(robotMutex_);
-
-  int err = checkRobot(robotId, message);
-  if (err != ErrorCode::None) {
-    return err;
-  }
-
-  err = robot_.mKinematics.PauseMotion(robotId);
-  if (err != ErrorCode::None) {
-    message = failureText("PauseMotion", robotIdText(robotId), err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  message = "PauseMotion done. " + robotIdText(robotId);
-  RCLCPP_INFO(logger_, "%s", message.c_str());
-  return ErrorCode::None;
-}
-
-int WmxRobotOptionNodeApi::resumeMotion(int32_t robotId, std::string & message)
-{
-  std::lock_guard<std::mutex> lock(robotMutex_);
-
-  int err = checkRobot(robotId, message);
-  if (err != ErrorCode::None) {
-    return err;
-  }
-
-  err = robot_.mKinematics.ResumeMotion(robotId);
-  if (err != ErrorCode::None) {
-    message = failureText("ResumeMotion", robotIdText(robotId), err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  message = "ResumeMotion done. " + robotIdText(robotId);
   RCLCPP_INFO(logger_, "%s", message.c_str());
   return ErrorCode::None;
 }
@@ -582,7 +473,7 @@ int WmxRobotOptionNodeApi::releaseEStop(int32_t robotId, std::string & message)
   return ErrorCode::None;
 }
 
-int WmxRobotOptionNodeApi::overrideVelocity(
+int WmxRobotOptionNodeApi::overrideVelocityByRatio(
   int32_t robotId, double velRatio, double accRatio, double decRatio, std::string & message)
 {
   std::lock_guard<std::mutex> lock(robotMutex_);
@@ -645,101 +536,6 @@ int WmxRobotOptionNodeApi::getToolCoordinate(
   }
 
   message = "GetToolCoordinate done. " + robotIdText(robotId);
-  return ErrorCode::None;
-}
-
-int WmxRobotOptionNodeApi::setWorkCoordinate(
-  int32_t robotId, const CartesianPose & pose, std::string & message)
-{
-  std::lock_guard<std::mutex> lock(robotMutex_);
-
-  int err = checkRobot(robotId, message);
-  if (err != ErrorCode::None) {
-    return err;
-  }
-
-  err = robot_.mKinematics.SetWorkCoordinate(robotId, pose);
-  if (err != ErrorCode::None) {
-    message = failureText("SetWorkCoordinate", robotIdText(robotId), err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  message = "SetWorkCoordinate done. " + robotIdText(robotId);
-  RCLCPP_INFO(logger_, "%s", message.c_str());
-  return ErrorCode::None;
-}
-
-int WmxRobotOptionNodeApi::getWorkCoordinate(
-  int32_t robotId, CartesianPose & pose, std::string & message)
-{
-  std::lock_guard<std::mutex> lock(robotMutex_);
-
-  int err = checkRobot(robotId, message);
-  if (err != ErrorCode::None) {
-    return err;
-  }
-
-  err = robot_.mKinematics.GetWorkCoordinate(robotId, pose);
-  if (err != ErrorCode::None) {
-    message = failureText("GetWorkCoordinate", robotIdText(robotId), err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  message = "GetWorkCoordinate done. " + robotIdText(robotId);
-  return ErrorCode::None;
-}
-
-int WmxRobotOptionNodeApi::calcForwardKinematics(
-  int32_t robotId, const std::vector<double> & jointPosition, CartesianPose & toolPose,
-  std::string & message)
-{
-  std::lock_guard<std::mutex> lock(robotMutex_);
-
-  int err = checkRobot(robotId, message);
-  if (err != ErrorCode::None) {
-    return err;
-  }
-
-  double joints[maxJoints] = {};
-  err = fillJoints(jointPosition, joints, message);
-  if (err != ErrorCode::None) {
-    return err;
-  }
-
-  err = robot_.mKinematics.CalcForwardKinematics(robotId, joints, toolPose);
-  if (err != ErrorCode::None) {
-    message = failureText("CalcForwardKinematics", robotIdText(robotId), err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  message = "CalcForwardKinematics done. " + robotIdText(robotId);
-  return ErrorCode::None;
-}
-
-int WmxRobotOptionNodeApi::calcInverseKinematics(
-  int32_t robotId, const CartesianPose & toolPose, char s, char e, char r,
-  std::vector<double> & jointPosition, std::string & message)
-{
-  std::lock_guard<std::mutex> lock(robotMutex_);
-
-  int err = checkRobot(robotId, message);
-  if (err != ErrorCode::None) {
-    return err;
-  }
-
-  double joints[maxJoints] = {};
-  err = robot_.mKinematics.CalcInverseKinematics(robotId, toolPose, joints, maxJoints, s, e, r);
-  if (err != ErrorCode::None) {
-    message = failureText("CalcInverseKinematics", robotIdText(robotId), err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  jointPosition.assign(joints, joints + robotMotionParam_.robotParam.numJoints);
-  message = "CalcInverseKinematics done. " + robotIdText(robotId);
   return ErrorCode::None;
 }
 
@@ -808,10 +604,6 @@ WmxRobotOptionNode::CallbackReturn WmxRobotOptionNode::on_activate(
     "wmx/robot/release_robot",
     std::bind(&WmxRobotOptionNode::releaseRobotCallback, this, _1, _2));
 
-  startPtpService_ = this->create_service<wmx_r2_message::srv::RobotStartPtp>(
-    "wmx/robot/start_ptp",
-    std::bind(&WmxRobotOptionNode::startPtpCallback, this, _1, _2));
-
   startMotionService_ = this->create_service<wmx_r2_message::srv::RobotStartMotion>(
     "wmx/robot/start_motion",
     std::bind(&WmxRobotOptionNode::startMotionCallback, this, _1, _2));
@@ -819,14 +611,6 @@ WmxRobotOptionNode::CallbackReturn WmxRobotOptionNode::on_activate(
   stopMotionService_ = this->create_service<wmx_r2_message::srv::RobotId>(
     "wmx/robot/stop_motion",
     std::bind(&WmxRobotOptionNode::stopMotionCallback, this, _1, _2));
-
-  pauseMotionService_ = this->create_service<wmx_r2_message::srv::RobotId>(
-    "wmx/robot/pause_motion",
-    std::bind(&WmxRobotOptionNode::pauseMotionCallback, this, _1, _2));
-
-  resumeMotionService_ = this->create_service<wmx_r2_message::srv::RobotId>(
-    "wmx/robot/resume_motion",
-    std::bind(&WmxRobotOptionNode::resumeMotionCallback, this, _1, _2));
 
   clearMotionErrorService_ = this->create_service<wmx_r2_message::srv::RobotId>(
     "wmx/robot/clear_motion_error",
@@ -840,9 +624,10 @@ WmxRobotOptionNode::CallbackReturn WmxRobotOptionNode::on_activate(
     "wmx/robot/release_e_stop",
     std::bind(&WmxRobotOptionNode::releaseEStopCallback, this, _1, _2));
 
-  overrideVelocityService_ = this->create_service<wmx_r2_message::srv::RobotOverrideVelocity>(
-    "wmx/robot/override_velocity",
-    std::bind(&WmxRobotOptionNode::overrideVelocityCallback, this, _1, _2));
+  overrideVelocityByRatioService_ =
+    this->create_service<wmx_r2_message::srv::RobotOverrideVelocityByRatio>(
+    "wmx/robot/override_velocity_by_ratio",
+    std::bind(&WmxRobotOptionNode::overrideVelocityByRatioCallback, this, _1, _2));
 
   setToolCoordinateService_ = this->create_service<wmx_r2_message::srv::RobotSetCoordinate>(
     "wmx/robot/set_tool_coordinate",
@@ -851,24 +636,6 @@ WmxRobotOptionNode::CallbackReturn WmxRobotOptionNode::on_activate(
   getToolCoordinateService_ = this->create_service<wmx_r2_message::srv::RobotGetCoordinate>(
     "wmx/robot/get_tool_coordinate",
     std::bind(&WmxRobotOptionNode::getToolCoordinateCallback, this, _1, _2));
-
-  setWorkCoordinateService_ = this->create_service<wmx_r2_message::srv::RobotSetCoordinate>(
-    "wmx/robot/set_work_coordinate",
-    std::bind(&WmxRobotOptionNode::setWorkCoordinateCallback, this, _1, _2));
-
-  getWorkCoordinateService_ = this->create_service<wmx_r2_message::srv::RobotGetCoordinate>(
-    "wmx/robot/get_work_coordinate",
-    std::bind(&WmxRobotOptionNode::getWorkCoordinateCallback, this, _1, _2));
-
-  calcForwardKinematicsService_ =
-    this->create_service<wmx_r2_message::srv::RobotCalcForwardKinematics>(
-    "wmx/robot/calc_forward_kinematics",
-    std::bind(&WmxRobotOptionNode::calcForwardKinematicsCallback, this, _1, _2));
-
-  calcInverseKinematicsService_ =
-    this->create_service<wmx_r2_message::srv::RobotCalcInverseKinematics>(
-    "wmx/robot/calc_inverse_kinematics",
-    std::bind(&WmxRobotOptionNode::calcInverseKinematicsCallback, this, _1, _2));
 
   robotStatusPub_ = this->create_publisher<wmx_r2_message::msg::RobotStatus>(
     "wmx/robot/status", 1);
@@ -893,21 +660,14 @@ WmxRobotOptionNode::CallbackReturn WmxRobotOptionNode::on_deactivate(
 
   setRobotParamService_.reset();
   releaseRobotService_.reset();
-  startPtpService_.reset();
   startMotionService_.reset();
   stopMotionService_.reset();
-  pauseMotionService_.reset();
-  resumeMotionService_.reset();
   clearMotionErrorService_.reset();
   eStopService_.reset();
   releaseEStopService_.reset();
-  overrideVelocityService_.reset();
+  overrideVelocityByRatioService_.reset();
   setToolCoordinateService_.reset();
   getToolCoordinateService_.reset();
-  setWorkCoordinateService_.reset();
-  getWorkCoordinateService_.reset();
-  calcForwardKinematicsService_.reset();
-  calcInverseKinematicsService_.reset();
 
   RCLCPP_INFO(this->get_logger(), "wmx_robot_option_node is inactive");
   return CallbackReturn::SUCCESS;
@@ -915,6 +675,7 @@ WmxRobotOptionNode::CallbackReturn WmxRobotOptionNode::on_deactivate(
 
 WmxRobotOptionNode::CallbackReturn WmxRobotOptionNode::on_cleanup(const rclcpp_lifecycle::State &)
 {
+  api_->releaseRobotIfLoaded();
   api_->closeDevice();
 
   RCLCPP_INFO(this->get_logger(), "wmx_robot_option_node is cleaned up");
@@ -995,27 +756,15 @@ void WmxRobotOptionNode::releaseRobotCallback(
   response->message = message;
 }
 
-void WmxRobotOptionNode::startPtpCallback(
-  const std::shared_ptr<wmx_r2_message::srv::RobotStartPtp::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::RobotStartPtp::Response> response)
-{
-  std::string message;
-  response->success = api_->startPtp(
-    request->robot_id, request->mode, request->use_cartesian, request->target_joint,
-    toCartesianPose(request->target_pose), request->s, request->e, request->r,
-    message) == ErrorCode::None;
-  response->message = message;
-}
-
 void WmxRobotOptionNode::startMotionCallback(
   const std::shared_ptr<wmx_r2_message::srv::RobotStartMotion::Request> request,
   std::shared_ptr<wmx_r2_message::srv::RobotStartMotion::Response> response)
 {
   std::string message;
   response->success = api_->startMotion(
-    request->robot_id, request->trajectory_type, request->is_tool_coordinate,
-    toCartesianPose(request->target_pose), toCartesianPoses(request->through_pose),
-    request->arc_angle, message) == ErrorCode::None;
+    request->robot_id, request->mode, request->target_type, request->path,
+    request->target_joint, toCartesianPose(request->target_pose),
+    request->s, request->e, request->r, message) == ErrorCode::None;
   response->message = message;
 }
 
@@ -1025,24 +774,6 @@ void WmxRobotOptionNode::stopMotionCallback(
 {
   std::string message;
   response->success = api_->stopMotion(request->robot_id, message) == ErrorCode::None;
-  response->message = message;
-}
-
-void WmxRobotOptionNode::pauseMotionCallback(
-  const std::shared_ptr<wmx_r2_message::srv::RobotId::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::RobotId::Response> response)
-{
-  std::string message;
-  response->success = api_->pauseMotion(request->robot_id, message) == ErrorCode::None;
-  response->message = message;
-}
-
-void WmxRobotOptionNode::resumeMotionCallback(
-  const std::shared_ptr<wmx_r2_message::srv::RobotId::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::RobotId::Response> response)
-{
-  std::string message;
-  response->success = api_->resumeMotion(request->robot_id, message) == ErrorCode::None;
   response->message = message;
 }
 
@@ -1073,12 +804,12 @@ void WmxRobotOptionNode::releaseEStopCallback(
   response->message = message;
 }
 
-void WmxRobotOptionNode::overrideVelocityCallback(
-  const std::shared_ptr<wmx_r2_message::srv::RobotOverrideVelocity::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::RobotOverrideVelocity::Response> response)
+void WmxRobotOptionNode::overrideVelocityByRatioCallback(
+  const std::shared_ptr<wmx_r2_message::srv::RobotOverrideVelocityByRatio::Request> request,
+  std::shared_ptr<wmx_r2_message::srv::RobotOverrideVelocityByRatio::Response> response)
 {
   std::string message;
-  response->success = api_->overrideVelocity(
+  response->success = api_->overrideVelocityByRatio(
     request->robot_id, request->vel_ratio, request->acc_ratio, request->dec_ratio,
     message) == ErrorCode::None;
   response->message = message;
@@ -1103,51 +834,6 @@ void WmxRobotOptionNode::getToolCoordinateCallback(
   response->success =
     api_->getToolCoordinate(request->robot_id, pose, message) == ErrorCode::None;
   response->pose = toPoseMsg(pose);
-  response->message = message;
-}
-
-void WmxRobotOptionNode::setWorkCoordinateCallback(
-  const std::shared_ptr<wmx_r2_message::srv::RobotSetCoordinate::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::RobotSetCoordinate::Response> response)
-{
-  std::string message;
-  response->success = api_->setWorkCoordinate(
-    request->robot_id, toCartesianPose(request->pose), message) == ErrorCode::None;
-  response->message = message;
-}
-
-void WmxRobotOptionNode::getWorkCoordinateCallback(
-  const std::shared_ptr<wmx_r2_message::srv::RobotGetCoordinate::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::RobotGetCoordinate::Response> response)
-{
-  CartesianPose pose;
-  std::string message;
-  response->success =
-    api_->getWorkCoordinate(request->robot_id, pose, message) == ErrorCode::None;
-  response->pose = toPoseMsg(pose);
-  response->message = message;
-}
-
-void WmxRobotOptionNode::calcForwardKinematicsCallback(
-  const std::shared_ptr<wmx_r2_message::srv::RobotCalcForwardKinematics::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::RobotCalcForwardKinematics::Response> response)
-{
-  CartesianPose toolPose;
-  std::string message;
-  response->success = api_->calcForwardKinematics(
-    request->robot_id, request->joint_position, toolPose, message) == ErrorCode::None;
-  response->tool_pose = toPoseMsg(toolPose);
-  response->message = message;
-}
-
-void WmxRobotOptionNode::calcInverseKinematicsCallback(
-  const std::shared_ptr<wmx_r2_message::srv::RobotCalcInverseKinematics::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::RobotCalcInverseKinematics::Response> response)
-{
-  std::string message;
-  response->success = api_->calcInverseKinematics(
-    request->robot_id, toCartesianPose(request->tool_pose), request->s, request->e, request->r,
-    response->joint_position, message) == ErrorCode::None;
   response->message = message;
 }
 

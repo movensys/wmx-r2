@@ -42,13 +42,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
   "srv/RobotSetRobotParam.srv"
   "srv/RobotId.srv"
-  "srv/RobotStartPtp.srv"
   "srv/RobotStartMotion.srv"
-  "srv/RobotOverrideVelocity.srv"
+  "srv/RobotOverrideVelocityByRatio.srv"
   "srv/RobotSetCoordinate.srv"
   "srv/RobotGetCoordinate.srv"
-  "srv/RobotCalcForwardKinematics.srv"
-  "srv/RobotCalcInverseKinematics.srv"
 
   "srv/ImportAndSetAll.srv"
   "srv/GetAxisParam.srv"

@@ -1,10 +1,14 @@
-# Continuous path motion: sets the trajectory and starts it in one call.
+# Robot motion. Returns as soon as the engine accepts it; poll motion_state on
+# wmx/robot/status for completion.
 int32 robot_id
-int32 trajectory_type    # 0 line, 1 arc, 2 c-spline, 3 b-spline
-bool is_tool_coordinate  # line only: target_pose is in the tool frame
-RobotCartesianPose target_pose
-RobotCartesianPose[] through_pose  # arc: one via point; spline: the whole path
-float64 arc_angle        # arc only, deg; 0 runs the three point arc
+int32 mode          # 0 pos (absolute), 1 mov (relative)
+int32 target_type   # 0 joint values, 1 tool pose
+int32 path          # 0 ptp (joint interpolated), 1 line (straight tool path)
+float64[] target_joint          # target_type 0: per joint, deg or mm
+RobotCartesianPose target_pose  # target_type 1
+int8 s              # shoulder: 1 left, -1 right, 0 auto
+int8 e              # elbow: 1 above, -1 below, 0 auto
+int8 r              # wrist: 1 flip, -1 no flip, 0 auto
 ---
 bool success
 string message

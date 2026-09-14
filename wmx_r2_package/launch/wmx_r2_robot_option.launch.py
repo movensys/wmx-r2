@@ -35,15 +35,28 @@ def launch_wmx_robot_option_node(context):
 
 
 def generate_launch_description():
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    config_file = LaunchConfiguration('config_file')
+
     start_wmx_r2_general_nodes = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(PKG_SHARE, 'launch', 'wmx_r2_general_nodes.launch.py')
         ),
         launch_arguments={
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'config_file': LaunchConfiguration('config_file'),
+            'use_sim_time': use_sim_time,
+            'config_file': config_file,
             'wmx_param_file': LaunchConfiguration('wmx_param_file'),
         }.items(),
+    )
+
+    start_joint_state_broadcaster = LifecycleNode(
+        package='wmx_r2_package',
+        executable='joint_state_broadcaster',
+        name='joint_state_broadcaster',
+        namespace='',
+        parameters=[config_file, {'use_sim_time': use_sim_time}],
+        output='screen',
+        emulate_tty=True,
     )
 
     return LaunchDescription([
@@ -74,5 +87,6 @@ def generate_launch_description():
         ),
 
         start_wmx_r2_general_nodes,
+        start_joint_state_broadcaster,
         OpaqueFunction(function=launch_wmx_robot_option_node),
     ])

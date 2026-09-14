@@ -1,79 +1,158 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <Robot ID="0">
 	<RobotName>CR3A</RobotName>
-	<RobotType>0</RobotType>
+	<RobotType>5</RobotType>
+	<BaseCoordinate x="0.000000" y="0.000000" z="0.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
+	<link name="base">
+		<inertial>
+			<origin rpy="0.000000000000000 0.000000000000000 0.000000000000000" xyz="0.000000 0.000000 0.000000"/>
+			<mass value="0.000000"/>
+			<inertia ixx="0.000000" ixy="0.000000" ixz="0.000000" iyy="0.000000" iyz="0.000000" izz="0.000000"/>
+		</inertial>
+	</link>
 	<Joint ID="0">
 		<JointType>RotateZAxis</JointType>
 		<Axis>0</Axis>
-		<JointOrigin x="0.000000" y="0.000000" z="128.300000" u="0.000000000000000000000000" v="0.000000000000000000000000" w="0.000000000000000000000000"/>
-		<MaxAngle>3.000000000000000000000000</MaxAngle>
-		<MinAngle>-3.000000000000000000000000</MinAngle>
-		<VelocityLimit>3.141592653589793115997963</VelocityLimit>
-		<AccelerationLimit>12.566370614359172463991854</AccelerationLimit>
+		<JointOrigin x="0.000000" y="0.000000" z="128.300000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
+		<MaxAngle>3.140004403970478197294369</MaxAngle>
+		<MinAngle>-3.140004403970478197294369</MinAngle>
+		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
+		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
 	</Joint>
+	<link name="">
+		<inertial>
+			<origin rpy="0.000000000000000 0.000000000000000 0.000000000000000" xyz="0.000000 0.000000 0.000000"/>
+			<mass value="0.000000"/>
+			<inertia ixx="0.000000" ixy="0.000000" ixz="0.000000" iyy="0.000000" iyz="0.000000" izz="0.000000"/>
+		</inertial>
+	</link>
 	<Joint ID="1">
 		<JointType>RotateZAxis</JointType>
 		<Axis>1</Axis>
-		<JointOrigin x="0.000000" y="0.000000" z="0.000000" u="1.570796326794896557998982" v="1.570796326794896557998982" w="0.000000000000000000000000"/>
-		<MaxAngle>1.100000000000000088817842</MaxAngle>
-		<MinAngle>-1.570000000000000062172489</MinAngle>
-		<VelocityLimit>3.141592653589793115997963</VelocityLimit>
-		<AccelerationLimit>12.566370614359172463991854</AccelerationLimit>
+		<JointOrigin x="0.000000" y="0.000000" z="0.000000" u="1.570800000000000" v="1.570800000000000" w="0.000000000000000"/>
+		<MaxAngle>3.140004403970478197294369</MaxAngle>
+		<MinAngle>-3.140004403970478197294369</MinAngle>
+		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
+		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
 	</Joint>
+	<link name="">
+		<inertial>
+			<origin rpy="0.000000000000000 0.000000000000000 0.000000000000000" xyz="0.000000 0.000000 0.000000"/>
+			<mass value="0.000000"/>
+			<inertia ixx="0.000000" ixy="0.000000" ixz="0.000000" iyy="0.000000" iyz="0.000000" izz="0.000000"/>
+		</inertial>
+	</link>
 	<Joint ID="2">
 		<JointType>RotateZAxis</JointType>
 		<Axis>2</Axis>
-		<JointOrigin x="-274.000000" y="0.000000" z="0.000000" u="0.000000000000000000000000" v="0.000000000000000000000000" w="0.000000000000000000000000"/>
-		<MaxAngle>0.200000000000000011102230</MaxAngle>
-		<MinAngle>-2.549999999999999822364316</MinAngle>
-		<VelocityLimit>3.892084231947354755476454</VelocityLimit>
-		<AccelerationLimit>15.568336927789419021905815</AccelerationLimit>
+		<JointOrigin x="-274.000000" y="0.000000" z="0.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
+		<MaxAngle>2.860001232073028365476830</MaxAngle>
+		<MinAngle>-2.860001232073028365476830</MinAngle>
+		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
+		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
 	</Joint>
+	<link name="">
+		<inertial>
+			<origin rpy="0.000000000000000 0.000000000000000 0.000000000000000" xyz="0.000000 0.000000 0.000000"/>
+			<mass value="0.000000"/>
+			<inertia ixx="0.000000" ixy="0.000000" ixz="0.000000" iyy="0.000000" iyz="0.000000" izz="0.000000"/>
+		</inertial>
+	</link>
 	<Joint ID="3">
 		<JointType>RotateZAxis</JointType>
 		<Axis>3</Axis>
-		<JointOrigin x="-230.000000" y="0.000000" z="128.300000" u="0.000000000000000000000000" v="0.000000000000000000000000" w="-1.570796326794896557998982"/>
-		<MaxAngle>2.500000000000000000000000</MaxAngle>
-		<MinAngle>-2.500000000000000000000000</MinAngle>
-		<VelocityLimit>3.892084231947354755476454</VelocityLimit>
-		<AccelerationLimit>15.568336927789419021905815</AccelerationLimit>
+		<JointOrigin x="-230.000000" y="0.000000" z="128.300000" u="0.000000000000000" v="0.000000000000000" w="-1.570800000000000"/>
+		<MaxAngle>3.140004403970478197294369</MaxAngle>
+		<MinAngle>-3.140004403970478197294369</MinAngle>
+		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
+		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
 	</Joint>
+	<link name="">
+		<inertial>
+			<origin rpy="0.000000000000000 0.000000000000000 0.000000000000000" xyz="0.000000 0.000000 0.000000"/>
+			<mass value="0.000000"/>
+			<inertia ixx="0.000000" ixy="0.000000" ixz="0.000000" iyy="0.000000" iyz="0.000000" izz="0.000000"/>
+		</inertial>
+	</link>
 	<Joint ID="4">
 		<JointType>RotateZAxis</JointType>
 		<Axis>4</Axis>
-		<JointOrigin x="0.000000" y="-116.000000" z="0.000000" u="1.570796326794896557998982" v="0.000000000000000000000000" w="0.000000000000000000000000"/>
-		<MaxAngle>3.000000000000000000000000</MaxAngle>
-		<MinAngle>-0.100000000000000005551115</MinAngle>
-		<VelocityLimit>3.892084231947354755476454</VelocityLimit>
-		<AccelerationLimit>15.568336927789419021905815</AccelerationLimit>
+		<JointOrigin x="0.000000" y="-116.000000" z="0.000000" u="1.570800000000000" v="0.000000000000000" w="0.000000000000000"/>
+		<MaxAngle>3.140004403970478197294369</MaxAngle>
+		<MinAngle>-3.140004403970478197294369</MinAngle>
+		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
+		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
 	</Joint>
+	<link name="">
+		<inertial>
+			<origin rpy="0.000000000000000 0.000000000000000 0.000000000000000" xyz="0.000000 0.000000 0.000000"/>
+			<mass value="0.000000"/>
+			<inertia ixx="0.000000" ixy="0.000000" ixz="0.000000" iyy="0.000000" iyz="0.000000" izz="0.000000"/>
+		</inertial>
+	</link>
 	<Joint ID="5">
 		<JointType>RotateZAxis</JointType>
 		<Axis>5</Axis>
-		<JointOrigin x="0.000000" y="105.000000" z="0.000000" u="-1.570796326794896557998982" v="0.000000000000000000000000" w="0.000000000000000000000000"/>
-		<MaxAngle>3.000000000000000000000000</MaxAngle>
-		<MinAngle>-3.000000000000000000000000</MinAngle>
-		<VelocityLimit>3.892084231947354755476454</VelocityLimit>
-		<AccelerationLimit>15.568336927789419021905815</AccelerationLimit>
+		<JointOrigin x="0.000000" y="105.000000" z="0.000000" u="-1.570800000000000" v="0.000000000000000" w="0.000000000000000"/>
+		<MaxAngle>6.279991354648436718832727</MaxAngle>
+		<MinAngle>-6.279991354648436718832727</MinAngle>
+		<VelocityLimit>31.415926535897931159979635</VelocityLimit>
+		<AccelerationLimit>125.663706143591724639918539</AccelerationLimit>
 	</Joint>
-	<EndEffector x="0.000000" y="0.000000" z="0.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
+	<link name="">
+		<inertial>
+			<origin rpy="0.000000000000000 0.000000000000000 0.000000000000000" xyz="0.000000 0.000000 0.000000"/>
+			<mass value="0.000000"/>
+			<inertia ixx="0.000000" ixy="0.000000" ixz="0.000000" iyy="0.000000" iyz="0.000000" izz="0.000000"/>
+		</inertial>
+	</link>
+	<FlangeCoordinate x="0.000000" y="0.000000" z="0.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
 	<WorkCoordinate x="0.000000" y="0.000000" z="0.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
-	<ToolVelocity>1000.000000</ToolVelocity>
-	<ToolAcceleration>4000.000000</ToolAcceleration>
-	<ToolVelRotRatio>0.003141592653590</ToolVelRotRatio>
-	<AxisVelocity0>1.570796326794896557998982</AxisVelocity0>
-	<AxisAcceleration0>6.283185307179586231995927</AxisAcceleration0>
-	<AxisVelocity1>1.570796326794896557998982</AxisVelocity1>
-	<AxisAcceleration1>6.283185307179586231995927</AxisAcceleration1>
-	<AxisVelocity2>1.946042115973677377738227</AxisVelocity2>
-	<AxisAcceleration2>7.784168463894709510952907</AxisAcceleration2>
-	<AxisVelocity3>1.946042115973677377738227</AxisVelocity3>
-	<AxisAcceleration3>7.784168463894709510952907</AxisAcceleration3>
-	<AxisVelocity4>1.946042115973677377738227</AxisVelocity4>
-	<AxisAcceleration4>7.784168463894709510952907</AxisAcceleration4>
-	<AxisVelocity5>1.946042115973677377738227</AxisVelocity5>
-	<AxisAcceleration5>7.784168463894709510952907</AxisAcceleration5>
-	<VelOverride>0.100000</VelOverride>
-	<AccOverride>0.100000</AccOverride>
+	<ToolCoordinate x="0.000000" y="0.000000" z="134.000000" u="0.000000000000000" v="0.000000000000000" w="0.000000000000000"/>
+	<link name="tool">
+		<inertial>
+			<origin rpy="0.000000000000000 0.000000000000000 0.000000000000000" xyz="0.000000 0.000000 0.134000"/>
+			<mass value="0.000000"/>
+			<inertia ixx="0.000000" ixy="0.000000" ixz="0.000000" iyy="0.000000" iyz="0.000000" izz="0.000000"/>
+		</inertial>
+	</link>
+	<ToolVelocity>1400.000000</ToolVelocity>
+	<ToolAcceleration>2800.000000</ToolAcceleration>
+	<ToolVelRotRatio>0.0033</ToolVelRotRatio>
+	<AxisVelocity0>0.523598775598298815658893</AxisVelocity0>
+	<AxisAcceleration0>1.047197551196597631317786</AxisAcceleration0>
+	<AxisVelocity1>0.523598775598298815658893</AxisVelocity1>
+	<AxisAcceleration1>1.047197551196597631317786</AxisAcceleration1>
+	<AxisVelocity2>0.523598775598298815658893</AxisVelocity2>
+	<AxisAcceleration2>1.047197551196597631317786</AxisAcceleration2>
+	<AxisVelocity3>0.523598775598298815658893</AxisVelocity3>
+	<AxisAcceleration3>1.047197551196597631317786</AxisAcceleration3>
+	<AxisVelocity4>0.523598775598298815658893</AxisVelocity4>
+	<AxisAcceleration4>1.047197551196597631317786</AxisAcceleration4>
+	<AxisVelocity5>0.523598775598298815658893</AxisVelocity5>
+	<AxisAcceleration5>1.047197551196597631317786</AxisAcceleration5>
+	<VelOverride>0.010000</VelOverride>
+	<AccOverride>0.010000</AccOverride>
 	<ProfileType>Trapezoida</ProfileType>
+	<TorqueConstants>
+		<CurrentConstants0>0.000000000000000000000000</CurrentConstants0>
+		<VelocityConstants0>0.000000000000000000000000</VelocityConstants0>
+		<Offset0>0.000000000000000000000000</Offset0>
+		<CurrentConstants1>0.000000000000000000000000</CurrentConstants1>
+		<VelocityConstants1>0.000000000000000000000000</VelocityConstants1>
+		<Offset1>0.000000000000000000000000</Offset1>
+		<CurrentConstants2>0.000000000000000000000000</CurrentConstants2>
+		<VelocityConstants2>0.000000000000000000000000</VelocityConstants2>
+		<Offset2>0.000000000000000000000000</Offset2>
+		<CurrentConstants3>0.000000000000000000000000</CurrentConstants3>
+		<VelocityConstants3>0.000000000000000000000000</VelocityConstants3>
+		<Offset3>0.000000000000000000000000</Offset3>
+		<CurrentConstants4>0.000000000000000000000000</CurrentConstants4>
+		<VelocityConstants4>0.000000000000000000000000</VelocityConstants4>
+		<Offset4>0.000000000000000000000000</Offset4>
+		<CurrentConstants5>0.000000000000000000000000</CurrentConstants5>
+		<VelocityConstants5>0.000000000000000000000000</VelocityConstants5>
+		<Offset5>0.000000000000000000000000</Offset5>
+	</TorqueConstants>
+	<CollisionThresHold>6.000000</CollisionThresHold>
 </Robot>

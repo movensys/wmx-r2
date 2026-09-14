@@ -13,12 +13,11 @@ check `doc/launch_robot_option.md`
  set_robot_param ───────────▶┌──────────────────────────────┐
   (XML / URDF)               │ wmx_robot_option_node            │──▶ WMX3 Kinematics
                              │  (lifecycle)                 │    SetRobotParam
- start_ptp ─────────────────▶│                              │──▶ StartPTPPos
-  (joint / cartesian)        │  one robotId, tool index 0   │
- start_motion ──────────────▶│                              │──▶ SetMotion + StartMotion
-  (line / arc / spline)      │  RobotMotionProfile from     │
+ start_motion ──────────────▶│                              │──▶ StartPTPPos or
+  (ptp / line)               │  one robotId, tool index 0   │    SetMotion + StartMotion
+                             │  RobotMotionProfile from     │
                              │  the robot parameter file    │
- stop / pause / resume ─────▶│                              │──▶ StopMotion, PauseMotion, ...
+ stop_motion ───────────────▶│                              │──▶ StopMotion
  e_stop / release_e_stop     │                              │
                              │                              │──▶ /wmx/robot/status
  calc_*_kinematics ─────────▶│  UpdateRobotStatus @ rate    │    (RobotStatus)
@@ -35,7 +34,12 @@ a time.
 ## Launch arguments
 
 `wmx_r2_robot_option.launch.py` starts the general nodes
-(`wmx_r2_general_nodes.launch.py`) plus `wmx_robot_option_node`.
+(`wmx_r2_general_nodes.launch.py`) plus `joint_state_broadcaster` and
+`wmx_robot_option_node`. The broadcaster is the same node the manipulator and
+differential launches use: it clears the amp alarms and servos the joint axes on
+at activation, and publishes `/joint_states` from the encoders. This node
+publishes neither, so without it the axes stay servo-off and nothing feeds
+`robot_state_publisher`, RViz or MoveIt2.
 
 | Argument | Default | Description |
 |---|---|---|
@@ -111,123 +115,111 @@ goes quiet until a robot is registered again.
 
 | Name | Type | WMX3 call |
 |---|---|---|
-| `wmx/robot/start_ptp` | `RobotStartPtp` | `StartPTPPos` with `PtpPosParam` / `PtpMovParam` / `PtpJogParam` |
-| `wmx/robot/start_motion` | `RobotStartMotion` | `SetMotion` then `StartMotion` |
+| `wmx/robot/start_motion` | `RobotStartMotion` | `StartPTPPos` with `PtpPosParam` / `PtpMovParam`, or `SetMotion` + `StartMotion` with `TrajectoryLineMotionParam` |
 | `wmx/robot/stop_motion` | `RobotId` | `StopMotion` |
-| `wmx/robot/pause_motion` | `RobotId` | `PauseMotion` |
-| `wmx/robot/resume_motion` | `RobotId` | `ResumeMotion` |
 | `wmx/robot/clear_motion_error` | `RobotId` | `ClearMotionError` |
 | `wmx/robot/e_stop` | `RobotId` | `EStop` |
 | `wmx/robot/release_e_stop` | `RobotId` | `ReleaseEStop` |
-| `wmx/robot/override_velocity` | `RobotOverrideVelocity` | `OverrideVelocityByRatio` |
+| `wmx/robot/override_velocity_by_ratio` | `RobotOverrideVelocityByRatio` | `OverrideVelocityByRatio` |
 
-**`start_ptp`** moves in joint space. `mode` picks the PTP mode, `use_cartesian`
-picks what drives it.
+**`start_motion`** is the one motion entry point. `mode` says absolute or
+relative, `target_type` says what you hand it, and `path` says how the tool gets
+there. The six combinations:
 
-| `mode` | Meaning | `target_joint` | `target_pose` |
-|---|---|---|---|
-| `0` | pos, absolute | absolute joint values | absolute tool pose |
-| `1` | mov, relative | per-joint distance | pose displacement |
-| `2` | vel, jog | direction per joint, `-1`, `0` or `1` | not used |
+| # | `path` | `target_type` | `mode` | What runs |
+|---|---|---|---|---|
+| 1 | `0` ptp | `0` joint | `0` pos | absolute joint values, joint interpolated |
+| 2 | `0` ptp | `0` joint | `1` mov | per-joint distance, joint interpolated |
+| 3 | `0` ptp | `1` pose | `0` pos | absolute tool pose, joint interpolated |
+| 4 | `0` ptp | `1` pose | `1` mov | tool pose displacement, joint interpolated |
+| 5 | `1` line | `1` pose | `0` pos | absolute tool pose, straight tool path |
+| 6 | `1` line | `1` pose | `1` mov | **tool frame** displacement, straight tool path |
+
+`path: 1` with `target_type: 0` is rejected: a joint target has no straight line
+to follow. **A relative line is a displacement in the tool frame, not the work
+frame** — that is the only relative form the SDK's `TrajectoryLineMotionParam`
+offers. `z: -50` on a relative line retracts 50 mm along the tool's own z axis,
+wherever the wrist happens to be pointing.
+
+A `path: 0` move is PTP: each joint runs its own profile and they synchronize
+only at the endpoints, so the tool traces a curve. Only `path: 1` controls the
+shape of the tool path.
 
 ```bash
-# absolute joint target
-wros ros2 service call /wmx/robot/start_ptp wmx_r2_message/srv/RobotStartPtp \
-  "{robot_id: 0, mode: 0, use_cartesian: false, target_joint: [0, 0, 0, 0, -90, 0]}"
+# 1  ptp / joint / pos  - drive every joint to an absolute value
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  "{robot_id: 0, mode: 0, target_type: 0, path: 0,
+    target_joint: [0.0, 0.0, 0.0, 0.0, -90.0, 0.0]}"
 
-# relative cartesian displacement
-wros ros2 service call /wmx/robot/start_ptp wmx_r2_message/srv/RobotStartPtp \
-  "{robot_id: 0, mode: 1, use_cartesian: true, target_pose: {x: 50.0, y: 20.0, z: 10.0}}"
+# 2  ptp / joint / mov  - rotate joint 3 by +15 deg, hold the rest
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  "{robot_id: 0, mode: 1, target_type: 0, path: 0,
+    target_joint: [0.0, 0.0, 15.0, 0.0, 0.0, 0.0]}"
 
-# jog joints 0 and 1 until stop_motion
-wros ros2 service call /wmx/robot/start_ptp wmx_r2_message/srv/RobotStartPtp \
-  "{robot_id: 0, mode: 2, target_joint: [1, -1, 0, 0, 0, 0]}"
+# 3  ptp / pose / pos  - absolute tool pose, path not controlled
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  "{robot_id: 0, mode: 0, target_type: 1, path: 0,
+    target_pose: {x: 400.0, y: 0.0, z: 300.0, u: 180.0, v: 0.0, w: 0.0},
+    s: 0, e: 0, r: 0}"
+
+# 4  ptp / pose / mov  - shift the tool 50 mm in work x, path not controlled
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  "{robot_id: 0, mode: 1, target_type: 1, path: 0,
+    target_pose: {x: 50.0, y: 0.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0},
+    s: 0, e: 0, r: 0}"
+
+# 5  line / pose / pos  - absolute tool pose, straight tool path
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  "{robot_id: 0, mode: 0, target_type: 1, path: 1,
+    target_pose: {x: 400.0, y: 0.0, z: 300.0, u: 180.0, v: 0.0, w: 0.0}}"
+
+# 6  line / pose / mov  - retract 50 mm along the TOOL z axis, straight path
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  "{robot_id: 0, mode: 1, target_type: 1, path: 1,
+    target_pose: {x: 0.0, y: 0.0, z: -50.0, u: 0.0, v: 0.0, w: 0.0}}"
+
+# stop the running move
 wros ros2 service call /wmx/robot/stop_motion wmx_r2_message/srv/RobotId "{robot_id: 0}"
 ```
 
-`s`, `e` and `r` are the inverse-kinematics configuration flags, used only when
-`use_cartesian` is true. They map to `RobotState::serShapeFlag`: `s` shoulder
-(`1` left, `-1` right), `e` elbow (`1` above, `-1` below), `r` wrist (`1` flip,
-`-1` no flip), `0` auto on all three.
+`s`, `e` and `r` are the inverse-kinematics configuration flags, read only by
+rows 3 and 4. They map to `RobotState::serShapeFlag`: `s` shoulder (`1` left,
+`-1` right), `e` elbow (`1` above, `-1` below), `r` wrist (`1` flip, `-1` no
+flip), `0` auto on all three. Rows 5 and 6 ignore them: the engine picks the
+configuration that keeps the tool on the line. Rows 1 and 2 ignore them too,
+since a joint target already fixes the configuration.
 
-**`start_motion`** runs a continuous path. It sets the trajectory and starts it in
-one call, and clears the trajectory again if `StartMotion` fails, so a rejected
-start does not leave a stale path armed.
-
-| `trajectory_type` | Path | `through_pose` | `target_pose` | `arc_angle` |
-|---|---|---|---|---|
-| `0` | line | unused | end pose | unused |
-| `1` | arc | exactly one via point | end pose | `0` runs the three point arc, non-zero runs the path arc over that many degrees |
-| `2` | c-spline | the whole path, two points or more | unused | unused |
-| `3` | b-spline | the whole path, two points or more | unused | unused |
-
-`is_tool_coordinate` applies to the line only: `true` reads `target_pose` as a
-displacement in the tool frame, `false` as a pose in the work frame.
-
-```bash
-# line in the work frame
-wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  "{robot_id: 0, trajectory_type: 0, is_tool_coordinate: false,
-    target_pose: {x: 400.0, y: 0.0, z: 300.0, u: 0.0, v: 0.0, w: 0.0}}"
-
-# 200 mm retract along the tool z axis
-wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  "{robot_id: 0, trajectory_type: 0, is_tool_coordinate: true,
-    target_pose: {x: 0.0, y: 0.0, z: -200.0}}"
-
-# three point arc
-wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  "{robot_id: 0, trajectory_type: 1, arc_angle: 0.0,
-    target_pose: {x: 500.0, y: 0.0, z: 300.0},
-    through_pose: [{x: 450.0, y: 50.0, z: 300.0}]}"
-```
-
-**Stopping.** `stop_motion` decelerates the current motion, `pause_motion` holds
-it on the path and `resume_motion` continues from there. `e_stop` is a level 1
-emergency stop: motion ends immediately, the robot lands in `EStopActive` with
-motion error `UserEStop`, and only `release_e_stop` brings it back to idle.
+**Stopping.** `stop_motion` decelerates the current motion to a controlled halt,
+leaving the robot short of its target. There is no pause or resume: a stopped
+motion is re-issued as a new `start_motion`. `e_stop` is a level 1 emergency stop:
+motion ends immediately, the robot lands in `EStopActive` with motion error
+`UserEStop`, and only `release_e_stop` brings it back to idle.
 `clear_motion_error` clears the other motion errors and does **not** recover a
 user EStop.
 
-**`override_velocity`** scales the **current** motion's velocity, acceleration and
-deceleration. `1.0` is 100%, and values above `1.0` push past the profile in the
-robot parameter file.
+**`override_velocity_by_ratio`** scales the **current** motion's velocity,
+acceleration and deceleration. `1.0` is 100%, and values above `1.0` push past
+the profile in the robot parameter file.
 
 ```bash
-wros ros2 service call /wmx/robot/override_velocity wmx_r2_message/srv/RobotOverrideVelocity \
+wros ros2 service call /wmx/robot/override_velocity_by_ratio \
+  wmx_r2_message/srv/RobotOverrideVelocityByRatio \
   "{robot_id: 0, vel_ratio: 0.5, acc_ratio: 1.0, dec_ratio: 1.0}"
 ```
 
-### Coordinates and kinematics
+### Coordinates
 
 | Name | Type | WMX3 call |
 |---|---|---|
 | `wmx/robot/set_tool_coordinate` | `RobotSetCoordinate` | `SetToolCoordinate` |
 | `wmx/robot/get_tool_coordinate` | `RobotGetCoordinate` | `GetToolCoordinate` |
-| `wmx/robot/set_work_coordinate` | `RobotSetCoordinate` | `SetWorkCoordinate` |
-| `wmx/robot/get_work_coordinate` | `RobotGetCoordinate` | `GetWorkCoordinate` |
-| `wmx/robot/calc_forward_kinematics` | `RobotCalcForwardKinematics` | `CalcForwardKinematics` |
-| `wmx/robot/calc_inverse_kinematics` | `RobotCalcInverseKinematics` | `CalcInverseKinematics` |
 
 ```bash
 # 100 mm tool offset along flange z
 wros ros2 service call /wmx/robot/set_tool_coordinate wmx_r2_message/srv/RobotSetCoordinate \
   "{robot_id: 0, pose: {x: 0.0, y: 0.0, z: 100.0}}"
 wros ros2 service call /wmx/robot/get_tool_coordinate wmx_r2_message/srv/RobotGetCoordinate "{robot_id: 0}"
-
-wros ros2 service call /wmx/robot/calc_forward_kinematics \
-  wmx_r2_message/srv/RobotCalcForwardKinematics \
-  "{robot_id: 0, joint_position: [0, 0, 0, 0, -90, 0]}"
-wros ros2 service call /wmx/robot/calc_inverse_kinematics \
-  wmx_r2_message/srv/RobotCalcInverseKinematics \
-  "{robot_id: 0, tool_pose: {x: 400.0, y: 0.0, z: 300.0}, s: 0, e: 0, r: 0}"
 ```
-
-Both kinematics services are pure computation: they move nothing, and they answer
-from the registered parameters plus the current tool and work coordinates. A pose
-the arm cannot reach comes back `success: false` with the engine's
-`InverseKinematicsError`, which makes `calc_inverse_kinematics` a cheap
-reachability check before a `start_ptp`.
 
 ### Status
 
@@ -270,7 +262,7 @@ registered.
 
 ### Interface types
 
-Every type this node uses lives in `wmx_r2_message`. Two messages and nine
+Every type this node uses lives in `wmx_r2_message`. Two messages and six
 services, all added for the robot option:
 
 ```bash
@@ -281,17 +273,13 @@ wros ros2 interface show wmx_r2_message/msg/RobotStatus
 
 wros ros2 interface show wmx_r2_message/srv/RobotSetRobotParam
 wros ros2 interface show wmx_r2_message/srv/RobotId
-wros ros2 interface show wmx_r2_message/srv/RobotStartPtp
 wros ros2 interface show wmx_r2_message/srv/RobotStartMotion
-wros ros2 interface show wmx_r2_message/srv/RobotOverrideVelocity
+wros ros2 interface show wmx_r2_message/srv/RobotOverrideVelocityByRatio
 wros ros2 interface show wmx_r2_message/srv/RobotSetCoordinate
 wros ros2 interface show wmx_r2_message/srv/RobotGetCoordinate
-wros ros2 interface show wmx_r2_message/srv/RobotCalcForwardKinematics
-wros ros2 interface show wmx_r2_message/srv/RobotCalcInverseKinematics
 ```
 
-`RobotId` is reused by six services, `RobotSetCoordinate` and
-`RobotGetCoordinate` by two each, which is why nine types cover seventeen
+`RobotId` is reused by five services, which is why six types cover ten
 services.
 
 The live graph, with the node active:
@@ -316,21 +304,22 @@ wros ros2 lifecycle get /wmx_robot_option_node
   millimetres for prismatic ones. The axis parameter XML owns that scaling.
 - **Joint arrays must be exactly `num_joints` long.** A shorter or longer
   `target_joint` or `joint_position` is rejected before the SDK is called, with
-  the expected and received lengths in the message. `calc_inverse_kinematics`
-  returns exactly `num_joints` values.
+  the expected and received lengths in the message.
 - **There is no per-call velocity.** Unlike `wmx/axes/start_pos`, the profile
   comes from `RobotMotionParam.profile` in the robot parameter file: profile
   type, tool linear velocity and acceleration, tool rotation ratio, per-joint
   velocity and acceleration, the override gains and the PTP blending type.
   Speed is changed by editing that file and re-registering, or at runtime with
-  `override_velocity`.
+  `override_velocity_by_ratio`.
 - **Motion services do not block.** They return as soon as the engine accepts the
   command; the SDK's `Wait` is never called from a callback. Completion is read
   from `motion_state` on the status topic, which is why the default 10 Hz is a
   floor rather than a maximum for a client that polls it.
-- **Poses are in the work frame** as set by `set_work_coordinate`, with the tool
-  offset from `set_tool_coordinate` applied. `tool_pose_cmd` and `tool_pose_fb`
-  on the status topic follow the same frames.
+- **Poses are in the work frame**, with the tool offset from
+  `set_tool_coordinate` applied. `tool_pose_cmd` and `tool_pose_fb` on the status
+  topic follow the same frames. The work frame is whatever the robot parameter
+  file's `<WorkCoordinate>` set at registration; there is no service to change it
+  at runtime.
 
 ---
 
@@ -388,12 +377,12 @@ different things and are read by different components:
 | `Joint/Max,MinAngle` | `jointParams[i].max,minAngle` | radians in the file, degrees in the API |
 | `Joint/Velocity,AccelerationLimit` | `jointParams[i]` limits | radians, hard limits |
 | `EndEffector` | `robotParam.toolCoordinate[0]` | the `set_tool_coordinate` default |
-| `WorkCoordinate` | `robotParam.workCoordinate` | the `set_work_coordinate` default |
+| `WorkCoordinate` | `robotParam.workCoordinate` | the only way to set the work frame; no service exposes it |
 | `Tool*`, `Axis*`, `*Override`, `ProfileType` | `RobotMotionParam.profile` | what every motion command uses, since no service carries a velocity |
 
 **Angles are radians in the file and degrees in the API.** `MaxAngle`
 `2.9670597` reads back as `170.0`, and `AxisVelocity0` `0.2617993` as `15.0`
-deg/s. The joint values on `start_ptp` and the status topic are the degrees, not
+deg/s. The joint values on `start_motion` and the status topic are the degrees, not
 the radians.
 
 `RobotType` values (`kinematics::constants::RobotModel`):
@@ -445,7 +434,7 @@ it is sourced:
 | `ToolVelocity` | half the guide's 2 m/s rated linear speed, so 1000 mm/s |
 | `AccelerationLimit`, `ToolAcceleration` | **derived, not published.** Dobot gives no acceleration figure anywhere in the guide. Taken as rated speed reached from rest in 0.25 s |
 | `AxisVelocity*`, `AxisAcceleration*` | half the limits above, so 90 deg/s on J1 and J2 and 111.5 deg/s on J3 to J6 |
-| `VelOverride`, `AccOverride` | `0.1`, a 10% derate on top of that for bring-up. Raise it with `override_velocity` |
+| `VelOverride`, `AccOverride` | `0.1`, a 10% derate on top of that for bring-up. Raise it with `override_velocity_by_ratio` |
 
 Two things still need checking against the arm. The 0.25 s acceleration figure
 is an assumption, not a specification. And the joint limits are the
@@ -480,7 +469,7 @@ communicating. Then, if `robot_param_file` is set, it imports the file and calls
 transition, so a bad path is caught at bring-up rather than at the first motion
 call. An empty `robot_param_file` only warns.
 
-**`on_activate`** advertises the seventeen services, creates the publisher and
+**`on_activate`** advertises the ten services, creates the publisher and
 starts the status timer.
 
 **`on_deactivate`** stops the timer, drops the publisher and the services, and
@@ -507,7 +496,7 @@ node publishes, and it assumes a listed node is **active until proven
 otherwise**: a name that never appears on the graph blocks axis motion forever.
 Keep the list and `managed_nodes` in step.
 
-The guard is one-way. Nothing stops `wmx/robot/start_ptp` while a manipulator
+The guard is one-way. Nothing stops `wmx/robot/start_motion` while a manipulator
 controller is active, so a config that runs both still needs one of them driving
 at a time.
 
@@ -530,8 +519,8 @@ warning per second.
   `robot_id` is rejected even though the engine handles up to
   `MAX_NUMBER_OF_ROBOT` (5). Run one node per robot, each with its own device
   name, or extend the node to a map of parameters.
-- **Tool index 0 only.** The `Ex` overloads (`SetMotionEx`, `StartPTPPosEx`,
-  `SetToolCoordinateEx`, `CalcForwardKinematicsEx`) are not exposed, so the
+- **Tool index 0 only.** The `Ex` overloads (`StartPTPPosEx`,
+  `SetToolCoordinateEx`) are not exposed, so the
   dual-tool models (`DualToolScara5Axis`, `DualToolScara6Axis`) and
   `JointCoupledCPMotionParam` are out of reach.
 - **Up to six joints.** `MAX_NUMBER_OF_JOINT` is 6 in this SDK, and the joint
@@ -557,13 +546,18 @@ warning per second.
 A deployment is one YAML plus the two parameter files:
 
 1. **ROS parameter YAML**, `config/wmx_r2_robot_option_config.yaml`. Carries the
-   `wmx_robot_option_node` block plus `wmx_engine_node`,
-   `wmx_lifecycle_manager_node` and `wmx_core_motion_node`.
+   `wmx_robot_option_node` and `joint_state_broadcaster` blocks plus
+   `wmx_engine_node`, `wmx_lifecycle_manager_node` and `wmx_core_motion_node`.
    `wmx_robot_option_node` must appear twice: in `managed_nodes` after the
    device-level nodes so it is brought up, and in the `motion_controllers` of
-   `wmx_core_motion_node` so it owns the axes while active. None of the
-   manipulator controllers are listed, since none run here. An entry of `""` is
-   skipped, but a bare `[]` is rejected by rclcpp as an untyped empty list.
+   `wmx_core_motion_node` so it owns the axes while active.
+   `joint_state_broadcaster` appears only in `managed_nodes`, before
+   `wmx_robot_option_node` so the servos are on before the robot option takes
+   the axes; it is not a motion controller and must not be listed as one. Its
+   `joint_axes` are the `<Axis>` values of the robot parameter file, `0` to `5`
+   for `example/cr3a_robot_option_parameters.xml`. None of the manipulator
+   controllers are listed, since none run here. An entry of `""` is skipped, but
+   a bare `[]` is rejected by rclcpp as an untyped empty list.
 2. **WMX3 axis parameter XML**, passed as `wmx_param_file` and imported by
    `wmx_engine_node`. The SDK ships examples under
    `/opt/wmx3/robot_sample/common/`, for instance `wmx_parameter_MZ07L.xml`.
