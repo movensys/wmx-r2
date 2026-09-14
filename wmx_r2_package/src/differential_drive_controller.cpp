@@ -35,15 +35,18 @@ std::string errorToString(int err)
   return errString;
 }
 
-bool wheelUnitsPerRadPerSecond(const std::string & unit, double & unitsPerRadPerSecond)
+bool parseWheelVelocityUnit(const std::string & unit, double & scaleRadPerSecToAxisUnit)
 {
+  constexpr double kAxisUnitPerRadian = 1.0;
+  constexpr double kRpmPerRadPerSec = 60.0 / (2.0 * M_PI);
+
   if (unit == "rad/s" || unit == "rad_s" || unit == "rad") {
-    unitsPerRadPerSecond = 1.0;
+    scaleRadPerSecToAxisUnit = kAxisUnitPerRadian;
     return true;
   }
 
   if (unit == "rpm" || unit == "RPM" || unit == "rev/min") {
-    unitsPerRadPerSecond = 60.0 / (2.0 * M_PI);
+    scaleRadPerSecToAxisUnit = kRpmPerRadPerSec;
     return true;
   }
 
@@ -135,9 +138,9 @@ int DifferentialDriveControllerApi::getStatus(
   const CoreMotionAxisStatus & rawLeft = status.axesStatus[leftAxis];
   const CoreMotionAxisStatus & rawRight = status.axesStatus[rightAxis];
 
-  const double toRadPerSecond = 1.0 / config_.wheelUnitsPerRadPerSecond;
-  left = {rawLeft.actualVelocity * toRadPerSecond, rawLeft.servoOn, rawLeft.ampAlarm};
-  right = {rawRight.actualVelocity * toRadPerSecond, rawRight.servoOn, rawRight.ampAlarm};
+  const double scaleAxisUnitToRadPerSec = 1.0 / config_.wheelScaleRadPerSecToAxisUnit;
+  left = {rawLeft.actualVelocity * scaleAxisUnitToRadPerSec, rawLeft.servoOn, rawLeft.ampAlarm};
+  right = {rawRight.actualVelocity * scaleAxisUnitToRadPerSec, rawRight.servoOn, rawRight.ampAlarm};
   communicating = status.engineState == EngineState::T::Communicating;
 
   return ErrorCode::None;
@@ -149,7 +152,7 @@ int DifferentialDriveControllerApi::startVel(int axis, double omega, std::string
 
   Velocity::VelCommand velCommand;
   velCommand.axis = axis;
-  velCommand.profile.velocity = omega * config_.wheelUnitsPerRadPerSecond;
+  velCommand.profile.velocity = omega * config_.wheelScaleRadPerSecToAxisUnit;
   velCommand.profile.type = ProfileType::T::TimeAccTrapezoidal;
   velCommand.profile.accTimeMilliseconds = config_.accTimeMilliseconds;
   velCommand.profile.decTimeMilliseconds = config_.decTimeMilliseconds;
@@ -178,7 +181,7 @@ DifferentialDriveController::DifferentialDriveController()
   DifferentialDriveControllerApi::Config config;
   config.accTimeMilliseconds = accTime_ * 1000.0;
   config.decTimeMilliseconds = decTime_ * 1000.0;
-  config.wheelUnitsPerRadPerSecond = wheelUnitsPerRadPerSecond_;
+  config.wheelScaleRadPerSecToAxisUnit = wheelScaleRadPerSecToAxisUnit_;
   api_ = std::make_unique<DifferentialDriveControllerApi>(this->get_logger(), config);
 
   RCLCPP_INFO(
@@ -586,13 +589,13 @@ void DifferentialDriveController::setRosParameter()
   decTime_ = this->declare_parameter<double>("dec_time", 1.0);
 
   wheelVelocityUnit_ = this->declare_parameter<std::string>("wheel_velocity_unit", "rad/s");
-  if (!wheelUnitsPerRadPerSecond(wheelVelocityUnit_, wheelUnitsPerRadPerSecond_)) {
+  if (!parseWheelVelocityUnit(wheelVelocityUnit_, wheelScaleRadPerSecToAxisUnit_)) {
     RCLCPP_WARN(
       this->get_logger(),
       "wheel_velocity_unit must be 'rad/s' or 'rpm', got '%s'. Falling back to rad/s.",
       wheelVelocityUnit_.c_str());
     wheelVelocityUnit_ = "rad/s";
-    wheelUnitsPerRadPerSecond_ = 1.0;
+    wheelScaleRadPerSecToAxisUnit_ = 1.0;
   }
   wheelRadius_ = this->declare_parameter<double>("wheel_radius", 0.095);
   wheelToWheel_ = this->declare_parameter<double>("wheel_to_wheel", 0.55);
@@ -617,7 +620,7 @@ void DifferentialDriveController::setRosParameter()
     this->get_logger(), "acc_time: %f s, dec_time: %f s", accTime_, decTime_);
   RCLCPP_INFO(
     this->get_logger(), "wheel_velocity_unit: %s (%f axis units per rad/s)",
-    wheelVelocityUnit_.c_str(), wheelUnitsPerRadPerSecond_);
+    wheelVelocityUnit_.c_str(), wheelScaleRadPerSecToAxisUnit_);
   RCLCPP_INFO(this->get_logger(), "wheel_radius: %f", wheelRadius_);
   RCLCPP_INFO(this->get_logger(), "wheel_to_wheel: %f", wheelToWheel_);
   RCLCPP_INFO(this->get_logger(), "cmd_vel_timeout: %f", cmdVelTimeout_);

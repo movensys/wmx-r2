@@ -191,6 +191,8 @@ void JointStateBroadcaster::setRosParameter()
   jointAxes_ = this->declare_parameter<std::vector<int64_t>>("joint_axes", std::vector<int64_t>{});
   jointFeedbackRate_ = this->declare_parameter<int>("joint_feedback_rate", 0);
   rpmAxes_ = this->declare_parameter<std::vector<int64_t>>("rpm_axes", std::vector<int64_t>{});
+  degreeAxes_ = this->declare_parameter<std::vector<int64_t>>(
+    "degree_axes", std::vector<int64_t>{});
   gripperOpenValue_ = this->declare_parameter<float>("gripper_open_value", 0);
   gripperCloseValue_ = this->declare_parameter<float>("gripper_close_value", 0);
   jointNames_ = this->declare_parameter<std::vector<std::string>>(
@@ -227,8 +229,39 @@ void JointStateBroadcaster::setRosParameter()
     jointAxes_.resize(jointNames_.size());
   }
 
+  jointScaleUnitToRadian_.assign(jointAxes_.size(), 1.0);
+  for (size_t i = 0; i < jointAxes_.size(); ++i) {
+    const bool isDegree =
+      std::find(degreeAxes_.begin(), degreeAxes_.end(), jointAxes_[i]) != degreeAxes_.end();
+    const bool isRpm =
+      std::find(rpmAxes_.begin(), rpmAxes_.end(), jointAxes_[i]) != rpmAxes_.end();
+
+    if (isDegree && isRpm) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "axis %ld is in both degree_axes and rpm_axes; treating it as degrees.",
+        static_cast<long>(jointAxes_[i]));
+    }
+
+    constexpr double kRadianPerDegree = M_PI / 180.0;
+    constexpr double kRadianPerRpmUnit = 2.0 * M_PI / 60.0;
+
+    if (isDegree) {
+      jointScaleUnitToRadian_[i] = kRadianPerDegree;
+    } else if (isRpm) {
+      jointScaleUnitToRadian_[i] = kRadianPerRpmUnit;
+    }
+  }
+
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
   RCLCPP_INFO(this->get_logger(), "joint_feedback_rate: %d", jointFeedbackRate_);
+  for (size_t i = 0; i < jointScaleUnitToRadian_.size(); ++i) {
+    if (jointScaleUnitToRadian_[i] != 1.0) {
+      RCLCPP_INFO(
+        this->get_logger(), "axis %ld published as radians, scaled by %f",
+        static_cast<long>(jointAxes_[i]), jointScaleUnitToRadian_[i]);
+    }
+  }
 
   std::string jointNamesText;
   for (size_t i = 0; i < jointNames_.size(); ++i) {
@@ -481,14 +514,9 @@ void JointStateBroadcaster::publishJointState()
     return;
   }
 
-  for (size_t i = 0; i < feedback.size() && i < jointAxes_.size(); ++i) {
-    if (std::find(rpmAxes_.begin(), rpmAxes_.end(), jointAxes_[i]) == rpmAxes_.end()) {
-      continue;
-    }
-
-    constexpr double radPerRpmUnit = 2.0 * M_PI / 60.0;
-    feedback[i].actualPos *= radPerRpmUnit;
-    feedback[i].actualVelocity *= radPerRpmUnit;
+  for (size_t i = 0; i < feedback.size() && i < jointScaleUnitToRadian_.size(); ++i) {
+    feedback[i].actualPos *= jointScaleUnitToRadian_[i];
+    feedback[i].actualVelocity *= jointScaleUnitToRadian_[i];
   }
 
   sensor_msgs::msg::JointState encoderJointMsg;

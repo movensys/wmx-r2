@@ -31,7 +31,7 @@ public:
   {
     double accTimeMilliseconds = 1.0;
     double decTimeMilliseconds = 1.0;
-    double wheelUnitsPerRadPerSecond = 1.0;
+    double wheelScaleRadPerSecToAxisUnit = 1.0;
   };
 
   struct AxisFeedback
@@ -91,7 +91,7 @@ private:
   double accTime_ = 1.0;
   double decTime_ = 1.0;
   std::string wheelVelocityUnit_;
-  double wheelUnitsPerRadPerSecond_ = 1.0;
+  double wheelScaleRadPerSecToAxisUnit_ = 1.0;
   double wheelRadius_ = 0.095;
   double wheelToWheel_ = 0.55;
 

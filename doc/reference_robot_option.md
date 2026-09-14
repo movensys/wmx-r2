@@ -53,6 +53,21 @@ describes the **axes** (gear ratio, units, polarity) and is imported by
 `wmx_engine_node`. The second describes the **robot** (model, DH parameters,
 link and joint limits, motion profile) and is imported here.
 
+**The axes must be scaled in degree/mm.** `RobotMotionParam` in the WMX3 SDK is
+explicit — *"WMX User unit must be degree / mm unit"* — and the 3.6-u3 changelog
+repeats it. The robot module does no unit conversion of its own: the joint values
+it computes go to the axes as user units, so a radian-scaled axis moves 57.2958
+times too far and the joint limits, being degree figures, never catch it. Use
+`example/cr3a_wmx_parameters_deg.xml` (`AxisGearRatioDenominator` 360), not
+`cr3a_wmx_parameters.xml` (2*pi), which exists for the MoveIt stack where every
+ROS controller wants radians.
+
+That leaves `/joint_states` in degrees, which RViz, MoveIt, Isaac Sim and Gazebo
+would all read wrong, so `example/cr3a_robot_option_config.yaml` sets
+`degree_axes: [0, 1, 2, 3, 4, 5]` on `joint_state_broadcaster`. It converts
+position and velocity back to rad and rad/s before publishing. See
+[reference_manipulator.md](reference_manipulator.md) for that parameter.
+
 ---
 
 ## Parameters
