@@ -26,7 +26,6 @@ constexpr int maxJoints = wmx3Api::kinematics::constants::MAX_NUMBER_OF_JOINT;
 
 constexpr int32_t kUrdfRobotId = 0;
 
-// Mirrors the frame, target_type and path fields of RobotStartMotion.srv.
 constexpr int32_t kFrameBase = 0;
 constexpr int32_t kFrameTool = 1;
 constexpr int32_t kTargetJoint = 0;
@@ -78,8 +77,6 @@ using RotationMatrix = std::array<std::array<double, 3>, 3>;
 constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
 constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
 
-// CartesianPose rotation is Z-Y-X Euler in degrees, u roll about x, v pitch
-// about y, w yaw about z, so the matrix is Rz(w) * Ry(v) * Rx(u).
 RotationMatrix rotationMatrixOf(const CartesianPose & pose)
 {
   const double su = std::sin(pose.rotation.u * kDegToRad);
@@ -374,9 +371,6 @@ int WmxRobotOptionNodeApi::updateRobotStatusLocked(
   return err;
 }
 
-// The pose the engine is commanding right now, which a work frame displacement
-// is measured from. Commanded and not feedback: feedback carries the following
-// error, so chained relative moves would drift by it.
 int WmxRobotOptionNodeApi::commandedToolPose(CartesianPose & pose, std::string & message)
 {
   wmx3Api::RobotStatus status;
@@ -386,8 +380,6 @@ int WmxRobotOptionNodeApi::commandedToolPose(CartesianPose & pose, std::string &
     return err;
   }
 
-  // Member by member: CartesianPose declares a copy constructor and no copy
-  // assignment, so assigning the whole pose is deprecated.
   pose.point = status.stateCommand.toolPose[0].point;
   pose.rotation = status.stateCommand.toolPose[0].rotation;
   return ErrorCode::None;
@@ -416,8 +408,6 @@ int WmxRobotOptionNodeApi::startMotion(
     return ErrorCode::ArgumentOutOfRange;
   }
 
-  // Ignored by absolute targets, which are always work frame, and by joint
-  // targets, where a per joint distance has no frame.
   if (frame != kFrameBase && frame != kFrameTool) {
     message = "Unknown frame " + std::to_string(frame) + ". Use 0 base/work or 1 tool.";
     return ErrorCode::ArgumentOutOfRange;
@@ -435,10 +425,6 @@ int WmxRobotOptionNodeApi::startMotion(
           return ErrorCode::ArgumentOutOfRange;
         }
 
-        // TrajectoryLineMotionParam knows an absolute work frame target or a
-        // tool frame displacement, and nothing else, so a work frame
-        // displacement is resolved here against the current commanded pose and
-        // handed over as an absolute target.
         const bool isToolFrameDisplacement = relative && frame == kFrameTool;
         const bool isWorkFrameDisplacement = relative && frame == kFrameBase;
 
