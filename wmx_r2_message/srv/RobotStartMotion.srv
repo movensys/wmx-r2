@@ -2,6 +2,7 @@
 # wmx/robot/status for completion.
 int32 robot_id
 int32 mode          # 0 pos (absolute), 1 mov (relative)
+int32 frame         # 0 base/work, 1 tool. Read only by relative pose targets
 int32 target_type   # 0 joint values, 1 tool pose
 int32 path          # 0 ptp (joint interpolated), 1 line (straight tool path)
 float64[] target_joint          # target_type 0: per joint, deg or mm

@@ -4,8 +4,10 @@
 #include "wmx_robot_option_node.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 
 #include "wmx_qos_compat.hpp"
 
@@ -24,7 +26,9 @@ constexpr int maxJoints = wmx3Api::kinematics::constants::MAX_NUMBER_OF_JOINT;
 
 constexpr int32_t kUrdfRobotId = 0;
 
-// Mirrors the target_type and path fields of RobotStartMotion.srv.
+// Mirrors the frame, target_type and path fields of RobotStartMotion.srv.
+constexpr int32_t kFrameBase = 0;
+constexpr int32_t kFrameTool = 1;
 constexpr int32_t kTargetJoint = 0;
 constexpr int32_t kTargetPose = 1;
 constexpr int32_t kPathPtp = 0;
@@ -67,6 +71,78 @@ bool endsWith(const std::string & text, const std::string & suffix)
 CartesianPose toCartesianPose(const wmx_r2_message::msg::RobotCartesianPose & pose)
 {
   return CartesianPose(pose.x, pose.y, pose.z, pose.u, pose.v, pose.w);
+}
+
+using RotationMatrix = std::array<std::array<double, 3>, 3>;
+
+constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
+
+// CartesianPose rotation is Z-Y-X Euler in degrees, u roll about x, v pitch
+// about y, w yaw about z, so the matrix is Rz(w) * Ry(v) * Rx(u).
+RotationMatrix rotationMatrixOf(const CartesianPose & pose)
+{
+  const double su = std::sin(pose.rotation.u * kDegToRad);
+  const double cu = std::cos(pose.rotation.u * kDegToRad);
+  const double sv = std::sin(pose.rotation.v * kDegToRad);
+  const double cv = std::cos(pose.rotation.v * kDegToRad);
+  const double sw = std::sin(pose.rotation.w * kDegToRad);
+  const double cw = std::cos(pose.rotation.w * kDegToRad);
+
+  return RotationMatrix{{
+    {{cw * cv, cw * sv * su - sw * cu, cw * sv * cu + sw * su}},
+    {{sw * cv, sw * sv * su + cw * cu, sw * sv * cu - cw * su}},
+    {{-sv, cv * su, cv * cu}}
+  }};
+}
+
+RotationMatrix multiplyRotations(
+  const RotationMatrix & left, const RotationMatrix & right)
+{
+  RotationMatrix result{};
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      result[i][j] = left[i][0] * right[0][j] +
+        left[i][1] * right[1][j] +
+        left[i][2] * right[2][j];
+    }
+  }
+  return result;
+}
+
+void setEulerFromRotationMatrix(CartesianPose & pose, const RotationMatrix & rotation)
+{
+  const double cv = std::hypot(rotation[0][0], rotation[1][0]);
+
+  if (cv < 1e-9) {
+    pose.rotation.u = 0.0;
+    pose.rotation.v = std::atan2(-rotation[2][0], cv) * kRadToDeg;
+    pose.rotation.w = std::atan2(-rotation[0][1], rotation[1][1]) * kRadToDeg;
+    return;
+  }
+
+  pose.rotation.u = std::atan2(rotation[2][1], rotation[2][2]) * kRadToDeg;
+  pose.rotation.v = std::atan2(-rotation[2][0], cv) * kRadToDeg;
+  pose.rotation.w = std::atan2(rotation[1][0], rotation[0][0]) * kRadToDeg;
+}
+
+CartesianPose applyWorkFrameDisplacement(
+  const CartesianPose & current, const CartesianPose & displacement)
+{
+  CartesianPose result = current;
+  result.point.x += displacement.point.x;
+  result.point.y += displacement.point.y;
+  result.point.z += displacement.point.z;
+
+  const bool hasRotation = displacement.rotation.u != 0.0 ||
+    displacement.rotation.v != 0.0 ||
+    displacement.rotation.w != 0.0;
+  if (hasRotation) {
+    setEulerFromRotationMatrix(result, multiplyRotations(
+        rotationMatrixOf(displacement), rotationMatrixOf(current)));
+  }
+
+  return result;
 }
 
 wmx_r2_message::msg::RobotCartesianPose toPoseMsg(const CartesianPose & pose)
@@ -266,7 +342,12 @@ void WmxRobotOptionNodeApi::releaseRobotIfLoaded()
 int WmxRobotOptionNodeApi::updateRobotStatus(wmx3Api::RobotStatus & status, std::string & message)
 {
   std::lock_guard<std::mutex> lock(robotMutex_);
+  return updateRobotStatusLocked(status, message);
+}
 
+int WmxRobotOptionNodeApi::updateRobotStatusLocked(
+  wmx3Api::RobotStatus & status, std::string & message)
+{
   if (!robotLoaded_) {
     message = "No robot parameter is loaded.";
     return ErrorCode::IDNotDefined;
@@ -293,8 +374,27 @@ int WmxRobotOptionNodeApi::updateRobotStatus(wmx3Api::RobotStatus & status, std:
   return err;
 }
 
+// The pose the engine is commanding right now, which a work frame displacement
+// is measured from. Commanded and not feedback: feedback carries the following
+// error, so chained relative moves would drift by it.
+int WmxRobotOptionNodeApi::commandedToolPose(CartesianPose & pose, std::string & message)
+{
+  wmx3Api::RobotStatus status;
+
+  const int err = updateRobotStatusLocked(status, message);
+  if (err != ErrorCode::None) {
+    return err;
+  }
+
+  // Member by member: CartesianPose declares a copy constructor and no copy
+  // assignment, so assigning the whole pose is deprecated.
+  pose.point = status.stateCommand.toolPose[0].point;
+  pose.rotation = status.stateCommand.toolPose[0].rotation;
+  return ErrorCode::None;
+}
+
 int WmxRobotOptionNodeApi::startMotion(
-  int32_t robotId, int32_t mode, int32_t targetType, int32_t path,
+  int32_t robotId, int32_t mode, int32_t frame, int32_t targetType, int32_t path,
   const std::vector<double> & targetJoint, const CartesianPose & targetPose,
   char s, char e, char r, std::string & message)
 {
@@ -316,6 +416,13 @@ int WmxRobotOptionNodeApi::startMotion(
     return ErrorCode::ArgumentOutOfRange;
   }
 
+  // Ignored by absolute targets, which are always work frame, and by joint
+  // targets, where a per joint distance has no frame.
+  if (frame != kFrameBase && frame != kFrameTool) {
+    message = "Unknown frame " + std::to_string(frame) + ". Use 0 base/work or 1 tool.";
+    return ErrorCode::ArgumentOutOfRange;
+  }
+
   const wmx3Api::kinematics::RobotParam & param = robotMotionParam_.robotParam;
   const wmx3Api::RobotMotionProfile & profile = robotMotionParam_.profile;
   const bool relative = mode == PTPParam::PTPMode::Mov;
@@ -328,10 +435,29 @@ int WmxRobotOptionNodeApi::startMotion(
           return ErrorCode::ArgumentOutOfRange;
         }
 
+        // TrajectoryLineMotionParam knows an absolute work frame target or a
+        // tool frame displacement, and nothing else, so a work frame
+        // displacement is resolved here against the current commanded pose and
+        // handed over as an absolute target.
+        const bool isToolFrameDisplacement = relative && frame == kFrameTool;
+        const bool isWorkFrameDisplacement = relative && frame == kFrameBase;
+
+        CartesianPose commandedPose;
+        if (isWorkFrameDisplacement) {
+          err = commandedToolPose(commandedPose, message);
+          if (err != ErrorCode::None) {
+            RCLCPP_ERROR(logger_, "%s", message.c_str());
+            return err;
+          }
+        }
+
+        const CartesianPose destination = isWorkFrameDisplacement ?
+          applyWorkFrameDisplacement(commandedPose, targetPose) : targetPose;
+
         err = robot_.mKinematics.SetMotion(
           robotId,
           wmx3Api::TrajectoryMotionParam::TrajectoryLineMotionParam(
-            profile, targetPose, relative));
+            profile, destination, isToolFrameDisplacement));
         if (err != ErrorCode::None) {
           message = failureText("SetMotion", robotIdText(robotId) + " line", err);
           RCLCPP_ERROR(logger_, "%s", message.c_str());
@@ -350,6 +476,8 @@ int WmxRobotOptionNodeApi::startMotion(
 
     case kPathPtp: {
         double joints[maxJoints] = {};
+        const char * wmxCall = "StartPTPPos";
+
         if (targetType == kTargetJoint) {
           err = fillJoints(targetJoint, joints, message);
           if (err != ErrorCode::None) {
@@ -360,6 +488,12 @@ int WmxRobotOptionNodeApi::startMotion(
             wmx3Api::PtpMotionParam::PtpMovParam(param, profile, joints)) :
             robot_.mKinematics.StartPTPPos(
             wmx3Api::PtpMotionParam::PtpPosParam(param, profile, joints));
+        } else if (relative && frame == kFrameTool) {
+          // The only tool frame PTP entry point. StartPTPPos would read the
+          // same displacement in the work frame.
+          wmxCall = "StartToolPTPMov";
+          err = robot_.mKinematics.StartToolPTPMov(
+            wmx3Api::PtpMotionParam::PtpMovParam(param, profile), targetPose, s, e, r);
         } else {
           err = relative ?
             robot_.mKinematics.StartPTPPos(
@@ -370,7 +504,7 @@ int WmxRobotOptionNodeApi::startMotion(
 
         if (err != ErrorCode::None) {
           message = failureText(
-            "StartPTPPos", robotIdText(robotId) + " mode=" + std::to_string(mode), err);
+            wmxCall, robotIdText(robotId) + " mode=" + std::to_string(mode), err);
           RCLCPP_ERROR(logger_, "%s", message.c_str());
           return err;
         }
@@ -385,6 +519,9 @@ int WmxRobotOptionNodeApi::startMotion(
   message = std::string(path == kPathLine ? "Line" : "PTP") + " motion started. " +
     robotIdText(robotId) + " mode=" + std::to_string(mode) +
     " target_type=" + std::to_string(targetType);
+  if (relative && targetType == kTargetPose) {
+    message += std::string(" frame=") + (frame == kFrameTool ? "tool" : "base");
+  }
   RCLCPP_INFO(logger_, "%s", message.c_str());
   return ErrorCode::None;
 }
@@ -762,7 +899,7 @@ void WmxRobotOptionNode::startMotionCallback(
 {
   std::string message;
   response->success = api_->startMotion(
-    request->robot_id, request->mode, request->target_type, request->path,
+    request->robot_id, request->mode, request->frame, request->target_type, request->path,
     request->target_joint, toCartesianPose(request->target_pose),
     request->s, request->e, request->r, message) == ErrorCode::None;
   response->message = message;

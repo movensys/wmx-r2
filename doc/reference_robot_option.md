@@ -135,7 +135,7 @@ goes quiet until a robot is registered again.
 
 | Name | Type | WMX3 call |
 |---|---|---|
-| `wmx/robot/start_motion` | `RobotStartMotion` | `StartPTPPos` with `PtpPosParam` / `PtpMovParam`, or `SetMotion` + `StartMotion` with `TrajectoryLineMotionParam` |
+| `wmx/robot/start_motion` | `RobotStartMotion` | `StartPTPPos` with `PtpPosParam` / `PtpMovParam`, `StartToolPTPMov`, or `SetMotion` + `StartMotion` with `TrajectoryLineMotionParam` |
 | `wmx/robot/stop_motion` | `RobotId` | `StopMotion` |
 | `wmx/robot/clear_motion_error` | `RobotId` | `ClearMotionError` |
 | `wmx/robot/e_stop` | `RobotId` | `EStop` |
@@ -143,23 +143,49 @@ goes quiet until a robot is registered again.
 | `wmx/robot/override_velocity_by_ratio` | `RobotOverrideVelocityByRatio` | `OverrideVelocityByRatio` |
 
 **`start_motion`** is the one motion entry point. `mode` says absolute or
-relative, `target_type` says what you hand it, and `path` says how the tool gets
-there. The six combinations:
+relative, `frame` says what a relative pose is measured against, `target_type`
+says what you hand it, and `path` says how the tool gets there. The eight
+combinations:
 
-| # | `path` | `target_type` | `mode` | What runs |
-|---|---|---|---|---|
-| 1 | `0` ptp | `0` joint | `0` pos | absolute joint values, joint interpolated |
-| 2 | `0` ptp | `0` joint | `1` mov | per-joint distance, joint interpolated |
-| 3 | `0` ptp | `1` pose | `0` pos | absolute tool pose, joint interpolated |
-| 4 | `0` ptp | `1` pose | `1` mov | tool pose displacement, joint interpolated |
-| 5 | `1` line | `1` pose | `0` pos | absolute tool pose, straight tool path |
-| 6 | `1` line | `1` pose | `1` mov | **tool frame** displacement, straight tool path |
+| # | `path` | `target_type` | `mode` | `frame` | What runs |
+|---|---|---|---|---|---|
+| 1 | `0` ptp | `0` joint | `0` pos | — | absolute joint values, joint interpolated |
+| 2 | `0` ptp | `0` joint | `1` mov | — | per-joint distance, joint interpolated |
+| 3 | `0` ptp | `1` pose | `0` pos | — | absolute tool pose, joint interpolated |
+| 4 | `0` ptp | `1` pose | `1` mov | `0` base | work frame displacement, joint interpolated |
+| 5 | `0` ptp | `1` pose | `1` mov | `1` tool | tool frame displacement, joint interpolated |
+| 6 | `1` line | `1` pose | `0` pos | — | absolute tool pose, straight tool path |
+| 7 | `1` line | `1` pose | `1` mov | `0` base | work frame displacement, straight tool path |
+| 8 | `1` line | `1` pose | `1` mov | `1` tool | tool frame displacement, straight tool path |
 
 `path: 1` with `target_type: 0` is rejected: a joint target has no straight line
-to follow. **A relative line is a displacement in the tool frame, not the work
-frame** — that is the only relative form the SDK's `TrajectoryLineMotionParam`
-offers. `z: -50` on a relative line retracts 50 mm along the tool's own z axis,
-wherever the wrist happens to be pointing.
+to follow. `frame` is read only by rows 4, 5, 7 and 8. An absolute target is
+always in the work frame, and a per-joint distance has no frame at all, so rows
+1, 2, 3 and 6 ignore it. A value other than `0` or `1` is rejected everywhere.
+
+`z: -50` on a tool frame relative move retracts 50 mm along the tool's own z
+axis, wherever the wrist happens to be pointing. The same command on a work
+frame relative move drops 50 mm straight down the work frame z, whatever the
+tool is doing.
+
+**Row 7 is computed, not an SDK call.** The SDK's `TrajectoryLineMotionParam`
+takes an absolute work frame target or a tool frame displacement and nothing
+else, so the node reads the pose the engine is commanding now
+(`RobotStatus::stateCommand.toolPose[0]`, the same value the status topic
+publishes as `tool_pose_cmd`) and adds the displacement to it, then sends the
+result as an absolute line. Two consequences:
+
+- It is measured from the **commanded** pose, not the feedback pose. Feedback
+  carries the following error, so measuring from it would let chained relative
+  moves drift by it.
+- The rotation part composes, it does not add. `u`, `v`, `w` are Z-Y-X Euler
+  angles, so a work frame turn premultiplies the current orientation
+  (`R_new = R_delta * R_current`). Adding the three angles would be wrong. With
+  `u`, `v`, `w` all zero — the usual case, "shift the tool and keep it pointing
+  where it points" — the current orientation passes through untouched.
+
+Rows 4 and 5 are both SDK calls: `StartPTPPos` with a `PtpMovParam` for the work
+frame, `StartToolPTPMov` for the tool frame.
 
 A `path: 0` move is PTP: each joint runs its own profile and they synchronize
 only at the endpoints, so the tool traces a curve. Only `path: 1` controls the
@@ -169,49 +195,59 @@ The joint values below are the CR3A ones and sit inside the limits of
 `example/cr3a_robot_option_parameters.xml`.
 
 ```bash
-# 1  ptp / joint / pos  - drive every joint to an absolute value, the CR3A initial pose
+# 1  ptp / joint / pos  - absolute joint target
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
   '"{robot_id: 0, mode: 0, target_type: 0, path: 0,
     target_joint: [0.0, 0.0, -90.0, 0.0, 90.0, 0.0]}"'
 
-# 4  ptp / pose / mov  - shift the tool 50 mm in work x, path not controlled
+# 2  ptp / joint / mov  - relative joint target
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  '"{robot_id: 0, mode: 1, target_type: 1, path: 0,
+  '"{robot_id: 0, mode: 1, target_type: 0, path: 0,
+    target_joint: [0.0, 0.0, 15.0, 0.0, 0.0, 0.0]}"'
+
+# 3  ptp / pose / pos  - absolute work frame, joint movement
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  '"{robot_id: 0, mode: 0, target_type: 1, path: 0,
+    target_pose: {x: 345.0, y: -70, z: 163.0, u: 180.0, v: 0.0, w: -90.0},
+    s: 0, e: 0, r: 0}"'
+
+# 4  ptp / pose / mov / base  - relative work frame, joint movement
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  '"{robot_id: 0, mode: 1, frame: 0, target_type: 1, path: 0,
     target_pose: {x: 0.0, y: 50.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0},
     s: 0, e: 0, r: 0}"'
 
-# 6  line / pose / mov  - retract 50 mm along the TOOL z axis, straight path
+# 5  ptp / pose / mov / tool  - relative tool frame, joint movement
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  '"{robot_id: 0, mode: 1, target_type: 1, path: 1,
-    target_pose: {x: 50.0, y: 0.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0}}"'
-
-# 3  ptp / pose / pos  - absolute tool pose, path not controlled
-wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  '"{robot_id: 0, mode: 0, target_type: 1, path: 0,
-    target_pose: {x: 345.0, y: -200, z: 163.0, u: 180.0, v: 0.0, w: -90.0},
+  '"{robot_id: 0, mode: 1, frame: 1, target_type: 1, path: 0,
+    target_pose: {x: 0.0, y: 0.0, z: -50.0, u: 0.0, v: 0.0, w: 0.0},
     s: 0, e: 0, r: 0}"'
 
-# 5  line / pose / pos  - absolute tool pose, straight tool path
+# 6  line / pose / pos  - absolute work frame, cartesian
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
   '"{robot_id: 0, mode: 0, target_type: 1, path: 1,
     target_pose: {x: 345.0, y: -128, z: 163.0, u: 180.0, v: 0.0, w: -90.0}}"'
 
-
-# 2  ptp / joint / mov  - rotate joint 3 by +15 deg, hold the rest
+# 7  line / pose / mov / base  - relative work frame, cartesian
 wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
-  '"{robot_id: 0, mode: 1, target_type: 0, path: 0,
-    target_joint: [0.0, 0.0, 15.0, 0.0, 0.0, 0.0]}"'
+  '"{robot_id: 0, mode: 1, frame: 0, target_type: 1, path: 1,
+    target_pose: {x: 0.0, y: 50.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0}}"'
+
+# 8  line / pose / mov / tool  - relative tool frame, cartesian
+wros ros2 service call /wmx/robot/start_motion wmx_r2_message/srv/RobotStartMotion \
+  '"{robot_id: 0, mode: 1, frame: 1, target_type: 1, path: 1,
+    target_pose: {x: 50.0, y: 0.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0}}"'
 
 # stop the running move
 wros ros2 service call /wmx/robot/stop_motion wmx_r2_message/srv/RobotId '"{robot_id: 0}"'
 ```
 
 `s`, `e` and `r` are the inverse-kinematics configuration flags, read only by
-rows 3 and 4. They map to `RobotState::serShapeFlag`: `s` shoulder (`1` left,
-`-1` right), `e` elbow (`1` above, `-1` below), `r` wrist (`1` flip, `-1` no
-flip), `0` auto on all three. Rows 5 and 6 ignore them: the engine picks the
-configuration that keeps the tool on the line. Rows 1 and 2 ignore them too,
-since a joint target already fixes the configuration.
+the PTP pose rows 3, 4 and 5. They map to `RobotState::serShapeFlag`: `s`
+shoulder (`1` left, `-1` right), `e` elbow (`1` above, `-1` below), `r` wrist
+(`1` flip, `-1` no flip), `0` auto on all three. The line rows 6, 7 and 8 ignore
+them: the engine picks the configuration that keeps the tool on the line. Rows 1
+and 2 ignore them too, since a joint target already fixes the configuration.
 
 **When IK fails.** A pose target answers
 `Error=163857 (Inverse kinematic computation iteration exceeded the limit)` when

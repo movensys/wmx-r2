@@ -116,8 +116,8 @@
 			<inertia ixx="0.000000" ixy="0.000000" ixz="0.000000" iyy="0.000000" iyz="0.000000" izz="0.000000"/>
 		</inertial>
 	</link>
-	<ToolVelocity>1400.000000</ToolVelocity>
-	<ToolAcceleration>2800.000000</ToolAcceleration>
+	<ToolVelocity>140.000000</ToolVelocity>
+	<ToolAcceleration>280.000000</ToolAcceleration>
 	<ToolVelRotRatio>0.0033</ToolVelRotRatio>
 	<AxisVelocity0>0.523598775598298815658893</AxisVelocity0>
 	<AxisAcceleration0>1.047197551196597631317786</AxisAcceleration0>

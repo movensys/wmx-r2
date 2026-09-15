@@ -52,7 +52,7 @@ public:
   int updateRobotStatus(wmx3Api::RobotStatus & status, std::string & message);
 
   int startMotion(
-    int32_t robotId, int32_t mode, int32_t targetType, int32_t path,
+    int32_t robotId, int32_t mode, int32_t frame, int32_t targetType, int32_t path,
     const std::vector<double> & targetJoint,
     const wmx3Api::coordinate::CartesianPose & targetPose,
     char s, char e, char r, std::string & message);
@@ -72,6 +72,8 @@ public:
 
 private:
   int checkRobot(int32_t robotId, std::string & message) const;
+  int updateRobotStatusLocked(wmx3Api::RobotStatus & status, std::string & message);
+  int commandedToolPose(wmx3Api::coordinate::CartesianPose & pose, std::string & message);
   int fillJoints(
     const std::vector<double> & source,
     double (& target)[wmx3Api::kinematics::constants::MAX_NUMBER_OF_JOINT],
