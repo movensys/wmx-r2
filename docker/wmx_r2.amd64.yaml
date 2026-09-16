@@ -1,0 +1,6 @@
+services:
+  wmx_r2:
+    environment:
+      - XAUTHORITY=/tmp/.docker.xauth
+    volumes:
+      - /tmp/.docker.xauth:/tmp/.docker.xauth:ro

@@ -2,7 +2,7 @@
 <robot name="movensys_navigation" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="wmx_param_file"
-             default="$(find wmx_r2_package)/config/diffbot_wmx_parameters.xml"/>
+             default="$(find wmx_r2_package)/example/diffbot_wmx_parameters.xml"/>
 
   <xacro:include filename="$(find movensys_navigation_description)/urdf/diffbot/diffbot.xacro"/>
   <xacro:include filename="$(find movensys_navigation_description)/urdf/diffbot/perception.xacro"/>

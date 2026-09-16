@@ -1,5 +1,0 @@
-int32[] index # axis index
-int32[] data # start or stop
----
-bool success   # indicate successful run
-string message # response messages

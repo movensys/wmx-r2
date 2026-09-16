@@ -1,0 +1,8 @@
+# Reads scattered bits in one call: entry i is addr[i].bit[i].
+# Both arrays must be the same length.
+int32[] addr    # IO byte address per entry
+int32[] bit     # bit index within that byte (0-7) per entry
+---
+bool success    # true only if every entry was read
+uint8[] data    # bit value per entry: 0 or 1
+string message  # response or error description

@@ -4,7 +4,9 @@
 #ifndef WMX_R2_CONTROL__WMX_SYSTEM_HARDWARE_HPP_
 #define WMX_R2_CONTROL__WMX_SYSTEM_HARDWARE_HPP_
 
+#include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -29,6 +31,58 @@
 namespace wmx_r2_control
 {
 
+class WmxSystemHardwareApi
+{
+public:
+  struct Config
+  {
+    std::string sdkPath;
+    std::string deviceName;
+    double accTimeMilliseconds = 1.0;
+    double decTimeMilliseconds = 1.0;
+    int maxDeviceRetries = 30;
+  };
+
+  struct AxisFeedback
+  {
+    double actualPos = 0.0;
+    double actualVelocity = 0.0;
+    bool servoOn = false;
+    bool ampAlarm = false;
+  };
+
+  WmxSystemHardwareApi(const rclcpp::Logger & logger, const Config & config);
+  ~WmxSystemHardwareApi();
+
+  int createDevice(std::string & message);
+  void closeDevice();
+
+  int importAndSetAll(const std::string & path, std::string & message);
+
+  int getStatus(
+    const std::vector<int> & axes, std::vector<AxisFeedback> & feedback,
+    bool & communicating, std::string & message);
+
+  int startVel(int axis, double omega, std::string & message);
+  int stop(int axis, std::string & message);
+  int waitForMotionComplete(
+    const std::vector<int> & axes, unsigned int timeoutMilliseconds, std::string & message);
+  int setServoOn(int axis, int newStatus, std::string & message);
+  int clearAmpAlarm(int axis, std::string & message);
+
+private:
+  rclcpp::Logger logger_;
+  Config config_;
+
+  unsigned int timeout_ = 10000;
+  unsigned int servoOnTimeout_ = 2000;
+
+  mutable std::mutex deviceMutex_;
+
+  wmx3Api::WMX3Api wmx3Lib_;
+  wmx3Api::CoreMotion cm_;
+};
+
 enum class JointMode
 {
   Velocity,    // command_interface "velocity" -> WMX CoreMotion StartVel
@@ -41,11 +95,11 @@ struct WmxJoint
   int axis = -1;
   JointMode mode = JointMode::Velocity;
 
-  double pos_state = 0.0;
-  double vel_state = 0.0;
+  double posState = 0.0;
+  double velState = 0.0;
 
   double cmd = 0.0;
-  double last_cmd = 0.0;
+  double lastCmd = std::numeric_limits<double>::quiet_NaN();
 };
 
 class WmxSystemHardware : public hardware_interface::SystemInterface
@@ -73,6 +127,12 @@ public:
   hardware_interface::CallbackReturn on_cleanup(
     const rclcpp_lifecycle::State & previous_state) override;
 
+  hardware_interface::CallbackReturn on_error(
+    const rclcpp_lifecycle::State & previous_state) override;
+
+  hardware_interface::CallbackReturn on_shutdown(
+    const rclcpp_lifecycle::State & previous_state) override;
+
   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
 
   std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
@@ -84,36 +144,27 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
+  void stopAllAxes();
+
   rclcpp::Logger logger_ = rclcpp::get_logger("WmxSystemHardware");
   rclcpp::Clock clock_{RCL_STEADY_TIME};
 
-  // WMX3 handles
-  wmx3Api::WMX3Api wmx_;
-  std::unique_ptr<wmx3Api::CoreMotion> cm_;
-  wmx3Api::CoreMotionStatus cm_status_;
-  bool device_open_ = false;
+  std::unique_ptr<WmxSystemHardwareApi> api_;
 
-  // Joints
   std::vector<WmxJoint> joints_;
+  std::vector<int> axes_;
 
-  // Hardware parameters (from <hardware><param> in the ros2_control xacro)
-  std::string sdk_path_;
-  std::string device_name_;
-  std::string wmx_param_file_;
-  double acc_time_ms_ = 1.0;
-  double dec_time_ms_ = 1.0;
-  int max_device_retries_ = 30;
-  bool auto_servo_on_ = true;   ///< clear alarms + servo-on in on_activate, servo-off on deactivate
+  std::vector<WmxSystemHardwareApi::AxisFeedback> feedback_;
+  bool communicating_ = false;
 
-  char err_str_[256] = {0};
-
-  // Helpers
+  std::string wmxParamFile_;
+  int maxDeviceRetries_ = 30;
+  bool autoServoOn_ = true;
+  unsigned int stopTimeout_ = 2000;
   hardware_interface::CallbackReturn initImpl();
-  bool attachDevice();
-  void closeDevice();
-  bool engineCommunicating();
-  void startVelocity(const WmxJoint & joint, double omega);
   std::string getHwParam(const std::string & key, const std::string & def) const;
+  bool waitForCommunicating();
+  void seedJointStates();
 };
 
 }  // namespace wmx_r2_control

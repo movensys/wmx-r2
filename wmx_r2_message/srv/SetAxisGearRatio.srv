@@ -1,6 +1,0 @@
-int32[] index # axis index
-float64[] numerator
-float64[] denominator
----
-bool success   # indicate successful run
-string message # response messages

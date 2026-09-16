@@ -1,0 +1,8 @@
+# Writes scattered bits in one call: entry i is addr[i].bit[i] = data[i].
+# All three arrays must be the same length.
+int32[] addr    # output IO byte address per entry
+int32[] bit     # bit index within that byte (0-7) per entry
+uint8[] data    # bit value to write per entry: 0 or 1
+---
+bool success    # true if the write succeeded
+string message  # response or error description

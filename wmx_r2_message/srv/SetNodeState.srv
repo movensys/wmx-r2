@@ -1,0 +1,8 @@
+string node_name  # empty applies the transition to every lifecycle node found
+string transition # select: configure | activate | deactivate | cleanup | shutdown | bringup | bringdown
+---
+bool success
+string message
+
+string[] node_names
+string[] states

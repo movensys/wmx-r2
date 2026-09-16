@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="movensys_manipulator_arm_wmx_r2_control"
+               params="name:=WmxManipulatorArmSystem
+                       wmx_param_file">
+
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <plugin>wmx_r2_control/WmxSystemHardware</plugin>
+        <param name="device_name">wmx_cr5a_control</param>
+        <param name="wmx_param_file">${wmx_param_file}</param>
+      </hardware>
+
+      <xacro:macro name="arm_joint" params="joint axis">
+        <joint name="${joint}">
+          <param name="axis">${axis}</param>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:macro>
+
+      <xacro:arm_joint joint="joint1" axis="0"/>
+      <xacro:arm_joint joint="joint2" axis="1"/>
+      <xacro:arm_joint joint="joint3" axis="2"/>
+      <xacro:arm_joint joint="joint4" axis="3"/>
+      <xacro:arm_joint joint="joint5" axis="4"/>
+      <xacro:arm_joint joint="joint6" axis="5"/>
+    </ros2_control>
+
+  </xacro:macro>
+</robot>

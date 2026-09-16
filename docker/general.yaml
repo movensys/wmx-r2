@@ -1,0 +1,74 @@
+name: wmx_r2
+
+services:
+  wmx_r2:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: general.Dockerfile
+      network: host
+      args:
+        - ROS_DISTRO=${ROS_DISTRO}
+        - WMX3_SDK_PATH=${WMX3_SDK_PATH}
+    image: ${IMAGE_NAME}
+    container_name: ${CONTAINER_NAME}
+    privileged: true
+    network_mode: host
+    ipc: host
+    pid: host
+    working_dir: /home/admin/workspaces/movensys_ws
+    entrypoint: ["/ros_entrypoint.sh"]
+    stdin_open: true
+    tty: true
+    ulimits:
+      rtprio: 99
+      memlock: -1
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID}
+      - USER=${USER}
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION}
+      - CYCLONEDDS_URI=file:///home/admin/workspaces/cyclonedds.xml
+      - DISPLAY
+      - QT_X11_NO_MITSHM=1
+      - ROS_DISTRO=${ROS_DISTRO}
+      - WMX3_SDK_PATH=${WMX3_SDK_PATH}
+    volumes:
+      - ${WMX_R2_PACKAGES}:/home/admin/workspaces/movensys_ws/src/wmx-r2:rw
+      - ${WMX3_SDK_PATH}:/opt/wmx3:rw
+      - /usr/local/share/.shm:/usr/local/share/.shm:rw
+      - ${CYCLONEDDS_DIR}:/home/admin/workspaces/cyclonedds.xml:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev/dri:/dev/dri
+    devices:
+      - /dev/dri
+    command: ["/bin/bash","-lc",
+              "SRC=/home/admin/workspaces/movensys_ws/src/wmx-r2 && \
+               DDS=/home/admin/workspaces/cyclonedds.xml && \
+               HOST_UID=$$(stat -c %u $$SRC) && HOST_GID=$$(stat -c %g $$SRC) && \
+               if [ \"$$HOST_UID\" = 0 ]; then \
+                 echo \"WARN: $$SRC is root-owned, keeping admin $$(id -u admin):$$(id -g admin)\"; \
+                 HOST_UID=$$(id -u admin); HOST_GID=$$(id -g admin); fi && \
+               echo ====== Map admin to host $$HOST_UID:$$HOST_GID ======= && \
+               if [ \"$$HOST_GID\" != \"$$(id -g admin)\" ]; then \
+                 sudo groupmod -g $$HOST_GID admin \
+                   || echo \"NOTE: groupmod reported an error, continuing\"; fi && \
+               if [ \"$$HOST_UID\" != \"$$(id -u admin)\" ]; then \
+                 sudo usermod -u $$HOST_UID admin \
+                   || echo \"NOTE: usermod home chown skipped (read-only mounts)\"; fi && \
+               sudo find /home/admin -xdev \
+                 -path $$SRC -prune -o -path $$DDS -prune -o \
+                 ! -user admin -exec chown -h admin:admin {} + \
+                 || echo \"WARN: ownership fixup under /home/admin incomplete\" && \
+               sudo ldconfig && \
+               source /opt/ros/${ROS_DISTRO}/setup.bash && \
+
+               cd /home/admin/workspaces/movensys_ws && \
+               echo ====== Build wmx_r2 ======= && \
+               colcon build --symlink-install && \
+
+               echo ====== Build Terminated ======= && \
+               source /home/admin/workspaces/movensys_ws/install/setup.bash && \
+               export RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION} && \
+               exec bash"
+              ]

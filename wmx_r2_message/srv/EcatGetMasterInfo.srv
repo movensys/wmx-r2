@@ -1,0 +1,41 @@
+int32 master_id
+---
+bool success
+string message
+# Master
+int32 state        # EcStateMachine: 0=None 1=Init 2=Preop 4=Boot 8=Safeop 16=Op
+int32 mode         # EcMasterMode: 0=Cyclic 1=PP 2=Monitor
+uint32 comm_period
+uint32 total_axes_num
+uint32 total_input_size
+uint32 total_output_size
+uint32 ring_num
+uint32 total_rx_pdo_size
+uint32 total_tx_pdo_size
+uint32 tx_delay
+uint32 min_tx_delay
+uint32 max_tx_delay
+uint32 packet_loss
+uint32 packet_timeout
+uint32 over_cycle
+# Slaves (parallel arrays, one entry per slave)
+int32 num_of_slaves
+int32[] slave_ids
+int32[] slave_states
+int32[] slave_al_status_codes
+int32[] slave_positions
+int32[] slave_addresses
+bool[] slave_offline
+bool[] slave_inaccessible
+bool[] slave_new_slaves
+bool[] slave_reverse_slaves
+uint32[] slave_vendor_ids
+uint32[] slave_product_codes
+uint32[] slave_revision_nos
+uint32[] slave_serial_nos
+uint32[] slave_aliases
+int32[] slave_input_addrs
+int32[] slave_input_sizes
+int32[] slave_output_addrs
+int32[] slave_output_sizes
+int32[] slave_num_of_axes

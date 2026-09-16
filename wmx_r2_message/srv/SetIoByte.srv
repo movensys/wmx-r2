@@ -1,0 +1,5 @@
+int32 addr      # output IO byte address
+uint8 data      # byte value to write: 0-255
+---
+bool success    # true if the write succeeded
+string message  # response or error description

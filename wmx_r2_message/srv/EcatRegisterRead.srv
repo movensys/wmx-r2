@@ -1,7 +1,7 @@
 int32 master_id
 int32 slave_id
-int32 reg_address    # valid range: 0x000 - 0xFFF
-int32 length         # valid range: 1 - 4096 bytes
+int32 reg_addr    # valid range: 0x000 - 0xFFF
+int32 len         # valid range: 1 - 4096 bytes
 ---
 bool success
 uint8[] data

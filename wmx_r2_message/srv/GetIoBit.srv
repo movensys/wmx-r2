@@ -1,6 +1,6 @@
-int32 byte  # IO byte address
+int32 addr  # IO byte address
 int32 bit   # bit index within the byte (0-7)
 ---
 bool success    # true if the read succeeded
-int32 value     # bit value: 0 or 1
+uint8 data      # bit value: 0 or 1
 string message  # response or error description
