@@ -446,7 +446,6 @@ hardware_interface::CallbackReturn WmxSystemHardware::on_activate(
         return hardware_interface::CallbackReturn::ERROR;
       }
     }
-    cm_->axisControl->SetServoOn(6, 1, 2000);
     RCLCPP_INFO(logger_, "Servos enabled on all axes");
   }
 
