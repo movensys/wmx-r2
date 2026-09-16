@@ -221,7 +221,7 @@
 			<PositiveTrqLimit>300.000000</PositiveTrqLimit>
 			<AxisUnit>0.000000</AxisUnit>
 			<VelocityFeedforwardGain>0.000000</VelocityFeedforwardGain>
-			<AxisPolarity>-1</AxisPolarity>
+			<AxisPolarity>1</AxisPolarity>
 			<MaxMotorSpeed>3000.000000</MaxMotorSpeed>
 			<MaxMotorSpeedUnitNumerator>1.000000</MaxMotorSpeedUnitNumerator>
 			<MaxMotorSpeedUnitDenominator>1.000000</MaxMotorSpeedUnitDenominator>
@@ -637,7 +637,7 @@
 			<PositiveTrqLimit>300.000000</PositiveTrqLimit>
 			<AxisUnit>0.000000</AxisUnit>
 			<VelocityFeedforwardGain>0.000000</VelocityFeedforwardGain>
-			<AxisPolarity>1</AxisPolarity>
+			<AxisPolarity>-1</AxisPolarity>
 			<MaxMotorSpeed>3000.000000</MaxMotorSpeed>
 			<MaxMotorSpeedUnitNumerator>1.000000</MaxMotorSpeedUnitNumerator>
 			<MaxMotorSpeedUnitDenominator>1.000000</MaxMotorSpeedUnitDenominator>
