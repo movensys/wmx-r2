@@ -37,7 +37,7 @@ std::string errorToString(int err)
 }  // namespace
 
 JointTrajectoryControllerApi::JointTrajectoryControllerApi(const rclcpp::Logger & logger)
-: logger_(logger), cm_(&wmx3Lib_), am_(&wmx3Lib_)
+: logger_(logger), cm_(&wmx3Lib_), am_(&wmx3Lib_), cb_(&wmx3Lib_)
 {
 }
 
@@ -89,6 +89,13 @@ void JointTrajectoryControllerApi::closeDevice()
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
 
+  if (cyclicBufferOpen_) {
+    cb_.CloseCyclicBuffer(&axisSel_);
+    cyclicBufferOpen_ = false;
+  }
+  commands_ = {};
+  streaming_ = false;
+  afterQuickStop_ = false;
   freeSplineBuffer();
 
   const int err = wmx3Lib_.CloseDevice();
@@ -159,6 +166,9 @@ int JointTrajectoryControllerApi::setAxisSelection(
     axisSel_.axis[i] = static_cast<int>(axes[i]);
     splineCommand_.axis[i] = static_cast<int>(axes[i]);
   }
+
+  previousPositions_.assign(axisCount_, 0.0);
+  previousVelocities_.assign(axisCount_, 0.0);
 
   message = "Driving " + std::to_string(axisCount_) + " axes";
   return ErrorCode::None;
@@ -257,6 +267,9 @@ int JointTrajectoryControllerApi::stop(std::string & message)
     return err;
   }
 
+  commands_ = {};
+  streaming_ = false;
+  afterQuickStop_ = false;
   message = "Axes stopped";
   return ErrorCode::None;
 }
@@ -297,6 +310,9 @@ void JointTrajectoryController::setRosParameter()
     "joint_name", std::vector<std::string>{});
   jointTrajectoryAction_ = this->declare_parameter<std::string>(
     "joint_trajectory_action", "/joint_trajectory_action/no_param");
+
+  jointTrajectoryTopic_ = this->declare_parameter<std::string>(
+    "joint_trajectory_topic", "/joint_trajectory");
 
   if (!jointNames_.empty() && jointNames_.size() != jointAxes_.size()) {
     RCLCPP_ERROR(
@@ -375,6 +391,10 @@ JointTrajectoryController::CallbackReturn JointTrajectoryController::on_activate
   execActivePub_ = this->create_publisher<std_msgs::msg::Bool>(
     "/moveit2_trajectory/execution_active", rclcpp::QoS(1).transient_local());
 
+  jointTrajectorySub_ = this->create_subscription<trajectory_msgs::msg::JointTrajectory>(
+    jointTrajectoryTopic_, rclcpp::QoS(10),
+    std::bind(&JointTrajectoryController::onJointTrajectory, this, _1));
+
   actionServer_ = rclcpp_action::create_server<FollowJointTrajectory>(
     this,
     jointTrajectoryAction_,
@@ -405,6 +425,7 @@ JointTrajectoryController::CallbackReturn JointTrajectoryController::on_deactiva
 
   LifecycleNode::on_deactivate(previous_state);
 
+  jointTrajectorySub_.reset();
   actionServer_.reset();
   execActivePub_.reset();
   servoNodeResetPub_.reset();
@@ -617,6 +638,13 @@ void JointTrajectoryController::executeGoal(std::shared_ptr<GoalHandleFJT> goalH
     return;
   }
 
+  if (api_->stopStreaming(message) != ErrorCode::None) {
+    result->error_code = FollowJointTrajectory::Result::INVALID_GOAL;
+    result->error_string = message;
+    goalHandle->abort(result);
+    return;
+  }
+
   logTrajectory(trajectory);
 
   if (positions.empty()) {
@@ -671,6 +699,149 @@ void JointTrajectoryController::executeGoal(std::shared_ptr<GoalHandleFJT> goalH
   result->error_code = FollowJointTrajectory::Result::SUCCESSFUL;
   goalHandle->succeed(result);
   RCLCPP_INFO(this->get_logger(), "Trajectory execution completed successfully");
+}
+
+int JointTrajectoryControllerApi::stopStreaming(std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+  if (streaming_) {
+    const int err = cb_.ExecQuickStop(&axisSel_);
+    if (err != ErrorCode::None) {
+      message = "ExecQuickStop failed: " + errorToString(err);
+      return err;
+    }
+    const int waitErr = cm_.motion->Wait(&axisSel_);
+    if (waitErr != ErrorCode::None) {
+      message = "Wait failed: " + errorToString(waitErr);
+      return waitErr;
+    }
+    afterQuickStop_ = true;
+  }
+  commands_ = {};
+  streaming_ = false;
+  return ErrorCode::None;
+}
+
+int JointTrajectoryControllerApi::streamPoint(
+  const std::vector<double> & positions, const std::vector<double> & velocities,
+  bool startPoint, std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+  if (axisCount_ == 0 || positions.size() != axisCount_ || velocities.size() != axisCount_) {
+    message = "Streaming point must contain a position and velocity for each configured axis.";
+    return ErrorCode::ArgumentOutOfRange;
+  }
+  if (!cyclicBufferOpen_) {
+    const int err = cb_.OpenCyclicBuffer(&axisSel_, 3000);
+    if (err != ErrorCode::None) {
+      message = "OpenCyclicBuffer failed: " + errorToString(err);
+      return err;
+    }
+    cyclicBufferOpen_ = true;
+  }
+
+  wmx3Api::CyclicBufferMultiAxisCommands command;
+  if (startPoint) {
+    for (size_t j = 0; j < axisCount_; ++j) {
+      previousPositions_[j] = positions[j];
+      previousVelocities_[j] = velocities[j] / 1.02;
+      auto & axisCommand = command.cmd[axisSel_.axis[j]];
+      axisCommand.type = wmx3Api::CyclicBufferCommandType::AbsolutePos;
+      axisCommand.command = positions[j];
+      axisCommand.intervalCycles = 2000;
+    }
+    if (!afterQuickStop_) {
+      return ErrorCode::None;
+    }
+    afterQuickStop_ = false;
+    commands_.push(command);
+  } else {
+    // Preserve the streaming protocol's 102 one-millisecond interpolation cycles.
+    std::vector<double> acceleration(axisCount_);
+    for (size_t j = 0; j < axisCount_; ++j) {
+      acceleration[j] = (velocities[j] / 1.02 - previousVelocities_[j]) / 0.102;
+    }
+    for (int cycle = 1; cycle <= 102; ++cycle) {
+      const double dt = cycle / 1000.0;
+      for (size_t j = 0; j < axisCount_; ++j) {
+        auto & axisCommand = command.cmd[axisSel_.axis[j]];
+        axisCommand.type = wmx3Api::CyclicBufferCommandType::AbsolutePos;
+        axisCommand.command = 0.5 * acceleration[j] * dt * dt +
+          previousVelocities_[j] * dt + previousPositions_[j];
+        axisCommand.intervalCycles = 1;
+        if (cycle == 102) {
+          previousPositions_[j] = axisCommand.command;
+          previousVelocities_[j] = velocities[j] / 1.02;
+        }
+      }
+      commands_.push(command);
+    }
+  }
+
+  CoreMotionStatus status;
+  int err = cm_.GetStatus(&status);
+  if (err != ErrorCode::None) {
+    message = "GetStatus failed: " + errorToString(err);
+    return err;
+  }
+  streaming_ = true;
+  for (size_t j = 0; j < axisCount_; ++j) {
+    if (status.axesStatus[axisSel_.axis[j]].opState == wmx3Api::OperationState::Stop) {
+      return ErrorCode::None;
+    }
+  }
+  while (!commands_.empty()) {
+    err = cb_.AddCommand(&axisSel_, &commands_.front());
+    if (err != ErrorCode::None) {
+      message = "AddCommand failed: " + errorToString(err);
+      return err;
+    }
+    commands_.pop();
+  }
+  err = cb_.Execute(&axisSel_);
+  if (err != ErrorCode::None) {
+    message = "Execute failed: " + errorToString(err);
+  }
+  return err;
+}
+
+void JointTrajectoryController::onJointTrajectory(
+  trajectory_msgs::msg::JointTrajectory::ConstSharedPtr msg)
+{
+  if (!isNodeActive_.load() || goalRunning_.load()) {
+    return;
+  }
+  std::string message;
+  if (msg->points.empty()) {
+    if (api_->stopStreaming(message) != ErrorCode::None) {
+      RCLCPP_ERROR(this->get_logger(), "%s", message.c_str());
+    }
+    return;
+  }
+  std::vector<size_t> columns;
+  if (!mapGoalColumns(*msg, columns, message)) {
+    RCLCPP_ERROR(this->get_logger(), "%s", message.c_str());
+    return;
+  }
+  const auto & point = msg->points.front();
+  if (point.positions.size() != jointAxes_.size() ||
+    point.velocities.size() != jointAxes_.size())
+  {
+    RCLCPP_ERROR(this->get_logger(),
+      "Streaming point requires positions and velocities for all axes");
+    return;
+  }
+  std::vector<double> positions(jointAxes_.size()), velocities(jointAxes_.size());
+  for (size_t j = 0; j < jointAxes_.size(); ++j) {
+    positions[columns[j]] = point.positions[j];
+    velocities[columns[j]] = point.velocities[j];
+  }
+  if (api_->streamPoint(
+      positions, velocities, msg->header.frame_id == "start_point_trajectory", message) !=
+    ErrorCode::None)
+  {
+    RCLCPP_ERROR(this->get_logger(), "%s", message.c_str());
+  }
 }
 
 void JointTrajectoryController::logTrajectory(

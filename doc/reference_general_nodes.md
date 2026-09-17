@@ -13,7 +13,7 @@ check `doc/launch_general_nodes.md`
 | Argument | Default | Description |
 |---|---|---|
 | `use_sim_time` | `false` | Use simulation clock |
-| `config_file` | `""` | YAML with the general node parameters, e.g. `config/wmx_r2_general_nodes_config.yaml`. Empty loads no parameter file: launch warns and every node falls back to its compiled defaults |
+| `config_file` | `""` | YAML with the general node parameters, e.g. `config/wmx_r2_general_nodes_config.yaml`. Only `wmx_engine_node`, `wmx_lifecycle_manager_node` and `wmx_core_motion_node` are given this file; `wmx_io_node` and `wmx_ethercat_node` declare no parameters. Empty loads no parameter file and the three fall back to their compiled defaults |
 | `wmx_param_file` | `""` | WMX3 parameter XML imported at engine start, e.g. `config/wmx_parameters.xml`. Empty imports nothing and leaves `wmx_param_file_path` to `config_file` |
 
 Nothing is baked into the launch file; the robot launches forward their own
@@ -124,7 +124,7 @@ ros2 service call /wmx/axes/start_home wmx_r2_message/srv/SetAxes "{axis: [0,1],
 ros2 service call /wmx/axes/stop wmx_r2_message/srv/SetAxes "{axis: [0,1], data: [0,0]}"
 ```
 
-**`wmx/axes/status`** — Publishes per-axis alarms, servo state, limit switches, and commanded and actual values.
+**`wmx/axes/status`** — Publishes per-axis `amp_alarm`, `servo_on`, `home_done`, `home_switch`, `negative_ls`, `positive_ls`, `motion_complete`, plus `pos_cmd`, `velocity_cmd`, `actual_pos`, `actual_velocity` and `actual_torque`.
 ```bash
 ros2 topic echo /wmx/axes/status
 ```
@@ -162,7 +162,7 @@ done
 | `jog_timeout_ms` | `200.0` | Axis stops this long after jog refreshes stop arriving |
 | `jog_run_time_ms` | `2000.0` | Maximum duration of one jog, enforced engine-side |
 | `jog_jerk_ratio` | `0.75` | Jerk ratio of the jog profile |
-| `motion_controllers` | the three robot controllers | While one of them is active it owns the axes and every motion service here answers `success: false`, except `stop` |
+| `motion_controllers` | `joint_trajectory_controller`, `differential_drive_controller`, `joint_position_controller` | While one of them is active it owns the axes and `start_pos`, `start_mov`, `start_vel`, `start_jog` and `start_home` answer `success: false`. `stop` and the servo/config services stay open |
 | `controller_resync_period` | `0.2` | Seconds between re-queries of each controller's state |
 
 ---

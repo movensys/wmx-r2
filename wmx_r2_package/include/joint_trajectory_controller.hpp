@@ -10,6 +10,8 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <functional>
+#include <queue>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -25,6 +27,7 @@
 #include "WMX3Api.h"
 #include "CoreMotionApi.h"
 #include "AdvancedMotionApi.h"
+#include "CyclicBufferApi.h"
 
 class JointTrajectoryControllerApi
 {
@@ -44,6 +47,10 @@ public:
     std::string & message);
 
   int setAxisSelection(const std::vector<int64_t> & axes, std::string & message);
+  int streamPoint(
+    const std::vector<double> & positions, const std::vector<double> & velocities,
+    bool startPoint, std::string & message);
+  int stopStreaming(std::string & message);
   int getInPos(bool & inPos, std::string & message);
   int stop(std::string & message);
 
@@ -70,6 +77,13 @@ private:
   wmx3Api::WMX3Api wmx3Lib_;
   wmx3Api::CoreMotion cm_;
   wmx3Api::AdvancedMotion am_;
+  wmx3Api::CyclicBuffer cb_;
+  bool cyclicBufferOpen_ = false;
+  bool streaming_ = false;
+  bool afterQuickStop_ = false;
+  std::queue<wmx3Api::CyclicBufferMultiAxisCommands> commands_;
+  std::vector<double> previousPositions_;
+  std::vector<double> previousVelocities_;
 };
 
 class JointTrajectoryController : public rclcpp_lifecycle::LifecycleNode
@@ -96,6 +110,7 @@ private:
   std::vector<std::string> jointNames_;
   std::map<std::string, size_t> columnByName_;
   std::string jointTrajectoryAction_;
+  std::string jointTrajectoryTopic_;
 
   std::atomic<bool> isNodeActive_{false};
   std::atomic<bool> goalRunning_{false};
@@ -103,6 +118,9 @@ private:
   rclcpp_action::Server<FollowJointTrajectory>::SharedPtr actionServer_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Bool>::SharedPtr execActivePub_;
   rclcpp_lifecycle::LifecyclePublisher<control_msgs::msg::JointJog>::SharedPtr servoNodeResetPub_;
+
+  rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr jointTrajectorySub_;
+  void onJointTrajectory(trajectory_msgs::msg::JointTrajectory::ConstSharedPtr msg);
 
   void waitForGoalToFinish();
 
