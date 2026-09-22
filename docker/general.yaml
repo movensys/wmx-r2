@@ -70,5 +70,8 @@ services:
                echo ====== Build Terminated ======= && \
                source /home/admin/workspaces/movensys_ws/install/setup.bash && \
                export RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION} && \
+               
+               # root user don't need to check groups. Turn off the groups command.
+               sudo touch /root/.hushlogin && \
                exec bash"
               ]
