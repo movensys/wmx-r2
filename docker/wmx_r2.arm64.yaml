@@ -7,6 +7,7 @@ services:
       - XAUTHORITY=/run/user/1000/gdm/Xauthority
     volumes:
       - /run/user/1000/gdm:/run/user/1000/gdm:ro
+    runtime: nvidia
     gpus: all
     group_add:
       - "0" 
