@@ -10,6 +10,7 @@ export CPU_ARCH=amd64                           #tested {amd64, arm64}
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 source ~/workspaces/movensys_ws/src/wmx-r2/docker/wros.bash
+source /opt/ros/$ROS_DISTRO/setup.bash
 ```
 ```
 xhost +local:docker
