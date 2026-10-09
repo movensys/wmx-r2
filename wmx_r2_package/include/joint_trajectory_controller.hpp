@@ -58,7 +58,9 @@ public:
 
 private:
   int createSplineBuffer(std::string & message);
+  int openCyclicBuffer(std::string & message);
   void freeSplineBuffer();
+  void closeCyclicBuffer();
 
   rclcpp::Logger logger_;
 
@@ -78,6 +80,8 @@ private:
   wmx3Api::CoreMotion cm_;
   wmx3Api::AdvancedMotion am_;
   wmx3Api::CyclicBuffer cb_;
+  bool deviceOpen_ = false;
+  bool splineBufferOpen_ = false;
   bool cyclicBufferOpen_ = false;
   bool streaming_ = false;
   bool afterQuickStop_ = false;

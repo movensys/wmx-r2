@@ -13,6 +13,7 @@ using std::placeholders::_2;
 
 using wmx3Api::AdvancedMotion;
 using wmx3Api::CoreMotion;
+using wmx3Api::CyclicBuffer;
 using wmx3Api::CoreMotionStatus;
 using wmx3Api::DeviceType;
 using wmx3Api::ErrorCode;
@@ -31,7 +32,7 @@ struct ScopeExit
 std::string errorToString(int err)
 {
   char errString[256] = {};
-  AdvancedMotion::ErrorToString(err, errString, sizeof(errString));
+  CyclicBuffer::ErrorToString(err, errString, sizeof(errString));
   return errString;
 }
 }  // namespace
@@ -49,6 +50,15 @@ JointTrajectoryControllerApi::~JointTrajectoryControllerApi()
 int JointTrajectoryControllerApi::createDevice(std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (deviceOpen_) {
+    message = "WMX3 device is already attached";
+    return ErrorCode::None;
+  }
+  if (axisCount_ == 0) {
+    message = "Select axes before creating the WMX3 device and buffers.";
+    return ErrorCode::ArgumentOutOfRange;
+  }
 
   int err = wmx3Lib_.CreateDevice(WMX3_SDK_PATH, DeviceType::DeviceTypeNormal, timeout_);
   if (err != ErrorCode::None) {
@@ -71,15 +81,20 @@ int JointTrajectoryControllerApi::createDevice(std::string & message)
     return err;
   }
 
-  cm_ = CoreMotion(&wmx3Lib_);
-  am_ = AdvancedMotion(&wmx3Lib_);
-
   err = createSplineBuffer(message);
   if (err != ErrorCode::None) {
     wmx3Lib_.CloseDevice();
     return err;
   }
 
+  err = openCyclicBuffer(message);
+  if (err != ErrorCode::None) {
+    freeSplineBuffer();
+    wmx3Lib_.CloseDevice();
+    return err;
+  }
+
+  deviceOpen_ = true;
   message = "Attached to WMX3 device";
   RCLCPP_INFO(logger_, "%s", message.c_str());
   return ErrorCode::None;
@@ -89,10 +104,10 @@ void JointTrajectoryControllerApi::closeDevice()
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
 
-  if (cyclicBufferOpen_) {
-    cb_.CloseCyclicBuffer(&axisSel_);
-    cyclicBufferOpen_ = false;
+  if (!deviceOpen_) {
+    return;
   }
+  closeCyclicBuffer();
   commands_ = {};
   streaming_ = false;
   afterQuickStop_ = false;
@@ -104,7 +119,45 @@ void JointTrajectoryControllerApi::closeDevice()
     return;
   }
 
+  deviceOpen_ = false;
+  cyclicBufferOpen_ = false;
+  splineBufferOpen_ = false;
   RCLCPP_INFO(logger_, "Device closed");
+}
+
+int JointTrajectoryControllerApi::openCyclicBuffer(std::string & message)
+{
+  if (cyclicBufferOpen_) {
+    return ErrorCode::None;
+  }
+  const int err = cb_.OpenCyclicBuffer(&axisSel_, 300000);
+  if (err != ErrorCode::None) {
+    message = "Failed to open the cyclic buffer. Error=" + std::to_string(err) +
+      " (" + errorToString(err) + ")";
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return err;
+  }
+  cyclicBufferOpen_ = true;
+  return ErrorCode::None;
+}
+
+void JointTrajectoryControllerApi::closeCyclicBuffer()
+{
+  if (!cyclicBufferOpen_) {
+    return;
+  }
+  const int abortErr = cb_.Abort(&axisSel_);
+  if (abortErr != ErrorCode::None) {
+    RCLCPP_ERROR(logger_, "Failed to abort the cyclic buffer. Error=%d (%s)",
+      abortErr, errorToString(abortErr).c_str());
+  }
+  const int err = cb_.CloseCyclicBuffer(&axisSel_);
+  if (err != ErrorCode::None) {
+    RCLCPP_ERROR(logger_, "Failed to close the cyclic buffer. Error=%d (%s)",
+      err, errorToString(err).c_str());
+    return;
+  }
+  cyclicBufferOpen_ = false;
 }
 
 int JointTrajectoryControllerApi::createSplineBuffer(std::string & message)
@@ -369,12 +422,11 @@ JointTrajectoryController::CallbackReturn JointTrajectoryController::on_configur
   RCLCPP_INFO(this->get_logger(), "Configuring joint_trajectory_controller...");
 
   std::string message;
-  if (api_->createDevice(message) != ErrorCode::None) {
+  if (api_->setAxisSelection(jointAxes_, message) != ErrorCode::None) {
     return CallbackReturn::FAILURE;
   }
 
-  if (api_->setAxisSelection(jointAxes_, message) != ErrorCode::None) {
-    api_->closeDevice();
+  if (api_->createDevice(message) != ErrorCode::None) {
     return CallbackReturn::FAILURE;
   }
 
@@ -730,14 +782,6 @@ int JointTrajectoryControllerApi::streamPoint(
   if (axisCount_ == 0 || positions.size() != axisCount_ || velocities.size() != axisCount_) {
     message = "Streaming point must contain a position and velocity for each configured axis.";
     return ErrorCode::ArgumentOutOfRange;
-  }
-  if (!cyclicBufferOpen_) {
-    const int err = cb_.OpenCyclicBuffer(&axisSel_, 3000);
-    if (err != ErrorCode::None) {
-      message = "OpenCyclicBuffer failed: " + errorToString(err);
-      return err;
-    }
-    cyclicBufferOpen_ = true;
   }
 
   wmx3Api::CyclicBufferMultiAxisCommands command;
