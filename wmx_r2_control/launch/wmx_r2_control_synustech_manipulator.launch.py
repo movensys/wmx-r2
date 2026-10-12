@@ -17,7 +17,12 @@ def generate_launch_description():
 
     urdf_xacro = os.path.join(ctrl_share, 'urdf', 'synustech.wmx.urdf.xacro')
     controllers = os.path.join(ctrl_share, 'config', 'synustech_controllers.yaml')
-    wmx_param_file = os.path.join(wmx_share, 'config', 'synustech_wmx_parameters.xml')
+    # See wmx_r2_synustech_manipulator.launch.py: pass the _sim variant when the
+    # WMX simulation platform is active.
+    wmx_param_file = LaunchConfiguration(
+        'wmx_param_file',
+        default=os.path.join(wmx_share, 'config', 'synustech_wmx_parameters.xml'),
+    )
     manipulator_config = os.path.join(wmx_share, 'config', 'synustech_manipulator_config.yaml')
 
     robot_description = {
@@ -92,6 +97,14 @@ def generate_launch_description():
             'use_sim_time',
             default_value='false',
             description='Use simulation clock if true',
+        ),
+        DeclareLaunchArgument(
+            'wmx_param_file',
+            default_value=os.path.join(wmx_share, 'config', 'synustech_wmx_parameters.xml'),
+            description=(
+                'WMX3 axis parameter XML. Use synustech_wmx_parameters_sim.xml '
+                'with the WMX simulation platform.'
+            ),
         ),
         general_nodes,
         robot_state_publisher,

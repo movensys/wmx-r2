@@ -18,7 +18,16 @@ def generate_launch_description():
 
     pkg_share = get_package_share_directory('wmx_r2_package')
     manipulator_config = os.path.join(pkg_share, 'config', 'synustech_manipulator_config.yaml')
-    wmx_param_file_path = os.path.join(pkg_share, 'config', 'synustech_wmx_parameters.xml')
+    # Real robot: the vendor export with the absolute-encoder home offsets that
+    # put the DUCO straight-up pose at zero. With the WMX simulation platform
+    # the virtual encoders read zero pulses, so those offsets would shift the
+    # joints by up to -6.8 rad and MoveIt would reject the start state. Pass
+    # wmx_param_file:=<...>/synustech_wmx_parameters_sim.xml in that case; it is
+    # the same file with the offsets on axes 2 to 7 zeroed.
+    wmx_param_file_path = LaunchConfiguration(
+        'wmx_param_file',
+        default=os.path.join(pkg_share, 'config', 'synustech_wmx_parameters.xml'),
+    )
 
     start_wmx_r2_general_nodes = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -76,6 +85,14 @@ def generate_launch_description():
             'use_sim_time',
             default_value='false',
             description='Use simulation clock if true',
+        ),
+        DeclareLaunchArgument(
+            'wmx_param_file',
+            default_value=os.path.join(pkg_share, 'config', 'synustech_wmx_parameters.xml'),
+            description=(
+                'WMX3 axis parameter XML loaded by joint_trajectory_controller. '
+                'Use synustech_wmx_parameters_sim.xml with the WMX simulation platform.'
+            ),
         ),
         DeclareLaunchArgument(
             'use_api_buffer',
