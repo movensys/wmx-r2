@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    Synustech (SIASUN DUCO GCR30-1100) arm on WMX axes 2 to 7. Axes 0 and 1
+    are the drive wheels of the mobile base and are not part of this system.
+  -->
+  <xacro:macro name="movensys_manipulator_arm_wmx_r2_control"
+               params="name:=WmxManipulatorArmSystem
+                       wmx_param_file">
+
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <plugin>wmx_r2_control/WmxSystemHardware</plugin>
+        <param name="device_name">wmx_synustech_control</param>
+        <param name="wmx_param_file">${wmx_param_file}</param>
+      </hardware>
+
+      <xacro:macro name="arm_joint" params="joint axis">
+        <joint name="${joint}">
+          <param name="axis">${axis}</param>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:macro>
+
+      <xacro:arm_joint joint="joint1" axis="2"/>
+      <xacro:arm_joint joint="joint2" axis="3"/>
+      <xacro:arm_joint joint="joint3" axis="4"/>
+      <xacro:arm_joint joint="joint4" axis="5"/>
+      <xacro:arm_joint joint="joint5" axis="6"/>
+      <xacro:arm_joint joint="joint6" axis="7"/>
+    </ros2_control>
+
+  </xacro:macro>
+</robot>
