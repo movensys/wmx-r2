@@ -435,8 +435,10 @@ WmxLifecycleManagerNode::WmxLifecycleManagerNode()
   RCLCPP_INFO(this->get_logger(), "wmx_lifecycle_manager_node is ready");
 }
 
-bool WmxLifecycleManagerNode::isEngineCommunicating()
+bool WmxLifecycleManagerNode::isEngineCommunicating(bool & isEngineAnswered)
 {
+  isEngineAnswered = false;
+
   if (!engineStatusClient_->wait_for_service(std::chrono::seconds(1))) {
     return false;
   }
@@ -449,13 +451,15 @@ bool WmxLifecycleManagerNode::isEngineCommunicating()
     return false;
   }
 
+  isEngineAnswered = true;
   const auto result = future.get();
   return result->success && result->message == "Communicating";
 }
 
 void WmxLifecycleManagerNode::discoveryStep()
 {
-  if (isEngineCommunicating()) {
+  bool isEngineAnswered = false;
+  if (isEngineCommunicating(isEngineAnswered)) {
     engineMissCount_ = 0;
     nodesAreUp_ = true;
     lifecycle_->bringUpDiscovered();
@@ -463,6 +467,13 @@ void WmxLifecycleManagerNode::discoveryStep()
   }
 
   if (!nodesAreUp_) {
+    return;
+  }
+
+  if (!isEngineAnswered) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "Engine status query did not answer; the engine may be busy. Holding the nodes up.");
     return;
   }
 

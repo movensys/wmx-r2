@@ -211,6 +211,6 @@ class TestIoNodeShutdown(unittest.TestCase):
     def test_exit_code(self, proc_info, io_node):
         launch_testing.asserts.assertExitCodes(
             proc_info,
-            allowable_exit_codes=[0, -2, -6, -15],
+            allowable_exit_codes=[0, -2, -15],
             process=io_node,
         )

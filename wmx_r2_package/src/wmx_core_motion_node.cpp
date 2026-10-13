@@ -308,27 +308,22 @@ int WmxCoreMotionNodeApi::clearJog(int axis, std::string & message)
   return ErrorCode::None;
 }
 
-int WmxCoreMotionNodeApi::stopAllJogs(std::string & message)
+int WmxCoreMotionNodeApi::stopAllAxes(int numOfAxes, std::string & message)
 {
-  std::vector<int> jogging;
-
   {
     std::lock_guard<std::mutex> lock(jogMutex_);
-    for (const auto & entry : jogState_) {
-      jogging.push_back(entry.first);
-    }
     jogState_.clear();
   }
 
-  if (jogging.empty()) {
-    message = "No jog to stop";
+  if (numOfAxes <= 0) {
+    message = "No axis to stop";
     return ErrorCode::None;
   }
 
   int firstError = ErrorCode::None;
   std::stringstream stream;
 
-  for (const int axis : jogging) {
+  for (int axis = 0; axis < numOfAxes; ++axis) {
     std::string stopMessage;
     const int err = stop(axis, stopMessage);
     if (err != ErrorCode::None && firstError == ErrorCode::None) {
@@ -605,7 +600,6 @@ void WmxCoreMotionNode::resyncControllerStates()
     const auto & client = entry.second;
 
     if (!client->service_is_ready()) {
-      setControllerActive(controller, false);
       continue;
     }
 
@@ -697,7 +691,7 @@ WmxCoreMotionNode::CallbackReturn WmxCoreMotionNode::on_activate(
       continue;
     }
 
-    setControllerActive(controller, false);
+    setControllerActive(controller, true);
 
     getStateClients_[controller] = this->create_client<lifecycle_msgs::srv::GetState>(
       "/" + controller + "/get_state", servicesQos(), clientCbGroup_);
@@ -736,8 +730,8 @@ WmxCoreMotionNode::CallbackReturn WmxCoreMotionNode::on_deactivate(
 {
   axesStatusTimer_.reset();
   jogWatchdogTimer_.reset();
-  std::string jogMessage;
-  api_->stopAllJogs(jogMessage);
+  std::string stopMessage;
+  api_->stopAllAxes(numOfAxes_, stopMessage);
 
   LifecycleNode::on_deactivate(previous_state);
 
@@ -770,8 +764,8 @@ WmxCoreMotionNode::CallbackReturn WmxCoreMotionNode::on_deactivate(
 
 WmxCoreMotionNode::CallbackReturn WmxCoreMotionNode::on_cleanup(const rclcpp_lifecycle::State &)
 {
-  std::string jogMessage;
-  api_->stopAllJogs(jogMessage);
+  std::string stopMessage;
+  api_->stopAllAxes(numOfAxes_, stopMessage);
 
   api_->closeDevice();
 
@@ -782,6 +776,10 @@ WmxCoreMotionNode::CallbackReturn WmxCoreMotionNode::on_cleanup(const rclcpp_lif
 WmxCoreMotionNode::CallbackReturn WmxCoreMotionNode::on_shutdown(
   const rclcpp_lifecycle::State & previous_state)
 {
+  if (previous_state.id() == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    on_deactivate(previous_state);
+  }
+
   return on_cleanup(previous_state);
 }
 

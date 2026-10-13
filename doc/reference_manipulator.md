@@ -30,14 +30,46 @@ own the engine, not the motion these controllers command.
   (std_srvs/SetBool)         └───────────────────────────────┘
 ```
 
-| Node | Role | Launched by |
+| Node | Role | Started |
 |---|---|---|
-| `joint_state_broadcaster` | Encoder feedback → `/joint_states`; clears amp alarms and switches servos on at activate | CR3A, CR5A |
-| `joint_trajectory_controller` | `FollowJointTrajectory` action → WMX3 time-based C-spline | CR3A, CR5A |
-| `joint_position_controller` | MoveIt Servo's streamed `JointTrajectory` → WMX3 linear interpolation | CR3A, CR5A |
-| `gripper_controller` | Gripper open/close over a WMX IO output bit | CR3A only |
+| `joint_state_broadcaster` | Encoder feedback → `/joint_states`; clears amp alarms and switches servos on at activate | always |
+| `joint_trajectory_controller` | `FollowJointTrajectory` action → WMX3 time-based C-spline | always |
+| `joint_position_controller` | MoveIt Servo's streamed `JointTrajectory` → WMX3 linear interpolation | always |
+| `gripper_controller` | Gripper open/close over a WMX IO output bit | only with `use_gripper:=true` |
+
+"Started" is for `wmx_r2_manipulator.launch.py`.
+`wmx_r2_control_manipulator.launch.py` starts the same trajectory, position and
+gripper nodes, but **not** this `joint_state_broadcaster`: feedback there comes
+from `ros2_control_node` with `WmxSystemHardware` plus a spawned
+`joint_state_broadcaster/JointStateBroadcaster` of the same name, and the
+hardware interface itself clears alarms and switches the servos on at activate
+(hardware param `auto_servo_on`, default `true`).
 
 ---
+
+## Launch arguments
+
+`wmx_r2_manipulator.launch.py`:
+
+| Argument | Default | Description |
+|---|---|---|
+| `use_sim_time` | `false` | Use simulation clock |
+| `config_file` | **required** | YAML with the manipulator node parameters, e.g. `example/cr3a_manipulator_config.yaml` |
+| `wmx_param_file` | `""` | WMX3 parameter XML imported at engine start, e.g. `example/cr3a_wmx_parameters.xml`; empty imports nothing |
+| `use_gripper` | `false` | Start `gripper_controller` |
+
+`wmx_r2_control_manipulator.launch.py` takes the same four, with two additions
+and one tightening:
+
+| Argument | Default | Description |
+|---|---|---|
+| `wmx_param_file` | **required** | Also fed to the xacro, so an empty value would blank the description's own default |
+| `urdf_file` | **required** | Robot description xacro, e.g. `urdf/cr3a.wmx.urdf.xacro` |
+| `controllers_file` | **required** | `ros2_control` controller manager YAML, e.g. `config/cr3a_controllers.yaml` |
+
+No robot is baked into either launch file: any EtherCAT manipulator differs
+only by the paths passed on the command line, see
+[launch_manipulator.md](launch_manipulator.md) for worked examples.
 
 ## Parameters
 
@@ -60,13 +92,13 @@ wrong. Every deployment supplies a YAML.
 | `encoder_joint_topic` | string | `/encoder_joint_topic/no_param` | – | Real-robot feedback topic; the deployment sets it to `/joint_states` (MoveIt / robot_state_publisher input). |
 | `isaacsim_joint_topic` | string | `/isaacsim_joint_topic/no_param` | – | Mirror of the same message for Isaac Sim (`/isaacsim/joint_command`). Published **before** the header stamp is filled in, i.e. with a zero stamp — Isaac consumes positions by name, not by time. |
 | `gazebo_position_joint_topic` | string | `""` | – | Joint **positions** as `Float64MultiArray`, for a Gazebo position controller. Empty means the publisher is never created. |
-| `gazebo_position_joint_axes` | int[] | `[]` | – | Which axes go on that topic, as axis numbers from `joint_axes`, in the order the Gazebo controller lists its own `joints:`. Must be set together with the topic. `gripper_joint_name` entries come from an IO bit, not an axis, so they cannot be listed here — they are appended after the axis values automatically (CR3A). |
+| `gazebo_position_joint_axes` | int[] | `[]` | – | Which axes go on that topic, as axis numbers from `joint_axes`, in the order the Gazebo controller lists its own `joints:`. Must be set together with the topic. `gripper_joint_name` entries come from an IO bit, not an axis, so they cannot be listed here — they are appended after the axis values automatically. |
 | `gazebo_velocity_joint_topic` | string | `""` | – | Joint **velocities** as `Float64MultiArray`, for a Gazebo velocity controller. Sending positions here would command a continuous joint its own accumulated angle. |
 | `gazebo_velocity_joint_axes` | int[] | `[]` | – | As above, for the velocity topic. A mobile manipulator sets all four: wheel axes on the velocity topic, arm axes on the position topic. |
-| `gripper_joint_name` | string[] | `[]` | – | Extra joint names appended to the feedback message so the gripper shows up in RViz/MoveIt. Empty = no gripper (CR5A). |
+| `gripper_joint_name` | string[] | `[]` | – | Extra joint names appended to the feedback message so the gripper shows up in RViz/MoveIt. Empty = no gripper. |
 | `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX **output** bit read back for gripper state. |
 | `gripper_open_value` | double | `0.0` | m or rad | Joint value reported for every `gripper_joint_name` while the output bit is 0. |
-| `gripper_close_value` | double | `0.0` | m or rad | Joint value reported while the bit is 1. CR3A uses `0.045`. |
+| `gripper_close_value` | double | `0.0` | m or rad | Joint value reported while the bit is 1, e.g. `0.045`. |
 
 ### B. `joint_trajectory_controller`
 
@@ -76,8 +108,9 @@ wrong. Every deployment supplies a YAML.
 | `joint_name` | string[] | `[]` | – | Joint name per entry of `joint_axes`, same order. When the goal carries `joint_names`, each goal column is matched to its axis by name and a goal that names an unknown joint, repeats one, or leaves one out is rejected. Leave empty only to keep the old positional mapping, which the node warns about at startup. A length that does not match `joint_axes` is logged as an error and the list is dropped. |
 | `joint_trajectory_action` | string | `/joint_trajectory_action/no_param` | – | Name of the `FollowJointTrajectory` action server. Must equal the controller name MoveIt2 is configured to call (e.g. `/movensys_manipulator_arm_controller/follow_joint_trajectory`). |
 
-`MAX_TRAJ_POINTS` (1000) is a compile-time constant, not a parameter: it sizes the
-WMX spline buffer allocated at `configure` and caps the accepted goal length.
+`kMaxTrajectoryPoints` (1000) is a compile-time constant, not a parameter: it
+sizes the WMX spline buffer allocated at `configure` (channel `kSplineChannel` =
+0) and caps the accepted goal length.
 
 ### C. `joint_position_controller`
 
@@ -87,20 +120,16 @@ WMX spline buffer allocated at `configure` and caps the accepted goal length.
 | `joint_name` | string[] | `[j1..j6]` | – | Name→axis map used when the incoming `JointTrajectory` carries `joint_names`; pairs positionally with `joint_axes`. An unknown name drops the message (throttled warn). With empty `joint_names` the message is taken positionally. |
 | `joint_trajectory_topic` | string | `/joint_trajectory_topic/no_param` | – | Streamed trajectory input from MoveIt Servo (e.g. `/movensys_manipulator_arm_controller/joint_trajectory`). |
 | `default_velocity` | double | `0.1` | user-unit/s | Per-axis velocity used when the point's `time_from_start` is 0 (no time base to derive a velocity from). Deployments use `0.5`. |
-| `accel_ratio` | double | `0.5` | – | Fraction of the step time spent accelerating: `acc = velocity / (accel_ratio · dt)`. Lower = harder ramp. Deployments use `0.3`. Not guarded: `0` yields a non-finite acceleration. |
-| `min_step` | double | `0.1` | user-unit | Deadband. A message whose largest per-axis move from the current *command* position is below this is dropped, so servo jitter does not restart an interpolation every cycle. Deployments use `0.001` — the default is deliberately coarse. |
+| `accel_ratio` | double | `0.5` | – | Fraction of the step time spent accelerating: `acc = velocity / (accel_ratio · dt)`. Lower = harder ramp. Deployments use `0.3`. A non-finite or non-positive value falls back to `0.5` with a warning. |
+| `min_step` | double | `0.1` | user-unit | Deadband. A message whose largest per-axis move from the current *command* position is below this is dropped, so servo jitter does not restart an interpolation every cycle. Deployments use `0.001`; the default is deliberately coarse. A message is also dropped while the previous interpolation is still starting, or when every axis resolves to zero velocity. |
 
 ### D. `gripper_controller`
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
-| `wmx_gripper_topic` | string | `/wmx_gripper_topic/no_param` | – | Name of the `std_srvs/SetBool` **service** (the parameter is named "topic" for historical reasons). CR3A uses `/wmx/set_gripper`. |
+| `wmx_gripper_topic` | string | `/wmx_gripper_topic/no_param` | – | Name of the `std_srvs/SetBool` **service** (the parameter is named "topic" for historical reasons), e.g. `/wmx/set_gripper`. |
 | `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX output bit driven by the service. A list shorter than 2 falls back to `[0, 0]` with a warning. |
-
-`MANIPULATOR_MODEL` is an **environment variable**, not a parameter: when it equals
-`dobot_cr3a` (injected by the CR3A launch file via `additional_env`), `configure`
-runs the CR3A gripper power-up sequence (`SetOutByte(28, 113)`, then a readback of
-output byte 28 and input bit 0.1). Any other value skips it with an INFO log.
+| `pre_setup_io` | bool | `false` | – | When true, `configure` runs a gripper power-up sequence (`SetOutByte(28, 113)`, then a readback of output byte 28 and input bit 0.1). Those addresses are compiled in, so leave it `false` unless the gripper matches them. |
 
 ---
 
@@ -108,14 +137,15 @@ output byte 28 and input bit 0.1). Any other value skips it with an INFO log.
 
 | Name (deployment default) | Dir | Type | QoS | Rate | Notes |
 |---|---|---|---|---|---|
-| `/movensys_manipulator_arm_controller/follow_joint_trajectory` | action server | `control_msgs/FollowJointTrajectory` | action default | per goal | Name from `joint_trajectory_action`. Goals are **rejected** unless the node is `active`; accepted goals run `ACCEPT_AND_EXECUTE` on a detached thread. |
+| `/movensys_manipulator_arm_controller/follow_joint_trajectory` | action server | `control_msgs/FollowJointTrajectory` | action default | per goal | Name from `joint_trajectory_action`. Every goal is `ACCEPT_AND_EXECUTE`d on a detached thread, because `handleGoal` accepts unconditionally. The server only exists while the node is `active`, so an inactive node has no server to call at all. |
 | `/movensys_manipulator_arm_controller/joint_trajectory` | sub | `trajectory_msgs/JointTrajectory` | default, depth 1 | producer | Name from `joint_trajectory_topic`. Only the **last point** of each message is used — this is a streaming target, not a queued trajectory. |
 | `/moveit2_trajectory/execution_active` | pub (JTC) / sub (JPC) | `std_msgs/Bool` | **transient_local**, depth 1 | on change | Arbitration latch: `true` for the duration of a planned goal. Latched so a controller that joins late sees the current state. |
 | `/servo_node/delta_joint_cmds` | pub (JTC) | `control_msgs/JointJog` | default, depth 10 | on goal exit | Zero-velocity jog for the goal's joint names, published on *every* exit path (success, abort, cancel) so MoveIt Servo does not resume with a stale delta. Hardcoded, not a parameter. |
 | `/joint_states` | pub | `sensor_msgs/JointState` | default, depth 1 | `joint_feedback_rate` | Name from `encoder_joint_topic`. `name` = `joint_name` + `gripper_joint_name`; `position`/`velocity` = `actualPos`/`actualVelocity`; no `effort`. Header stamped from the node clock. |
 | `/isaacsim/joint_command` | pub | `sensor_msgs/JointState` | default, depth 1 | `joint_feedback_rate` | Same content, **zero header stamp** (published before stamping). |
-| `/gazebo_position_controller/commands` | pub | `std_msgs/Float64MultiArray` | default, depth 1 | `joint_feedback_rate` | `data` = the position vector above (joints then gripper). |
-| `/wmx/set_gripper` | service | `std_srvs/SetBool` | services QoS | on call | Name from `wmx_gripper_topic`. `data: true` = close (bit 1), `false` = open (bit 0). Returns `success: false` when the node is not `active`. |
+| `/gazebo_position_controller/commands` | pub | `std_msgs/Float64MultiArray` | default, depth 1 | `joint_feedback_rate` | Name from `gazebo_position_joint_topic`. `data` = `actualPos` of `gazebo_position_joint_axes`, then the gripper values. |
+| `/velocity_controller/commands` | pub | `std_msgs/Float64MultiArray` | default, depth 1 | `joint_feedback_rate` | Name from `gazebo_velocity_joint_topic`. `data` = `actualVelocity` of `gazebo_velocity_joint_axes`; no gripper entries. |
+| `/wmx/set_gripper` | service | `std_srvs/SetBool` | default | on call | Name from `wmx_gripper_topic`. `data: true` = close (bit 1), `false` = open (bit 0). Returns `success: false` when the node is not `active`. |
 | `wmx/axes/clear_amp_alarm`, `wmx/axes/set_servo_on` | client (broadcaster) | `wmx_r2_message/SetAxes` | services QoS | at activate | Served by `wmx_core_motion_node`. See the lifecycle section. |
 | `wmx/engine/get_axis_param` | client (broadcaster) | `wmx_r2_message/GetAxisParam` | services QoS | at configure | Served by `wmx_engine_node`. The dump for `joint_axes` is logged at INFO so the axis setup is captured in the startup log; a missing engine service only warns, configuration still succeeds. |
 
@@ -227,34 +257,34 @@ The latch is one-directional: a servo motion already in flight is not preempted
 when a planned goal starts. Keep MoveIt Servo paused (or accept that the first
 planned goal wins the race) if both can be commanded at once.
 
-**Goal execution** (`joint_trajectory_controller`, on one execution thread the node
-owns and joins):
+**Goal execution** (`joint_trajectory_controller`, on a detached thread per goal):
 
-1. Reject a second goal while one is running, and reject any goal while the node is
-   not ACTIVE.
-2. Reject if `points.size() > 1000` (abort, no motion).
-3. Map each goal column to its axis by `joint_name`, then fill the spline buffer from
-   `positions` + `time_from_start`, normalize the first timestamp to 0, drop a
-   sub-millisecond final point.
+1. Publish `execution_active: true`, set the `goalRunning_` flag.
+2. Abort with `INVALID_GOAL` if the goal carries no points, more than 1000 points,
+   a `joint_names` list that does not match `joint_name`, or a point with fewer
+   positions than there are axes. Nothing moves.
+3. Map each goal column to its axis by `joint_name`, then fill the spline buffer
+   from `positions` + `time_from_start`, force the first timestamp to 0, drop a
+   final point less than 1 ms after its predecessor.
 4. `StartCSplinePos(buffer 0, ...)`; a WMX error aborts the goal with
    `result.error_code` set to the raw WMX code.
-5. Wait out the planned duration of the trajectory, then poll every 10 ms until
-   `motionComplete` and `inPos` are both set on every `joint_axes` entry. Cancel
-   issues `Stop` + `Wait` and reports `canceled`. A goal that has not finished 10 s
-   past its planned duration is aborted with `GOAL_TOLERANCE_VIOLATED` after a
-   `Stop`.
+5. Poll every 10 ms until `inPos` is set on every `joint_axes` entry, then
+   `succeed`. A cancel request issues `Stop` + `Wait` and reports `canceled`;
+   deactivation mid-goal issues `Stop` and aborts with `INVALID_GOAL`.
+6. On every exit path: publish `execution_active: false`, send the zero `JointJog`,
+   clear `goalRunning_`.
 
-The planned duration comes from the last `time_from_start` in the goal, so a goal
-cannot report success before the motion it asked for has had time to run. No
-feedback messages are published during execution, and there is no path tolerance or
-goal tolerance check beyond that deadline.
+No feedback messages are published during execution, and there is no tolerance
+check, no timeout, and no `motionComplete` check: completion is `inPos` alone.
 
 **Process model.** Each node ships as its own executable, one process per node.
 `joint_state_broadcaster` runs on a `MultiThreadedExecutor` (its activate-time
 service calls need it); the other three run on the default single-threaded
-executor. The trajectory controller runs its goal on a separate thread that the node
-joins on deactivate, cleanup and destruction, so no goal outlives the device handle.
-None is built as a composable component.
+executor. The trajectory controller runs each goal on a **detached** thread; it is
+never joined. `on_deactivate` and `on_cleanup` call `waitForGoalToFinish()`, which
+polls the `goalRunning_` flag up to `kGoalStopTimeoutMs` and warns if the goal
+outlasts it. The destructor does not wait at all. None is built as a composable
+component.
 
 ---
 
@@ -266,35 +296,43 @@ None is built as a composable component.
   broadcaster publishing the last values it saw. Watch the engine through
   `wmx/engine/get_engine_status` (the lifecycle manager already does, and takes
   these nodes down when it stops).
-- **`gripper_controller` hardcodes its SDK path.** It calls `CreateDevice("/opt/lmx/", ...)`
-  rather than the compiled-in `WMX3_SDK_PATH` that every other node uses; an
-  installation elsewhere fails to configure this node only.
-- **CR3A gripper setup is model-gated by environment.** Running
-  `gripper_controller` outside its launch file (no `MANIPULATOR_MODEL`) skips the
-  power-up sequence, and the service then toggles a bit on an unpowered gripper.
+- **Gripper power-up is gated by `pre_setup_io`, which defaults to false.**
+  Running `gripper_controller` without it set true skips the power-up sequence,
+  and the service then toggles a bit on an unpowered gripper. The shipped configs
+  set it `true`.
+- **Concurrent trajectory goals are not rejected.** `handleGoal` accepts every
+  goal, and `goalRunning_` is never checked there, so a second goal arriving mid
+  execution starts a second thread that overwrites the spline buffer. MoveIt2
+  sends one goal at a time; a custom client must serialize its own goals.
+- **A goal can outlive `on_deactivate`.** `waitForGoalToFinish()` gives up after
+  `kGoalStopTimeoutMs` and only warns, and the destructor does not wait, so a
+  wedged goal thread can still hold the WMX device handle.
 
 ---
 
 ## Configuration files
 
 A deployment is one YAML plus the launch wiring
-(example: `launch/wmx_r2_cr3a_manipulator.launch.py`):
+(example: `launch/wmx_r2_manipulator.launch.py`):
 
-1. **ROS parameter YAML** — `config/cr3a_manipulator_config.yaml` (or
-   `cr5a_...`), with one key per node (all tables above) **plus** the
-   `wmx_engine_node` and `wmx_lifecycle_manager_node` keys: the manipulator launch
-   passes this same file down to the included general-nodes launch as
+1. **ROS parameter YAML** — the manipulator config (examples:
+   `example/cr3a_manipulator_config.yaml`, `example/cr5a_manipulator_config.yaml`),
+   with one key per node (all tables above) **plus** the `wmx_engine_node`,
+   `wmx_core_motion_node` and `wmx_lifecycle_manager_node` keys: the manipulator
+   launch passes this same file down to the included general-nodes launch as
    `config_file`, so engine core/affinity (`core`, `affinity_mask`), the WMX
-   parameter XML path (`wmx_param_file_path`), and the bring-up order all live
-   in it.
-2. **WMX parameter XML** — `config/cr3a_wmx_parameters.xml`: axis-level
+   parameter XML path (`wmx_param_file_path`), the `motion_controllers`
+   arbitration list, and the bring-up order all live in it.
+2. **WMX parameter XML** — the axis file (example:
+   `example/cr3a_wmx_parameters.xml`): axis-level
    gear/feedback/limit/`inPos` setup. This is where the "axis user unit = joint
    rad" scaling and the hardware-level motion limits live. Loaded by
    `wmx_engine_node` via `wmx_param_file_path`, or on demand through
    `wmx/engine/import_and_set_all`.
 3. **Launch** — includes the general nodes, then starts the manipulator nodes as
    `LifecycleNode`s (unconfigured; the manager drives them) and injects
-   `use_sim_time` and, for CR3A, `MANIPULATOR_MODEL=dobot_cr3a`.
+   `use_sim_time`. `config_file` is a required launch argument, so the same YAML
+   reaches the manipulator nodes and the general nodes.
 
 ```yaml
 joint_state_broadcaster:
@@ -302,13 +340,14 @@ joint_state_broadcaster:
     joint_feedback_rate: 100          # Hz — must be > 0
     joint_axes: [0, 1, 2, 3, 4, 5]
     joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
-    gripper_joint_name: ["picker_1_joint", "picker_2_joint"]   # omit for CR5A
+    gripper_joint_name: ["picker_1_joint", "picker_2_joint"]   # omit when no gripper
     gripper_address: [0, 0]           # [byte, bit]
     gripper_open_value: 0.00
     gripper_close_value: 0.045
     encoder_joint_topic: /joint_states
     isaacsim_joint_topic: /isaacsim/joint_command
     gazebo_position_joint_topic: /gazebo_position_controller/commands
+    gazebo_position_joint_axes: [0, 1, 2, 3, 4, 5]
 
 joint_trajectory_controller:
   ros__parameters:
@@ -325,16 +364,25 @@ joint_position_controller:
     default_velocity: 0.5
     min_step: 0.001
 
-gripper_controller:                   # CR3A only
+gripper_controller:                   # only when there is a gripper
   ros__parameters:
     wmx_gripper_topic: /wmx/set_gripper
     gripper_address: [0, 0]
+    pre_setup_io: true                # gripper power-up sequence
 
 wmx_engine_node:
   ros__parameters:
     core: -1                          # RT engine CPU core (-1 = SDK default)
     affinity_mask: 0                  # CPU affinity bitmask (0 = SDK default)
     wmx_param_file_path: ""           # injected by launch
+
+wmx_core_motion_node:
+  ros__parameters:
+    axes_status_rate: 100
+    motion_controllers:               # these own the axes while active
+      - joint_trajectory_controller
+      - joint_position_controller
+    controller_resync_period: 0.2
 
 wmx_lifecycle_manager_node:
   ros__parameters:
@@ -361,8 +409,9 @@ What the Toolkit needs to template per robot / per deployment:
   three motion nodes), `joint_feedback_rate`, and the WMX parameter XML
   (`wmx_param_file_path`) that defines the joint unit scaling and limits.
 - **Per gripper:** `gripper_address`, `gripper_open_value`/`gripper_close_value`,
-  `gripper_joint_name`, `wmx_gripper_topic` — and drop `gripper_controller` from
-  `managed_nodes` entirely on grippersless arms (CR5A).
+  `gripper_joint_name`, `wmx_gripper_topic`, `pre_setup_io` — and on gripperless
+  arms drop `gripper_controller` from `managed_nodes` entirely and leave
+  `use_gripper` at its `false` default.
 - **Per planning stack:** `joint_trajectory_action` and `joint_trajectory_topic`,
   which must match the MoveIt2 controller configuration and the Servo output topic.
 - **Usually defaults:** `accel_ratio`, `default_velocity`, `min_step`, and the
@@ -379,9 +428,9 @@ What the Toolkit needs to template per robot / per deployment:
 
 `wmx_r2_package` compiles against the WMX3 SDK at the CMake cache path
 `WMX3_SDK_PATH` (default `/opt/wmx3`); the same path (with a trailing `/` appended
-by CMake) is compiled in and passed to `CreateDevice` at runtime — except in
-`gripper_controller`, which hardcodes `/opt/lmx/`. The trajectory controller
-additionally links `advancedmotionapi` for the C-spline path.
+by CMake) is compiled in and passed to `CreateDevice` at runtime by every node.
+The trajectory controller additionally links `advancedmotionapi` for the C-spline
+path.
 
 At **runtime** the dynamic linker must be able to find the SDK's shared libraries
 (`libimdll.so` etc.): either an `ld.so.conf.d` entry for `/opt/wmx3/lib` (the SDK
@@ -390,7 +439,7 @@ containers that only mount the SDK.
 
 The manipulator launches need **root** for real-time scheduling; start them with
 `sudo --preserve-env` as shown in
-[launch_dobot_cr3a_manipulator.md](launch_dobot_cr3a_manipulator.md).
+[launch_manipulator.md](launch_manipulator.md).
 
 `joint_position_controller` has a launch test
 (`test/test_joint_position_controller.py`, no hardware required) exercised by

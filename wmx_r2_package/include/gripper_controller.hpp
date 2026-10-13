@@ -65,12 +65,13 @@ private:
 
   std::vector<int64_t> gripperAddress_;
   std::string wmxGripperTopic_;
+  bool preSetupIo_;
 
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr setGripperService_;
 
   void setRosParameter();
 
-  void dobotCR3AGripperSetup();
+  void preSetupIo();
 
   void setGripperCallback(
     const std::shared_ptr<std_srvs::srv::SetBool::Request> request,

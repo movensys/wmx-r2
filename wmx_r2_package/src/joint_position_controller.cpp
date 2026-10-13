@@ -205,7 +205,7 @@ int JointPositionControllerApi::stop(std::string & message)
     return err;
   }
 
-  err = cm_.motion->Wait(&axisSel_);
+  err = cm_.motion->Wait(&axisSel_, waitTimeout_);
   if (err != ErrorCode::None) {
     message = "Wait failed. Error=" + std::to_string(err) + " (" + errorToString(err) + ")";
     RCLCPP_ERROR(logger_, "%s", message.c_str());
@@ -414,6 +414,13 @@ bool JointPositionController::buildCommand(
   double largestStep = 0.0;
   double largestVelocity = 0.0;
   for (size_t i = 0; i < count; ++i) {
+    if (!std::isfinite(pt.positions[i])) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 1000,
+        "Dropped trajectory: joint %zu is %f", i, pt.positions[i]);
+      return false;
+    }
+
     const double step = std::fabs(pt.positions[i] - posCmd[i]);
     largestStep = std::fmax(largestStep, step);
 

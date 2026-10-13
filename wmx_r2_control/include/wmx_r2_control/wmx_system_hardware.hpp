@@ -4,6 +4,7 @@
 #ifndef WMX_R2_CONTROL__WMX_SYSTEM_HARDWARE_HPP_
 #define WMX_R2_CONTROL__WMX_SYSTEM_HARDWARE_HPP_
 
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -64,6 +65,8 @@ public:
 
   int startVel(int axis, double omega, std::string & message);
   int stop(int axis, std::string & message);
+  int waitForMotionComplete(
+    const std::vector<int> & axes, unsigned int timeoutMilliseconds, std::string & message);
   int setServoOn(int axis, int newStatus, std::string & message);
   int clearAmpAlarm(int axis, std::string & message);
 
@@ -96,7 +99,7 @@ struct WmxJoint
   double velState = 0.0;
 
   double cmd = 0.0;
-  double lastCmd = 0.0;
+  double lastCmd = std::numeric_limits<double>::quiet_NaN();
 };
 
 class WmxSystemHardware : public hardware_interface::SystemInterface
@@ -157,6 +160,7 @@ private:
   std::string wmxParamFile_;
   int maxDeviceRetries_ = 30;
   bool autoServoOn_ = true;
+  unsigned int stopTimeout_ = 2000;
   hardware_interface::CallbackReturn initImpl();
   std::string getHwParam(const std::string & key, const std::string & def) const;
   bool waitForCommunicating();

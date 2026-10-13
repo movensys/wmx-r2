@@ -7,8 +7,6 @@
 
 #include <chrono>
 
-#include <cstdlib>
-
 using std::placeholders::_1;
 using std::placeholders::_2;
 
@@ -177,6 +175,7 @@ void GripperController::setRosParameter()
     "wmx_gripper_topic", "/wmx_gripper_topic/no_param");
   gripperAddress_ = this->declare_parameter<std::vector<int64_t>>(
     "gripper_address", std::vector<int64_t>{0, 0});
+  preSetupIo_ = this->declare_parameter<bool>("pre_setup_io", false);
 
   if (gripperAddress_.size() < 2) {
     RCLCPP_WARN(
@@ -191,6 +190,7 @@ void GripperController::setRosParameter()
   RCLCPP_INFO(
     this->get_logger(), "gripper_address: [%ld, %ld]",
     gripperAddress_[0], gripperAddress_[1]);
+  RCLCPP_INFO(this->get_logger(), "pre_setup_io: %s", preSetupIo_ ? "true" : "false");
   RCLCPP_INFO(this->get_logger(), "===========================");
 }
 
@@ -204,13 +204,10 @@ GripperController::CallbackReturn GripperController::on_configure(
     return CallbackReturn::FAILURE;
   }
 
-  const char * manipulatorModel = std::getenv("MANIPULATOR_MODEL");
-  if (manipulatorModel && std::string(manipulatorModel) == "dobot_cr3a") {
-    dobotCR3AGripperSetup();
+  if (preSetupIo_) {
+    preSetupIo();
   } else {
-    RCLCPP_INFO(
-      this->get_logger(), "Skipping dobotCR3AGripperSetup (MANIPULATOR_MODEL=%s)",
-      manipulatorModel ? manipulatorModel : "not set");
+    RCLCPP_INFO(this->get_logger(), "Skipping preSetupIo (pre_setup_io=false)");
   }
 
   RCLCPP_INFO(this->get_logger(), "gripper_controller is configured");
@@ -260,21 +257,21 @@ GripperController::CallbackReturn GripperController::on_shutdown(
   return on_cleanup(previous_state);
 }
 
-void GripperController::dobotCR3AGripperSetup()
+void GripperController::preSetupIo()
 {
   std::string message;
 
   if (api_->setOutByte(
       kCr3aGripperPowerByte, kCr3aGripperPowerValue, message) != ErrorCode::None)
   {
-    RCLCPP_ERROR(this->get_logger(), "[dobot_cr3a] gripper setup failed: %s", message.c_str());
+    RCLCPP_ERROR(this->get_logger(), "[pre_setup_io] gripper setup failed: %s", message.c_str());
     return;
   }
-  RCLCPP_INFO(this->get_logger(), "[dobot_cr3a] gripper power byte set");
+  RCLCPP_INFO(this->get_logger(), "[pre_setup_io] gripper power byte set");
 
   uint8_t switchData = 0;
   if (api_->getOutByte(kCr3aGripperPowerByte, switchData, message) != ErrorCode::None) {
-    RCLCPP_ERROR(this->get_logger(), "[dobot_cr3a] gripper setup failed: %s", message.c_str());
+    RCLCPP_ERROR(this->get_logger(), "[pre_setup_io] gripper setup failed: %s", message.c_str());
     return;
   }
 
@@ -282,16 +279,16 @@ void GripperController::dobotCR3AGripperSetup()
   if (api_->getInBit(
       kCr3aGripperSenseByte, kCr3aGripperSenseBit, powerData, message) != ErrorCode::None)
   {
-    RCLCPP_ERROR(this->get_logger(), "[dobot_cr3a] gripper setup failed: %s", message.c_str());
+    RCLCPP_ERROR(this->get_logger(), "[pre_setup_io] gripper setup failed: %s", message.c_str());
     return;
   }
 
   if (switchData == kCr3aGripperPowerValue && powerData == 1) {
-    RCLCPP_INFO(this->get_logger(), "[dobot_cr3a] gripper is on and ready");
+    RCLCPP_INFO(this->get_logger(), "[pre_setup_io] gripper is on and ready");
   } else {
     RCLCPP_WARN(
       this->get_logger(),
-      "[dobot_cr3a] gripper state unexpected: switchData=%u, powerData=%u",
+      "[pre_setup_io] gripper state unexpected: switchData=%u, powerData=%u",
       switchData, powerData);
   }
 }
