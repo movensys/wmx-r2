@@ -23,6 +23,20 @@ cd ~/workspaces/movensys_ws/src && \
    git clone https://github.com/movensys/wmx-r2.git
 ```
 
+## Set CycloneDDS buffer
+```
+sudo tee /etc/sysctl.d/99-network-buffers.conf << 'EOF'
+net.core.rmem_max=67108864
+net.core.rmem_default=67108864
+net.core.wmem_max=67108864
+net.core.wmem_default=67108864
+EOF
+
+sudo sysctl -p /etc/sysctl.d/99-network-buffers.conf
+sysctl net.core.rmem_max net.core.rmem_default net.core.wmem_max net.core.wmem_default
+```
+
+
 ## Docker setup
 ```
 cd ~/workspaces/movensys_ws/src/wmx-r2/docker
