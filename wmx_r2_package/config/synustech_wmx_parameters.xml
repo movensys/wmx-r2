@@ -381,7 +381,7 @@
 			<InvertNegativeLSPolarity>0</InvertNegativeLSPolarity>
 			<LSDec>10000.000000</LSDec>
 			<LSSlowDec>10000.000000</LSSlowDec>
-			<SoftLimitType>3</SoftLimitType>
+			<SoftLimitType>0</SoftLimitType>
 			<PositiveSoftLimitType>0</PositiveSoftLimitType>
 			<NegativeSoftLimitType>0</NegativeSoftLimitType>
 			<SoftLimitPositivePos>3.300000</SoftLimitPositivePos>
@@ -532,7 +532,7 @@
 			<InvertNegativeLSPolarity>0</InvertNegativeLSPolarity>
 			<LSDec>10000.000000</LSDec>
 			<LSSlowDec>10000.000000</LSSlowDec>
-			<SoftLimitType>3</SoftLimitType>
+			<SoftLimitType>0</SoftLimitType>
 			<PositiveSoftLimitType>0</PositiveSoftLimitType>
 			<NegativeSoftLimitType>0</NegativeSoftLimitType>
 			<SoftLimitPositivePos>3.300000</SoftLimitPositivePos>
@@ -683,7 +683,7 @@
 			<InvertNegativeLSPolarity>0</InvertNegativeLSPolarity>
 			<LSDec>10000.000000</LSDec>
 			<LSSlowDec>10000.000000</LSSlowDec>
-			<SoftLimitType>3</SoftLimitType>
+			<SoftLimitType>0</SoftLimitType>
 			<PositiveSoftLimitType>0</PositiveSoftLimitType>
 			<NegativeSoftLimitType>0</NegativeSoftLimitType>
 			<SoftLimitPositivePos>2.800000</SoftLimitPositivePos>
@@ -834,7 +834,7 @@
 			<InvertNegativeLSPolarity>0</InvertNegativeLSPolarity>
 			<LSDec>10000.000000</LSDec>
 			<LSSlowDec>10000.000000</LSSlowDec>
-			<SoftLimitType>3</SoftLimitType>
+			<SoftLimitType>0</SoftLimitType>
 			<PositiveSoftLimitType>0</PositiveSoftLimitType>
 			<NegativeSoftLimitType>0</NegativeSoftLimitType>
 			<SoftLimitPositivePos>3.300000</SoftLimitPositivePos>
@@ -985,7 +985,7 @@
 			<InvertNegativeLSPolarity>0</InvertNegativeLSPolarity>
 			<LSDec>10000.000000</LSDec>
 			<LSSlowDec>10000.000000</LSSlowDec>
-			<SoftLimitType>3</SoftLimitType>
+			<SoftLimitType>0</SoftLimitType>
 			<PositiveSoftLimitType>0</PositiveSoftLimitType>
 			<NegativeSoftLimitType>0</NegativeSoftLimitType>
 			<SoftLimitPositivePos>3.300000</SoftLimitPositivePos>
@@ -1136,7 +1136,7 @@
 			<InvertNegativeLSPolarity>0</InvertNegativeLSPolarity>
 			<LSDec>10000.000000</LSDec>
 			<LSSlowDec>10000.000000</LSSlowDec>
-			<SoftLimitType>3</SoftLimitType>
+			<SoftLimitType>0</SoftLimitType>
 			<PositiveSoftLimitType>0</PositiveSoftLimitType>
 			<NegativeSoftLimitType>0</NegativeSoftLimitType>
 			<SoftLimitPositivePos>3.300000</SoftLimitPositivePos>
