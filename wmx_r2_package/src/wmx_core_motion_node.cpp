@@ -186,6 +186,7 @@ void WmxCoreMotionNode::onEngineReady(const std_msgs::msg::Bool::SharedPtr msg)
 void WmxCoreMotionNode::axisStateStep()
 {
   axisStateMsg_.amp_alarm.clear();
+  axisStateMsg_.amp_alarm_code.clear();
   axisStateMsg_.servo_on.clear();
   axisStateMsg_.home_done.clear();
   axisStateMsg_.motion_complete.clear();
@@ -205,6 +206,7 @@ void WmxCoreMotionNode::axisStateStep()
 
   for (int i = 0; i < axisCount_; ++i) {
     axisStateMsg_.amp_alarm.push_back(cmStatus_.axesStatus[i].ampAlarm);
+    axisStateMsg_.amp_alarm_code.push_back(cmStatus_.axesStatus[i].ampAlarmCode);
     axisStateMsg_.servo_on.push_back(cmStatus_.axesStatus[i].servoOn);
     axisStateMsg_.home_done.push_back(cmStatus_.axesStatus[i].homeDone);
     axisStateMsg_.motion_complete.push_back(cmStatus_.axesStatus[i].motionComplete);

@@ -47,6 +47,8 @@ def generate_test_description():
             'accel_ratio': 0.5,
             'default_velocity': 0.1,
             'min_step': 0.1,
+            'max_joint_velocity': 2.5,
+            'max_joint_acceleration': 200.0,
         }],
         output='screen',
     )
@@ -88,17 +90,22 @@ class TestJointPositionController(unittest.TestCase):
         )
 
         req = GetParameters.Request()
-        req.names = ['accel_ratio', 'default_velocity', 'min_step', 'joint_trajectory_topic']
+        req.names = [
+            'accel_ratio', 'default_velocity', 'min_step', 'joint_trajectory_topic',
+            'max_joint_velocity', 'max_joint_acceleration',
+        ]
         future = client.call_async(req)
         rclpy.spin_until_future_complete(self.node, future, timeout_sec=10)
 
         result = future.result()
         self.assertIsNotNone(result, 'Parameter service call returned no result')
-        self.assertEqual(len(result.values), 4, 'Not every parameter was declared')
+        self.assertEqual(len(result.values), 6, 'Not every parameter was declared')
         self.assertAlmostEqual(result.values[0].double_value, 0.5)
         self.assertAlmostEqual(result.values[1].double_value, 0.1)
         self.assertAlmostEqual(result.values[2].double_value, 0.1)
         self.assertEqual(result.values[3].string_value, TRAJECTORY_TOPIC)
+        self.assertAlmostEqual(result.values[4].double_value, 2.5)
+        self.assertAlmostEqual(result.values[5].double_value, 200.0)
 
     def test_subscribes_to_trajectory_topic(self):
         """Once the engine is up, the node should subscribe to the configured topic."""

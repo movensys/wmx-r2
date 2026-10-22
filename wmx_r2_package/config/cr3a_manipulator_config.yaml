@@ -25,6 +25,15 @@ joint_position_controller:
     accel_ratio: 0.3
     default_velocity: 0.5
     min_step: 0.001
+    # Ceiling on the velocity buildCommand derives from step / time_from_start;
+    # a move that needs more is scaled down uniformly so the path stays straight
+    # and the arm lags instead of faulting the drive. Same value as the
+    # servo_stream_controller ceiling below. VERIFY against the arm's joint limits.
+    max_joint_velocity: 3.14
+    # = max_joint_velocity / (accel_ratio * Servo period 0.025 s), the acceleration
+    # a full-speed segment already commands. Bounds a tiny time_from_start, which
+    # the velocity cap alone does not. 0 disables.
+    max_joint_acceleration: 420.0
 
 # Buffered alternative to joint_position_controller: MoveIt Servo setpoints are
 # recorded into the WMX3 API buffer and replayed under the RT OS at cycle

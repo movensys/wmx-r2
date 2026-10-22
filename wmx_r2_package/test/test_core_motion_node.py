@@ -114,7 +114,7 @@ class TestCoreMotionNode(unittest.TestCase):
         n = len(msg.amp_alarm)
         self.assertGreater(n, 0, 'AxisState should have at least 1 axis')
         for field in [
-            'servo_on', 'home_done', 'motion_complete',
+            'amp_alarm_code', 'servo_on', 'home_done', 'motion_complete',
             'negative_ls', 'positive_ls', 'home_switch',
             'pos_cmd', 'velocity_cmd', 'actual_pos',
             'actual_velocity', 'actual_torque',

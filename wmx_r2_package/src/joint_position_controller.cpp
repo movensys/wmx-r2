@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <string>
@@ -53,6 +54,8 @@ private:
   double accelRatio_ = 0.0;
   double defaultVelocity_ = 0.0;
   double minStep_ = 0.0;
+  double maxJointVelocity_ = 3.0;       // rad/s ceiling, applied as a uniform scale
+  double maxJointAcceleration_ = 0.0;   // rad/s^2 ceiling, same scale; 0 disables
 
   std::map<std::string, int> axisByName_;
 
@@ -68,6 +71,7 @@ private:
   void runInitSequence();
   void jointTrajectoryCallback(const trajectory_msgs::msg::JointTrajectory::SharedPtr msg);
   bool buildCommand(const trajectory_msgs::msg::JointTrajectory & traj);
+  void motionErrorToString(int code, char * buf, size_t size);
 };
 
 JointPositionController::JointPositionController()
@@ -123,6 +127,8 @@ void JointPositionController::setRosParameter()
   this->declare_parameter<double>("accel_ratio", 0.5);
   this->declare_parameter<double>("default_velocity", 0.1);
   this->declare_parameter<double>("min_step", 0.1);
+  this->declare_parameter<double>("max_joint_velocity", 3.0);
+  this->declare_parameter<double>("max_joint_acceleration", 0.0);
 
   this->get_parameter("joint_axes", jointAxes_);
   this->get_parameter("joint_name", jointNames_);
@@ -130,6 +136,22 @@ void JointPositionController::setRosParameter()
   this->get_parameter("accel_ratio", accelRatio_);
   this->get_parameter("default_velocity", defaultVelocity_);
   this->get_parameter("min_step", minStep_);
+  this->get_parameter("max_joint_velocity", maxJointVelocity_);
+  this->get_parameter("max_joint_acceleration", maxJointAcceleration_);
+
+  if (maxJointVelocity_ <= 0.0) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "max_joint_velocity must be > 0 (got %.3f); using 3.0", maxJointVelocity_);
+    maxJointVelocity_ = 3.0;
+  }
+  if (maxJointAcceleration_ < 0.0) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "max_joint_acceleration must be >= 0 (got %.3f); disabling the acceleration clamp",
+      maxJointAcceleration_);
+    maxJointAcceleration_ = 0.0;
+  }
 
   for (size_t i = 0; i < jointNames_.size() && i < jointAxes_.size(); ++i) {
     axisByName_[jointNames_[i]] = static_cast<int>(jointAxes_[i]);
@@ -152,6 +174,13 @@ void JointPositionController::setRosParameter()
   RCLCPP_INFO(this->get_logger(), "accel_ratio: %f", accelRatio_);
   RCLCPP_INFO(this->get_logger(), "default_velocity: %f", defaultVelocity_);
   RCLCPP_INFO(this->get_logger(), "min_step: %f", minStep_);
+  RCLCPP_INFO(this->get_logger(), "max_joint_velocity: %.3f rad/s", maxJointVelocity_);
+  if (maxJointAcceleration_ > 0.0) {
+    RCLCPP_INFO(
+      this->get_logger(), "max_joint_acceleration: %.1f rad/s^2", maxJointAcceleration_);
+  } else {
+    RCLCPP_INFO(this->get_logger(), "max_joint_acceleration: disabled");
+  }
   RCLCPP_INFO(this->get_logger(), "===========================");
 }
 
@@ -230,6 +259,24 @@ void JointPositionController::runInitSequence()
   RCLCPP_INFO(this->get_logger(), "joint_position_controller is ready");
 }
 
+// A motion error comes from a CoreMotion call (GetStatus, StartLinearIntplPos),
+// so it carries a CoreMotion error code. Decoding it with the device-level
+// WMX3Api::ErrorToString yields an empty string for those codes, which is why
+// rejected setpoints used to log as "()". Try CoreMotion first, fall back to
+// the device decoder, then admit defeat rather than printing empty brackets.
+void JointPositionController::motionErrorToString(int code, char * buf, size_t size)
+{
+  const auto n = static_cast<unsigned int>(size);
+  buf[0] = '\0';
+  CoreMotion::ErrorToString(code, buf, n);
+  if (buf[0] == '\0') {
+    wmx3Lib_.ErrorToString(code, buf, n);
+  }
+  if (buf[0] == '\0') {
+    snprintf(buf, size, "unrecognised code");
+  }
+}
+
 bool JointPositionController::buildCommand(const trajectory_msgs::msg::JointTrajectory & traj)
 {
   const auto & pt = traj.points.back();
@@ -244,10 +291,20 @@ bool JointPositionController::buildCommand(const trajectory_msgs::msg::JointTraj
 
   const double dt = rclcpp::Duration(pt.time_from_start).seconds();
 
-  wmx3LibCm_->GetStatus(&cmStatus_);
+  err_ = wmx3LibCm_->GetStatus(&cmStatus_);
+  if (err_ != ErrorCode::None) {
+    motionErrorToString(err_, errString_, sizeof(errString_));
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "CoreMotion::GetStatus failed, cannot place segment origin. Error=%d (%s)",
+      err_, errString_);
+    return false;
+  }
 
   intpl_.axisCount = count;
   double largestStep = 0.0;
+  double peakVelocity = 0.0;
+  double peakAccel = 0.0;
 
   for (size_t i = 0; i < count; ++i) {
     int axis;
@@ -269,6 +326,8 @@ bool JointPositionController::buildCommand(const trajectory_msgs::msg::JointTraj
 
     const double velocity = (dt > 0.0) ? step / dt : defaultVelocity_;
     const double accel = velocity / (accelRatio_ * ((dt > 0.0) ? dt : 1.0));
+    peakVelocity = std::fmax(peakVelocity, velocity);
+    peakAccel = std::fmax(peakAccel, accel);
 
     intpl_.axis[i] = axis;
     intpl_.target[i] = pt.positions[i];
@@ -279,6 +338,36 @@ bool JointPositionController::buildCommand(const trajectory_msgs::msg::JointTraj
 
   if (largestStep < minStep_) {
     return false;
+  }
+
+  // Velocity is step / dt with nothing above it, so one setpoint far from the
+  // current commanded position (or one with a tiny time_from_start) asks for a
+  // velocity and acceleration the drive cannot deliver: the engine spends
+  // seconds blending the oversized move, rejects every later setpoint with
+  // ProcessingOverride, and the amplifier alarms. Scale the whole move down
+  // uniformly rather than clamping axes one by one: clamping one axis while the
+  // others run free would bend the coordinated path, whereas slowing every
+  // axis by the same factor keeps it straight and only costs time (the arm
+  // lags the stream). Acceleration is velocity / (accelRatio * dt), so the one
+  // scale factor bounds both.
+  double scale = 1.0;
+  if (peakVelocity > maxJointVelocity_) {
+    scale = std::fmax(scale, peakVelocity / maxJointVelocity_);
+  }
+  if (maxJointAcceleration_ > 0.0 && peakAccel > maxJointAcceleration_) {
+    scale = std::fmax(scale, peakAccel / maxJointAcceleration_);
+  }
+  if (scale > 1.0) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "Setpoint needs %.3f rad/s and %.1f rad/s^2 (limits %.3f, %.1f; 0 = off); "
+      "scaling the move by %.2f (the arm will lag the stream)",
+      peakVelocity, peakAccel, maxJointVelocity_, maxJointAcceleration_, 1.0 / scale);
+    for (size_t i = 0; i < count; ++i) {
+      intpl_.maxVelocity[i] /= scale;
+      intpl_.maxAcc[i] /= scale;
+      intpl_.maxDec[i] /= scale;
+    }
   }
 
   intpl_.profile.type = ProfileType::Trapezoidal;
@@ -298,7 +387,7 @@ void JointPositionController::jointTrajectoryCallback(
 
   err_ = wmx3LibCm_->motion->StartLinearIntplPos(&intpl_);
   if (err_ != ErrorCode::None) {
-    wmx3Lib_.ErrorToString(err_, errString_, sizeof(errString_));
+    motionErrorToString(err_, errString_, sizeof(errString_));
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000,
       "StartLinearIntplPos failed. Error=%d (%s)", err_, errString_);

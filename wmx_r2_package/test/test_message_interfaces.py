@@ -47,6 +47,14 @@ class TestAxisStateMsg(unittest.TestCase):
         ]:
             self.assertTrue(hasattr(msg, field), f'Missing field: {field}')
 
+    def test_amp_alarm_code_field(self):
+        """The drive's fault number is published next to the amp_alarm flag."""
+        msg = AxisState()
+        self.assertTrue(hasattr(msg, 'amp_alarm_code'), 'Missing field: amp_alarm_code')
+        msg.amp_alarm = [False, True]
+        msg.amp_alarm_code = [0, 0x7380]
+        self.assertEqual(list(msg.amp_alarm_code), [0, 0x7380])
+
     def test_populate_and_read(self):
         msg = AxisState()
         msg.amp_alarm = [True, False]

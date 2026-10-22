@@ -26,6 +26,18 @@ joint_position_controller:
     accel_ratio: 0.3
     default_velocity: 0.5
     min_step: 0.001
+    # Ceiling on the velocity buildCommand derives from step / time_from_start.
+    # Without it one setpoint far from posCmd (or one with a tiny dt) commands a
+    # velocity and acceleration the drive cannot deliver; the engine spent ~2 s
+    # blending that move, refused every later setpoint with ProcessingOverride,
+    # and the amplifier alarmed. A move that needs more is scaled down uniformly
+    # so the path stays straight and the arm lags instead. Same value as the
+    # servo_stream_controller ceiling below (DUCO GCR30-1100 J1/J2: 120 deg/s).
+    max_joint_velocity: 2.09
+    # = max_joint_velocity / (accel_ratio * Servo period 0.025 s), i.e. the
+    # acceleration a full-speed segment already commands. Bounds the case of a
+    # tiny time_from_start, which the velocity cap alone does not. 0 disables.
+    max_joint_acceleration: 280.0
 
 # Buffered alternative to joint_position_controller: MoveIt Servo setpoints are
 # recorded into the WMX3 API buffer and replayed under the RT OS at cycle
@@ -70,4 +82,12 @@ servo_stream_controller:
     # 0 (decelerate to rest) until nominal_period_us has been measured against
     # this setup's worst-case setpoint gap. See the CR5A config for the reason.
     end_velocity_ratio: 0.0
-    stop_on_error: true          # stop rather than skip a rejected setpoint
+    # FALSE, as on the CR3A. A setpoint whose override the engine refuses (65630
+    # ProcessingOverride: the previous override's smoothing segment is still
+    # running) is routine at stream rate, not a fault. With this true, one
+    # refusal stopped the channel; the node then halted the axes, held off for
+    # 500 ms, and the restart segment surged to catch up -- the stop-and-go felt
+    # on this arm. False makes the engine skip the rejected block and carry on,
+    # which is what joint_position_controller does with the same rejection. The
+    # ApiBufferWatch still stops the arm on a real axis alarm.
+    stop_on_error: false

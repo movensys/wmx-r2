@@ -1,5 +1,6 @@
 std_msgs/Header header
 bool[] amp_alarm
+int32[] amp_alarm_code
 bool[] servo_on
 bool[] home_done
 bool[] home_switch

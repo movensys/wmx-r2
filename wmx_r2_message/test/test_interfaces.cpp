@@ -26,12 +26,14 @@
 TEST(AxisState, roundtrip_fields) {
   wmx_r2_message::msg::AxisState msg;
   msg.amp_alarm = {false, true};
+  msg.amp_alarm_code = {0, 0x7380};
   msg.servo_on = {true, false};
   msg.actual_pos = {1.5, -2.0};
   msg.actual_velocity = {0.1, 0.2};
   msg.pos_cmd = {3.0, 4.0};
 
   EXPECT_EQ(msg.amp_alarm.size(), 2u);
+  EXPECT_EQ(msg.amp_alarm_code[1], 0x7380);
   EXPECT_EQ(msg.servo_on[0], true);
   EXPECT_DOUBLE_EQ(msg.actual_pos[1], -2.0);
   EXPECT_DOUBLE_EQ(msg.pos_cmd[0], 3.0);
