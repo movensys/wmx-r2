@@ -174,7 +174,8 @@ ApiBufferProbe::~ApiBufferProbe()
 
 void ApiBufferProbe::setRosParameter()
 {
-  this->declare_parameter<std::vector<int64_t>>("joint_axes", std::vector<int64_t>{0, 1, 2, 3, 4, 5});
+  this->declare_parameter<std::vector<int64_t>>(
+    "joint_axes", std::vector<int64_t>{0, 1, 2, 3, 4, 5});
   this->declare_parameter<int>("api_buffer_channel", 0);
   this->declare_parameter<int>("api_buffer_size_mb", 5);
   this->declare_parameter<int>("sample_count", 100);
@@ -270,7 +271,8 @@ bool ApiBufferProbe::attachDevice(WMX3Api * lib, const char * name)
   }
 
   if (err != ErrorCode::None) {
-    RCLCPP_FATAL(this->get_logger(), "Device '%s' lock busy after %d retries", name, kMaxDeviceRetries);
+    RCLCPP_FATAL(
+      this->get_logger(), "Device '%s' lock busy after %d retries", name, kMaxDeviceRetries);
     return false;
   }
 
@@ -289,7 +291,7 @@ bool ApiBufferProbe::getStatus(ApiBufferStatus * st)
 bool ApiBufferProbe::settle(ApiBufferStatus * st)
 {
   const auto deadline = std::chrono::steady_clock::now() + kSettleTimeout;
-  long long prev_blocks = -1;
+  int64_t prev_blocks = -1;
   int prev_free = -1;
   int stable = 0;
 
@@ -660,7 +662,8 @@ void ApiBufferProbe::runProbe()
   // ---- report ----
   const int requested = bufferSizeMb_ * 1024 * 1024;
   RCLCPP_INFO(this->get_logger(), "==================== PROBE REPORT ====================");
-  RCLCPP_INFO(this->get_logger(), " SDK ApiBuffer lib   : %d.%d.%d.%d", major, minor, revision, fix);
+  RCLCPP_INFO(
+    this->get_logger(), " SDK ApiBuffer lib   : %d.%d.%d.%d", major, minor, revision, fix);
   RCLCPP_INFO(
     this->get_logger(), " buffer requested    : %d bytes (%d MB)", requested, bufferSizeMb_);
   RCLCPP_INFO(

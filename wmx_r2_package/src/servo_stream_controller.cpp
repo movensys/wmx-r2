@@ -90,6 +90,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cinttypes>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -221,7 +222,7 @@ private:
   // is single-threaded. That is what the pump's removal bought -- no ring, no
   // mutex, no atomics on the streaming path.
   std::vector<double> step_;                  // scratch: target - posCmd, per axis
-  unsigned long long setpointSeq_ = 0;        // recorded setpoints, for the trace log
+  uint64_t setpointSeq_ = 0;                  // recorded setpoints, for the trace log
 
   bool streaming_ = false;                    // buffer Active and being fed
 
@@ -229,13 +230,13 @@ private:
   // not a gap in the stream, so it must keep starvation quiet.
   std::chrono::steady_clock::time_point lastSetpointAt_{};
 
-  long long lastErrorCount_ = 0;             // ApiBufferStatus::errorCount is long long
-  long long overrideRejects_ = 0;            // refused overrides, a floor (log samples 10/poll)
+  int64_t lastErrorCount_ = 0;               // mirrors ApiBufferStatus::errorCount
+  int64_t overrideRejects_ = 0;              // refused overrides, a floor (log samples 10/poll)
 
   // Liveness. remainingBlockCount is 0-1 by design now, so depth no longer
   // shows whether the engine is consuming; the cumulative count does.
-  long long lastCumulativeBlocks_ = 0;
-  unsigned long long lastSeqSeen_ = 0;       // setpointSeq_ at the previous poll
+  int64_t lastCumulativeBlocks_ = 0;
+  uint64_t lastSeqSeen_ = 0;                 // setpointSeq_ at the previous poll
   int stalledPolls_ = 0;
 
   int consecutiveFaults_ = 0;                       // channel stops without progress
@@ -666,7 +667,7 @@ bool ServoStreamController::setupBuffers()
   ApiBufferOptions opt;
   opt.stopOnError = stopOnError_;
   opt.autoRewind = false;      // the ring wraps within seconds; rewind is unusable here
-  opt.stopOnLastBlock = false; // MUST be false: an Active channel picks up new blocks
+  opt.stopOnLastBlock = false;  // MUST be false: an Active channel picks up new blocks
   if (!check(abCtl_->SetOptions(channelMotion_, &opt), "SetOptions")) {
     return false;
   }
@@ -1103,7 +1104,7 @@ void ServoStreamController::logSetpoint(const CoreMotionStatus & before, double 
 
   std::snprintf(
     line, sizeof(line),
-    "setpoint #%llu | period %.2f ms | accel_ratio %.2f | scale %.3f | "
+    "setpoint #%" PRIu64 " | period %.2f ms | accel_ratio %.2f | scale %.3f | "
     "Trapezoidal, startVel inherited, endVel %.4f",
     setpointSeq_, period_s * 1000.0, accelRatio_, scale, intpl_.profile.endVelocity);
   std::string out(line);
@@ -1229,7 +1230,7 @@ void ServoStreamController::pollStatus()
         blockErrorToString(st.errorLog[0].errorCode, errString_, sizeof(errString_));
         snprintf(
           cause, sizeof(cause), "block %lld failed, code %d (%s)",
-          static_cast<long long>(st.errorLog[0].execBlockNumber),
+          st.errorLog[0].execBlockNumber,
           st.errorLog[0].errorCode, errString_);
       } else {
         snprintf(
@@ -1237,8 +1238,8 @@ void ServoStreamController::pollStatus()
       }
       RCLCPP_ERROR_THROTTLE(
         this->get_logger(), *this->get_clock(), 1000,
-        "Motion channel stopped (%s; errors=%lld); fault %d, holding off %ld ms",
-        cause, st.errorCount, consecutiveFaults_, static_cast<long>(backoff.count()));
+        "Motion channel stopped (%s; errors=%lld); fault %d, holding off %d ms",
+        cause, st.errorCount, consecutiveFaults_, static_cast<int>(backoff.count()));
 
       endStream("channel stopped", true);
     }
@@ -1254,7 +1255,7 @@ void ServoStreamController::pollStatus()
   // teleop input advances neither counter, and without this the warning fired
   // through every deliberate pause and cried stall at a perfectly healthy
   // engine.
-  const long long consumed = st.cumulativeBlockCount - lastCumulativeBlocks_;
+  const int64_t consumed = st.cumulativeBlockCount - lastCumulativeBlocks_;
   const bool recorded_any = setpointSeq_ != lastSeqSeen_;
   lastCumulativeBlocks_ = st.cumulativeBlockCount;
   lastSeqSeen_ = setpointSeq_;
@@ -1273,11 +1274,11 @@ void ServoStreamController::pollStatus()
     return;
   }
 
-  const long long missed = st.errorCount - lastErrorCount_;
+  const int64_t missed = st.errorCount - lastErrorCount_;
   lastErrorCount_ = st.errorCount;
 
   const int reportable = static_cast<int>(
-    std::min<long long>(missed, wmx3Api::constants::maxApiBufferErrorLog));
+    std::min<int64_t>(missed, wmx3Api::constants::maxApiBufferErrorLog));
 
   // ProcessingOverride is not a fault once stop_on_error is false: it is the
   // engine saying the previous override is still in its smoothing segment, so
@@ -1304,7 +1305,7 @@ void ServoStreamController::pollStatus()
     overrideRejects_ += rejects;
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000,
-      "Engine refused at least %lld override(s) so far (previous override still "
+      "Engine refused at least %" PRId64 " override(s) so far (previous override still "
       "smoothing); those setpoints were skipped and the arm continued the segment "
       "in flight. The error log holds %d entries per poll, so this is a floor.",
       overrideRejects_, static_cast<int>(wmx3Api::constants::maxApiBufferErrorLog));
@@ -1313,7 +1314,7 @@ void ServoStreamController::pollStatus()
   if (missed > reportable) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 1000,
-      "%lld further block errors overflowed the log between polls",
+      "%" PRId64 " further block errors overflowed the log between polls",
       missed - reportable);
   }
 }
