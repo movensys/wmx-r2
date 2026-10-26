@@ -1,0 +1,6 @@
+int32[] indices # axis index per entry
+float64[] numerators
+float64[] denominators
+---
+bool success   # indicate successful run
+string message # response messages

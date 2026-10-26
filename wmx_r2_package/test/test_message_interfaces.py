@@ -4,9 +4,9 @@ import unittest
 
 from std_msgs.msg import Header
 
-from wmx_r2_message.msg import AxisPose
-from wmx_r2_message.msg import AxisState
-from wmx_r2_message.msg import AxisVelocity
+from wmx_r2_message.msg import AxesPose
+from wmx_r2_message.msg import AxesStatus
+from wmx_r2_message.msg import AxesVelocity
 from wmx_r2_message.srv import EcatGetNetworkState
 from wmx_r2_message.srv import EcatRegisterRead
 from wmx_r2_message.srv import EcatResetStatistics
@@ -15,24 +15,24 @@ from wmx_r2_message.srv import GetIoBit
 from wmx_r2_message.srv import GetIoBytes
 from wmx_r2_message.srv import GetWmxParams
 from wmx_r2_message.srv import LoadWmxParams
-from wmx_r2_message.srv import SetAxis
-from wmx_r2_message.srv import SetAxisGearRatio
+from wmx_r2_message.srv import SetAxes
+from wmx_r2_message.srv import SetAxesGearRatio
 from wmx_r2_message.srv import SetEngine
 from wmx_r2_message.srv import SetIoBit
 from wmx_r2_message.srv import SetIoBytes
 
 
-class TestAxisStateMsg(unittest.TestCase):
-    """Verify AxisState.msg fields and types."""
+class TestAxesStatusMsg(unittest.TestCase):
+    """Verify AxesStatus.msg fields and types."""
 
     def test_has_header(self):
-        msg = AxisState()
+        msg = AxesStatus()
         self.assertIsInstance(msg.header, Header)
 
     def test_boolean_status_fields(self):
-        msg = AxisState()
+        msg = AxesStatus()
         for field in [
-            'amp_alarm', 'servo_on', 'home_done', 'motion_complete',
+            'amp_alarms', 'servo_on', 'home_done', 'motion_complete',
             'negative_ls', 'positive_ls', 'home_switch',
         ]:
             self.assertTrue(hasattr(msg, field), f'Missing field: {field}')
@@ -40,67 +40,67 @@ class TestAxisStateMsg(unittest.TestCase):
             self.assertIsInstance(attr, list, f'{field} should be a list')
 
     def test_float_fields(self):
-        msg = AxisState()
+        msg = AxesStatus()
         for field in [
-            'pos_cmd', 'velocity_cmd', 'actual_pos',
-            'actual_velocity', 'actual_torque',
+            'position_commands', 'velocity_commands', 'actual_positions',
+            'actual_velocities', 'actual_torques',
         ]:
             self.assertTrue(hasattr(msg, field), f'Missing field: {field}')
 
-    def test_amp_alarm_code_field(self):
-        """The drive's fault number is published next to the amp_alarm flag."""
-        msg = AxisState()
-        self.assertTrue(hasattr(msg, 'amp_alarm_code'), 'Missing field: amp_alarm_code')
-        msg.amp_alarm = [False, True]
-        msg.amp_alarm_code = [0, 0x7380]
-        self.assertEqual(list(msg.amp_alarm_code), [0, 0x7380])
+    def test_amp_alarm_codes_field(self):
+        """The drive's fault number is published next to the amp_alarms flag."""
+        msg = AxesStatus()
+        self.assertTrue(hasattr(msg, 'amp_alarm_codes'), 'Missing field: amp_alarm_codes')
+        msg.amp_alarms = [False, True]
+        msg.amp_alarm_codes = [0, 0x7380]
+        self.assertEqual(list(msg.amp_alarm_codes), [0, 0x7380])
 
     def test_populate_and_read(self):
-        msg = AxisState()
-        msg.amp_alarm = [True, False]
+        msg = AxesStatus()
+        msg.amp_alarms = [True, False]
         msg.servo_on = [True, True]
         msg.motion_complete = [False, True]
-        msg.actual_pos = [1.0, 2.0]
-        self.assertEqual(list(msg.amp_alarm), [True, False])
-        self.assertEqual(list(msg.actual_pos), [1.0, 2.0])
+        msg.actual_positions = [1.0, 2.0]
+        self.assertEqual(list(msg.amp_alarms), [True, False])
+        self.assertEqual(list(msg.actual_positions), [1.0, 2.0])
 
     def test_no_in_pos_field(self):
         """Verify in_pos was renamed to motion_complete."""
-        msg = AxisState()
+        msg = AxesStatus()
         self.assertFalse(hasattr(msg, 'in_pos'))
         self.assertTrue(hasattr(msg, 'motion_complete'))
 
 
-class TestAxisPoseMsg(unittest.TestCase):
-    """Verify AxisPose.msg fields."""
+class TestAxesPoseMsg(unittest.TestCase):
+    """Verify AxesPose.msg fields."""
 
     def test_fields_exist(self):
-        msg = AxisPose()
-        for field in ['index', 'target', 'velocity', 'acc', 'dec']:
+        msg = AxesPose()
+        for field in ['indices', 'positions', 'velocities', 'accelerations', 'decelerations']:
             self.assertTrue(hasattr(msg, field), f'Missing field: {field}')
 
     def test_populate(self):
-        msg = AxisPose()
-        msg.index = [0, 1]
-        msg.target = [100.0, 200.0]
-        msg.velocity = [50.0, 50.0]
-        msg.acc = [10.0, 10.0]
-        msg.dec = [10.0, 10.0]
-        self.assertEqual(len(msg.index), 2)
+        msg = AxesPose()
+        msg.indices = [0, 1]
+        msg.positions = [100.0, 200.0]
+        msg.velocities = [50.0, 50.0]
+        msg.accelerations = [10.0, 10.0]
+        msg.decelerations = [10.0, 10.0]
+        self.assertEqual(len(msg.indices), 2)
 
 
-class TestAxisVelocityMsg(unittest.TestCase):
-    """Verify AxisVelocity.msg fields."""
+class TestAxesVelocityMsg(unittest.TestCase):
+    """Verify AxesVelocity.msg fields."""
 
     def test_fields_exist(self):
-        msg = AxisVelocity()
-        for field in ['index', 'velocity', 'acc', 'dec']:
+        msg = AxesVelocity()
+        for field in ['indices', 'velocities', 'accelerations', 'decelerations']:
             self.assertTrue(hasattr(msg, field), f'Missing field: {field}')
 
     def test_no_target_field(self):
-        """Verify AxisVelocity has no target field (unlike AxisPose)."""
-        msg = AxisVelocity()
-        self.assertFalse(hasattr(msg, 'target'))
+        """Verify AxesVelocity has no target field (unlike AxesPose)."""
+        msg = AxesVelocity()
+        self.assertFalse(hasattr(msg, 'positions'))
 
 
 class TestSetEngineSrv(unittest.TestCase):
@@ -119,39 +119,39 @@ class TestSetEngineSrv(unittest.TestCase):
 
 
 class TestSetAxisSrv(unittest.TestCase):
-    """Verify SetAxis.srv fields."""
+    """Verify SetAxes.srv fields."""
 
     def test_request_fields(self):
-        req = SetAxis.Request()
-        self.assertTrue(hasattr(req, 'index'))
+        req = SetAxes.Request()
+        self.assertTrue(hasattr(req, 'indices'))
         self.assertTrue(hasattr(req, 'data'))
 
     def test_response_fields(self):
-        res = SetAxis.Response()
+        res = SetAxes.Response()
         self.assertTrue(hasattr(res, 'success'))
         self.assertTrue(hasattr(res, 'message'))
 
     def test_populate_multi_axis(self):
-        req = SetAxis.Request()
-        req.index = [0, 1, 2]
+        req = SetAxes.Request()
+        req.indices = [0, 1, 2]
         req.data = [1, 1, 0]
-        self.assertEqual(len(req.index), 3)
+        self.assertEqual(len(req.indices), 3)
 
 
-class TestSetAxisGearRatioSrv(unittest.TestCase):
-    """Verify SetAxisGearRatio.srv fields."""
+class TestSetAxesGearRatioSrv(unittest.TestCase):
+    """Verify SetAxesGearRatio.srv fields."""
 
     def test_request_fields(self):
-        req = SetAxisGearRatio.Request()
-        self.assertTrue(hasattr(req, 'index'))
-        self.assertTrue(hasattr(req, 'numerator'))
-        self.assertTrue(hasattr(req, 'denominator'))
+        req = SetAxesGearRatio.Request()
+        self.assertTrue(hasattr(req, 'indices'))
+        self.assertTrue(hasattr(req, 'numerators'))
+        self.assertTrue(hasattr(req, 'denominators'))
 
     def test_no_denumerator(self):
         """Verify typo 'denumerator' was fixed to 'denominator'."""
-        req = SetAxisGearRatio.Request()
+        req = SetAxesGearRatio.Request()
         self.assertFalse(hasattr(req, 'denumerator'))
-        self.assertTrue(hasattr(req, 'denominator'))
+        self.assertTrue(hasattr(req, 'denominators'))
 
 
 class TestLoadWmxParamsSrv(unittest.TestCase):
@@ -172,7 +172,7 @@ class TestGetWmxParamsSrv(unittest.TestCase):
 
     def test_request_fields(self):
         req = GetWmxParams.Request()
-        self.assertTrue(hasattr(req, 'index'))
+        self.assertTrue(hasattr(req, 'indices'))
 
     def test_response_fields(self):
         res = GetWmxParams.Response()

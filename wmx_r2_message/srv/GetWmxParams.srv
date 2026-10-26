@@ -1,4 +1,4 @@
-int32[] index   # specific axis indices to display parameters for
+int32[] indices   # specific axis indices to display parameters for
 ---
 bool success
 string message

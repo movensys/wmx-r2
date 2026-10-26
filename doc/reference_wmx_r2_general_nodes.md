@@ -5,30 +5,30 @@
 
 ```
 # 1. Verify engine is communicating
-ros2 service call /wmx/engine/get_status std_srvs/srv/Trigger "{}"
+ros2 service call /wmx/engine/get_engine_status std_srvs/srv/Trigger "{}"
 
 # 2. Load axis parameters from file
 ## 2-1. Predefined robot case
 ## Dobot CR3a, CR5a, Synustech (synustech_wmx_parameters.xml), Diffbot AMR
-ros2 service call /wmx/params/load wmx_r2_message/srv/LoadWmxParams \
+ros2 service call /wmx/engine/load_wmx_params wmx_r2_message/srv/LoadWmxParams \
   "{file_path: '/home/$USER/workspaces/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/cr3a_wmx_parameters.xml'}"
 ## 2-2. User's own robot or arbitary motors
-ros2 service call /wmx/params/load wmx_r2_message/srv/LoadWmxParams \
+ros2 service call /wmx/engine/load_wmx_params wmx_r2_message/srv/LoadWmxParams \
   "{file_path: '/home/$USER/workspaces/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/default_wmx_parameters.xml'}"
 
 ## 3. Set Gear Ratio (2-1 stage can skip this stage)
 ## Panasonic MADLNO5BE servo driver
-ros2 service call /wmx/axis/set_gear_ratio wmx_r2_message/srv/SetAxisGearRatio \
-  "{index: [0], numerator: [8388608.0], denominator: [360.0]}"
+ros2 service call /wmx/axes/set_gear_ratio wmx_r2_message/srv/SetAxesGearRatio \
+  "{indices: [0], numerators: [8388608.0], denominators: [360.0]}"
 
 # 4. Clear any amp alarms
-ros2 service call /wmx/axis/clear_alarm wmx_r2_message/srv/SetAxis "{index: [0,1,2,3,4,5], data: [0,0,0,0,0,0]}"
+ros2 service call /wmx/axes/clear_amp_alarm wmx_r2_message/srv/SetAxes "{indices: [0,1,2,3,4,5], data: [0,0,0,0,0,0]}"
 
 # 5. Enable servos
-ros2 service call /wmx/axis/set_on wmx_r2_message/srv/SetAxis "{index: [0,1,2,3,4,5], data: [1,1,1,1,1,1]}"
+ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{indices: [0,1,2,3,4,5], data: [1,1,1,1,1,1]}"
 
 # 6. Home all axes (sets current position as home)
-ros2 service call /wmx/axis/homing wmx_r2_message/srv/SetAxis "{index: [0,1,2,3,4,5], data: [0,0,0,0,0,0]}"
+ros2 service call /wmx/axes/start_home wmx_r2_message/srv/SetAxes "{indices: [0,1,2,3,4,5], data: [0,0,0,0,0,0]}"
 ```
 ---
 i
@@ -36,64 +36,47 @@ i
 ## Engine Topics (Warning: These command will rotate the axes)
 ### Send Axis Absolute Position
 ```
-ros2 topic pub --once /wmx/axis/position wmx_r2_message/msg/AxisPose \
-    "{index: [0,1], target: [8388608, 10000 ], velocity: [1000000, 5000], acc: [100000, 1000], dec: [100000, 1000]}" 
+ros2 topic pub --once /wmx/axes/start_pos wmx_r2_message/msg/AxesPose \
+    "{indices: [0,1], positions: [8388608, 10000 ], velocities: [1000000, 5000], accelerations: [100000, 1000], decelerations: [100000, 1000]}" 
 ```
 
 ### Send Axis Relative Position
 ```
-ros2 topic pub --once /wmx/axis/position/relative wmx_r2_message/msg/AxisPose \
-    "{index: [0, 1], target: [8388608, 10000], velocity: [1000000, 5000], acc: [100000, 1000], dec: [100000, 1000]}"
+ros2 topic pub --once /wmx/axes/start_mov wmx_r2_message/msg/AxesPose \
+    "{indices: [0, 1], positions: [8388608, 10000], velocities: [1000000, 5000], accelerations: [100000, 1000], decelerations: [100000, 1000]}"
 ```i
 
 
 ### Send Axis Velocity
 ```
-ros2 topic pub --once /wmx/axis/velocity wmx_r2_message/msg/AxisVelocity \
-    "{index: [0, 1], velocity: [1000000, 5000], acc: [100000, 1000], dec: [100000, 1000]}"  
+ros2 topic pub --once /wmx/axes/start_vel wmx_r2_message/msg/AxesVelocity \
+    "{indices: [0, 1], velocities: [1000000, 5000], accelerations: [100000, 1000], decelerations: [100000, 1000]}"  
 ```
 
 
 
 i
 ### Jog (hold-to-move)
-`/wmx/axis/jog` is a dead-man command: the publisher must keep republishing while
+`/wmx/axes/start_jog` is a dead-man command: the publisher must keep republishing while
 the operator holds the control. The axis is stopped once refreshes stop arriving
 (`jog_timeout_ms`). The sign of `velocity` selects the direction.
 
 ```
 # Jog axis 0 in the positive direction. Ctrl-C acts as the release.
-ros2 topic pub -r 20 /wmx/axis/jog wmx_r2_message/msg/AxisVelocity \
-    "{index: [0], velocity: [10000], acc: [100000], dec: [100000]}"
+ros2 topic pub -r 20 /wmx/axes/start_jog wmx_r2_message/msg/AxesVelocity \
+    "{indices: [0], velocities: [10000], accelerations: [100000], decelerations: [100000]}"
 i
 # Negative direction
-ros2 topic pub -r 20 /wmx/axis/jog wmx_r2_message/msg/AxisVelocity \
-    "{index: [0], velocity: [-10000], acc: [100000], dec: [100000]}"
+ros2 topic pub -r 20 /wmx/axes/start_jog wmx_r2_message/msg/AxesVelocity \
+    "{indices: [0], velocities: [-10000], accelerations: [100000], decelerations: [100000]}"
 ```
 
-#### Jog with keyboard teleop
-- Increase the sensitivity of keyboard.
-- This command should be ran on keyboard connected PC. It can be different via SSH connection.
-```
-xset r rate 150 30
-```
-
-- Run Jog node for keyboard teleop (`a` = negative, `d` = positive, `q` = quit):
-```
-ros2 run wmx_r2_package jog_keyboard_node --ros-args \
-    -p axis:=0 -p velocity:=1000.0 -p acc:=10000.0 -p dec:=100000.0
-```
-
-- Rollback to default sensitivity
-```
-xset r rate 660 25
-```
 ---
 
 ## Engine Services
 ### Get Status
 ```
-ros2 service call /wmx/engine/get_status std_srvs/srv/Trigger "{}"
+ros2 service call /wmx/engine/get_engine_status std_srvs/srv/Trigger "{}"
 ```
 
 ### Set Communication (start/stop EtherCAT comms)
@@ -105,20 +88,14 @@ ros2 service call /wmx/engine/set_comm std_srvs/srv/SetBool "{data: true}"
 ros2 service call /wmx/engine/set_comm std_srvs/srv/SetBool "{data: false}"
 ```
 
-### Set Device (create/close WMX3 device)
+### Set Engine (create/close WMX3 device)
+The SDK path and device name are fixed by the node, so this is a plain on/off.
 ```
 # Create device
-ros2 service call /wmx/engine/set_device wmx_r2_message/srv/SetEngine \
-  "{data: true, path: '/opt/wmx3/', name: 'my_device'}"
+ros2 service call /wmx/engine/set_engine std_srvs/srv/SetBool "{data: true}"
 
 # Close device
-ros2 service call /wmx/engine/set_device wmx_r2_message/srv/SetEngine \
-  "{data: false, path: '', name: ''}"
-```
-
-### Scan Network
-```
-ros2 service call /wmx/engine/scan_network std_srvs/srv/Trigger "{}"
+ros2 service call /wmx/engine/set_engine std_srvs/srv/SetBool "{data: false}"
 ```
 
 ---
@@ -127,21 +104,21 @@ ros2 service call /wmx/engine/scan_network std_srvs/srv/Trigger "{}"
 ### Load Parameters from File
 ```
 # Dobot CR3A
-ros2 service call /wmx/params/load wmx_r2_message/srv/LoadWmxParams \
+ros2 service call /wmx/engine/load_wmx_params wmx_r2_message/srv/LoadWmxParams \
   "{file_path: '/home/$USER/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/cr3a_wmx_parameters.xml'}"
 
 # Diffbot
-ros2 service call /wmx/params/load wmx_r2_message/srv/LoadWmxParams \
+ros2 service call /wmx/engine/load_wmx_params wmx_r2_message/srv/LoadWmxParams \
   "{file_path: '/home/$USER/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/diffbot_wmx_parameters.xml'}"
 ```
 
 ### Get Parameters (inspect active axis config)
 ```
 # Single axis
-ros2 service call /wmx/params/get wmx_r2_message/srv/GetWmxParams "{index: [0]}"
+ros2 service call /wmx/engine/get_wmx_params wmx_r2_message/srv/GetWmxParams "{indices: [0]}"
 
 # Multiple axes
-ros2 service call /wmx/params/get wmx_r2_message/srv/GetWmxParams "{index: [0,1,2,3,4,5]}"
+ros2 service call /wmx/engine/get_wmx_params wmx_r2_message/srv/GetWmxParams "{indices: [0,1,2,3,4,5]}"
 ```
 
 ---
@@ -150,53 +127,114 @@ ros2 service call /wmx/params/get wmx_r2_message/srv/GetWmxParams "{index: [0,1,
 
 ### Clear Alarm
 ```
-ros2 service call /wmx/axis/clear_alarm wmx_r2_message/srv/SetAxis "{index: [0,1], data: [0,0]}"
+ros2 service call /wmx/axes/clear_amp_alarm wmx_r2_message/srv/SetAxes "{indices: [0,1], data: [0,0]}"
 ```
 
 ### Set Servo On / Off
 ```
 # Servo On
-ros2 service call /wmx/axis/set_on wmx_r2_message/srv/SetAxis "{index: [0,1], data: [1,1]}"
+ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{indices: [0,1], data: [1,1]}"
 
 # Servo Off
-ros2 service call /wmx/axis/set_on wmx_r2_message/srv/SetAxis "{index: [0,1], data: [0,0]}"
+ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{indices: [0,1], data: [0,0]}"
 ```
 
 ### Set Command Mode
 ```
 # Position mode (0)
-ros2 service call /wmx/axis/set_mode wmx_r2_message/srv/SetAxis "{index: [0,1], data: [0,0]}"
+ros2 service call /wmx/axes/set_axis_command_mode wmx_r2_message/srv/SetAxes "{indices: [0,1], data: [0,0]}"
 
 # Velocity mode (1)
-ros2 service call /wmx/axis/set_mode wmx_r2_message/srv/SetAxis "{index: [0,1], data: [1,1]}"
+ros2 service call /wmx/axes/set_axis_command_mode wmx_r2_message/srv/SetAxes "{indices: [0,1], data: [1,1]}"
 ```
 
 ### Set Polarity
 ```
 # Normal (1)
-ros2 service call /wmx/axis/set_polarity wmx_r2_message/srv/SetAxis "{index: [0,1], data: [1,1]}"
+ros2 service call /wmx/axes/set_axis_polarity wmx_r2_message/srv/SetAxes "{indices: [0,1], data: [1,1]}"
 
 # Reversed (-1)
-ros2 service call /wmx/axis/set_polarity wmx_r2_message/srv/SetAxis "{index: [0,1], data: [-1,-1]}"
+ros2 service call /wmx/axes/set_axis_polarity wmx_r2_message/srv/SetAxes "{indices: [0,1], data: [-1,-1]}"
 ```
 
 ### Set Gear Ratio
 ```
-ros2 service call /wmx/axis/set_gear_ratio wmx_r2_message/srv/SetAxisGearRatio \
-  "{index: [0,1], numerator: [1.0,1.0], denominator: [1.0,1.0]}"
+ros2 service call /wmx/axes/set_gear_ratio wmx_r2_message/srv/SetAxesGearRatio \
+  "{indices: [0,1], numerators: [1.0,1.0], denominators: [1.0,1.0]}"
 ```
 
 
 
 ### Homing (sets current position as home)
 ```
-ros2 service call /wmx/axis/homing wmx_r2_message/srv/SetAxis "{index: [0,1], data: [0,0]}"
+ros2 service call /wmx/axes/start_home wmx_r2_message/srv/SetAxes "{indices: [0,1], data: [0,0]}"
 ```
 
 ### Stop (decelerate to a stop)
 ```
-ros2 service call /wmx/axis/stop wmx_r2_message/srv/SetAxis "{index: [0,1], data: [0,0]}"
+ros2 service call /wmx/axes/stop wmx_r2_message/srv/SetAxes "{indices: [0,1], data: [0,0]}"
 ```
+
+---
+
+## Node Lifecycle
+
+Every node except `wmx_engine_node` is a managed
+[lifecycle node](https://design.ros2.org/articles/node_lifecycle.html). It starts
+`unconfigured` and only opens its WMX3 device — and only advertises its own topics,
+services and actions — once it is configured and activated.
+
+`wmx_lifecycle_manager_node` does that for you. It polls
+`wmx/engine/get_engine_status`, and once the engine reports `Communicating` it
+discovers every lifecycle node on the graph and brings it up (`configure` then
+`activate`), device-level `wmx_*` nodes first. If the engine stops communicating it
+takes them back down (`deactivate` then `cleanup`) and brings them up again when it
+returns.
+
+### List Node States
+```
+ros2 service call /wmx/lifecycle/get_node_states wmx_r2_message/srv/GetNodeStates "{}"
+```
+
+### Drive a Single Node
+```
+# Take the IO node out of service without stopping the process
+ros2 service call /wmx/lifecycle/set_node_state wmx_r2_message/srv/SetNodeState \
+  "{node_name: 'wmx_io_node', transition: 'deactivate'}"
+
+# Put it back
+ros2 service call /wmx/lifecycle/set_node_state wmx_r2_message/srv/SetNodeState \
+  "{node_name: 'wmx_io_node', transition: 'activate'}"
+```
+
+### Drive Every Node
+```
+# An empty node_name applies the transition to every discovered lifecycle node
+ros2 service call /wmx/lifecycle/set_node_state wmx_r2_message/srv/SetNodeState \
+  "{node_name: '', transition: 'bringdown'}"
+
+ros2 service call /wmx/lifecycle/set_node_state wmx_r2_message/srv/SetNodeState \
+  "{node_name: '', transition: 'bringup'}"
+```
+
+### Transitions
+| `transition` | Effect |
+|--------------|--------|
+| `configure` | `unconfigured` -> `inactive`: opens the WMX3 device, creates the interfaces |
+| `activate` | `inactive` -> `active`: starts the timers, the node serves requests |
+| `deactivate` | `active` -> `inactive`: stops the timers and the motion it owns |
+| `cleanup` | `inactive` -> `unconfigured`: destroys the interfaces, closes the device |
+| `shutdown` | any state -> `finalized`, whatever the current state is |
+| `bringup` | `configure` and `activate` as needed to reach `active` |
+| `bringdown` | `deactivate` if active, otherwise a no-op |
+
+### Node Parameters
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `managed_nodes` | `[]` | Restrict the manager to these node names. Empty manages everything it discovers |
+| `engine_status_service` | `wmx/engine/get_engine_status` | Service polled for the engine state |
+| `require_engine` | `true` | Set `false` to bring nodes up without waiting for the engine |
+| `discovery_period` | `2.0` | Seconds between discovery sweeps |
 
 ---
 
@@ -265,6 +303,12 @@ ros2 service call /wmx/ecat/register_read wmx_r2_message/srv/EcatRegisterRead \
   "{master_id: 0, slave_id: 1, reg_address: 256, length: 16}"
 ```
 
+### Scan Network
+```
+# Re-scan the EtherCAT network of master 0
+ros2 service call /wmx/ecat/scan_network wmx_r2_message/srv/EcatScanNetwork "{master_id: 0}"
+```
+
 ### Reset Statistics
 ```
 # Resets ref-clock, transmit statistics, and re-scans network
@@ -285,6 +329,8 @@ ros2 service call /wmx/ecat/start_hotconnect wmx_r2_message/srv/EcatStartHotconn
 > `ros2 param list|get|set <node_name>`.
 
 **General**
+- A node's services only exist while it is configured; if `ros2 service list` does not
+  show them, check `wmx/lifecycle/get_node_states` first
 - Use `ros2 service list` to see all available services
 - Use `ros2 service type <service_name>` to verify service types
 - `index` and `data` arrays must be the same length

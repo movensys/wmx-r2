@@ -100,6 +100,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "std_srvs/srv/trigger.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 
@@ -249,7 +250,13 @@ private:
 
   std::thread initThread_;
 
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr engineReadySub_;
+  // Engine readiness is polled through wmx/engine/get_engine_status, the same
+  // way wmx_lifecycle_manager_node does it. engineProbePending_ is only touched
+  // on the executor thread (timer callback and service response).
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr engineStatusClient_;
+  rclcpp::TimerBase::SharedPtr engineProbeTimer_;
+  bool engineProbePending_ = false;
+
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr execActiveSub_;
   rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr jointTrajectorySub_;
   rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr depthPub_;
@@ -258,7 +265,8 @@ private:
 
   // --- helpers ------------------------------------------------------------
   void setRosParameter();
-  void onEngineReady(const std_msgs::msg::Bool::SharedPtr msg);
+  void probeEngine();
+  void onEngineReady();
   void onExecActive(const std_msgs::msg::Bool::SharedPtr msg);
   void jointTrajectoryCallback(const trajectory_msgs::msg::JointTrajectory::SharedPtr msg);
   void runInitSequence();
@@ -286,10 +294,10 @@ ServoStreamController::ServoStreamController()
 
   depthPub_ = this->create_publisher<std_msgs::msg::Int32>("~/queue_depth", 10);
 
-  auto ready_qos = rclcpp::QoS(1).reliable().transient_local();
-  engineReadySub_ = this->create_subscription<std_msgs::msg::Bool>(
-    "wmx/engine/ready", ready_qos,
-    std::bind(&ServoStreamController::onEngineReady, this, _1));
+  engineStatusClient_ =
+    this->create_client<std_srvs::srv::Trigger>("wmx/engine/get_engine_status");
+  engineProbeTimer_ = this->create_wall_timer(
+    std::chrono::seconds(1), std::bind(&ServoStreamController::probeEngine, this));
 
   execActiveSub_ = this->create_subscription<std_msgs::msg::Bool>(
     "/moveit2_trajectory/execution_active", rclcpp::QoS(1).transient_local(),
@@ -499,9 +507,31 @@ void ServoStreamController::blockErrorToString(int code, char * buf, size_t size
   }
 }
 
-void ServoStreamController::onEngineReady(const std_msgs::msg::Bool::SharedPtr msg)
+void ServoStreamController::probeEngine()
 {
-  if (!msg->data || initialized_ || initializing_.exchange(true)) {
+  if (initialized_) {
+    engineProbeTimer_->cancel();
+    return;
+  }
+  if (initializing_ || engineProbePending_ || !engineStatusClient_->service_is_ready()) {
+    return;
+  }
+
+  engineProbePending_ = true;
+  engineStatusClient_->async_send_request(
+    std::make_shared<std_srvs::srv::Trigger::Request>(),
+    [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+      engineProbePending_ = false;
+      const auto result = future.get();
+      if (result->success && result->message == "Communicating") {
+        onEngineReady();
+      }
+    });
+}
+
+void ServoStreamController::onEngineReady()
+{
+  if (initialized_ || initializing_.exchange(true)) {
     return;
   }
   RCLCPP_INFO(this->get_logger(), "Engine ready — starting init on dedicated thread...");
@@ -754,8 +784,6 @@ void ServoStreamController::runInitSequence()
   jointTrajectorySub_ = this->create_subscription<trajectory_msgs::msg::JointTrajectory>(
     jointTrajectoryTopic_, 1,
     std::bind(&ServoStreamController::jointTrajectoryCallback, this, _1));
-
-  engineReadySub_.reset();
 
   RCLCPP_INFO(this->get_logger(), "servo_stream_controller is ready");
 }

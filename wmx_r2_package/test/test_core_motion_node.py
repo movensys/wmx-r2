@@ -10,9 +10,9 @@ import pytest
 import rclpy
 from rclpy.node import Node
 
-from wmx_r2_message.msg import AxisState
+from wmx_r2_message.msg import AxesStatus
 from wmx_r2_message.srv import GetWmxParams
-from wmx_r2_message.srv import SetAxis
+from wmx_r2_message.srv import SetAxes
 
 
 @pytest.mark.launch_test
@@ -55,13 +55,13 @@ class TestCoreMotionNode(unittest.TestCase):
         self.node.destroy_node()
 
     def test_axis_state_published(self):
-        """Core motion node should publish AxisState at 100 Hz."""
+        """Core motion node should publish AxesStatus at 100 Hz."""
         received = []
 
         def cb(msg):
             received.append(msg)
 
-        self.node.create_subscription(AxisState, 'wmx/axis/state', cb, 10)
+        self.node.create_subscription(AxesStatus, 'wmx/axes/status', cb, 10)
 
         end_time = self.node.get_clock().now() + rclpy.duration.Duration(seconds=20)
         while self.node.get_clock().now() < end_time:
@@ -71,17 +71,17 @@ class TestCoreMotionNode(unittest.TestCase):
 
         self.assertGreaterEqual(
             len(received), 5,
-            'Did not receive at least 5 AxisState messages within 20 seconds',
+            'Did not receive at least 5 AxesStatus messages within 20 seconds',
         )
 
     def test_axis_state_has_header(self):
-        """Published AxisState should have a populated header."""
+        """Published AxesStatus should have a populated header."""
         received = []
 
         def cb(msg):
             received.append(msg)
 
-        self.node.create_subscription(AxisState, 'wmx/axis/state', cb, 10)
+        self.node.create_subscription(AxesStatus, 'wmx/axes/status', cb, 10)
 
         end_time = self.node.get_clock().now() + rclpy.duration.Duration(seconds=20)
         while self.node.get_clock().now() < end_time:
@@ -89,19 +89,19 @@ class TestCoreMotionNode(unittest.TestCase):
             if received:
                 break
 
-        self.assertTrue(received, 'No AxisState received')
+        self.assertTrue(received, 'No AxesStatus received')
         msg = received[0]
         self.assertNotEqual(msg.header.stamp.sec, 0, 'Header stamp should be non-zero')
         self.assertEqual(msg.header.frame_id, 'base_link')
 
     def test_axis_state_field_lengths_match(self):
-        """All AxisState array fields should have the same length."""
+        """All AxesStatus array fields should have the same length."""
         received = []
 
         def cb(msg):
             received.append(msg)
 
-        self.node.create_subscription(AxisState, 'wmx/axis/state', cb, 10)
+        self.node.create_subscription(AxesStatus, 'wmx/axes/status', cb, 10)
 
         end_time = self.node.get_clock().now() + rclpy.duration.Duration(seconds=20)
         while self.node.get_clock().now() < end_time:
@@ -109,15 +109,15 @@ class TestCoreMotionNode(unittest.TestCase):
             if received:
                 break
 
-        self.assertTrue(received, 'No AxisState received')
+        self.assertTrue(received, 'No AxesStatus received')
         msg = received[0]
-        n = len(msg.amp_alarm)
-        self.assertGreater(n, 0, 'AxisState should have at least 1 axis')
+        n = len(msg.amp_alarms)
+        self.assertGreater(n, 0, 'AxesStatus should have at least 1 axis')
         for field in [
-            'amp_alarm_code', 'servo_on', 'home_done', 'motion_complete',
+            'amp_alarm_codes', 'servo_on', 'home_done', 'motion_complete',
             'negative_ls', 'positive_ls', 'home_switch',
-            'pos_cmd', 'velocity_cmd', 'actual_pos',
-            'actual_velocity', 'actual_torque',
+            'position_commands', 'velocity_commands', 'actual_positions',
+            'actual_velocities', 'actual_torques',
         ]:
             self.assertEqual(
                 len(getattr(msg, field)), n,
@@ -126,54 +126,54 @@ class TestCoreMotionNode(unittest.TestCase):
 
     def test_set_axis_on_service_available(self):
         """set_on service should be available."""
-        client = self.node.create_client(SetAxis, 'wmx/axis/set_on')
+        client = self.node.create_client(SetAxes, 'wmx/axes/set_servo_on')
         self.assertTrue(
             client.wait_for_service(timeout_sec=20),
-            'wmx/axis/set_on service not available',
+            'wmx/axes/set_servo_on service not available',
         )
 
     def test_clear_alarm_service_available(self):
         """clear_alarm service should be available."""
-        client = self.node.create_client(SetAxis, 'wmx/axis/clear_alarm')
+        client = self.node.create_client(SetAxes, 'wmx/axes/clear_amp_alarm')
         self.assertTrue(
             client.wait_for_service(timeout_sec=20),
-            'wmx/axis/clear_alarm service not available',
+            'wmx/axes/clear_amp_alarm service not available',
         )
 
     def test_set_mode_service_available(self):
         """set_mode service should be available."""
-        client = self.node.create_client(SetAxis, 'wmx/axis/set_mode')
+        client = self.node.create_client(SetAxes, 'wmx/axes/set_axis_command_mode')
         self.assertTrue(
             client.wait_for_service(timeout_sec=20),
-            'wmx/axis/set_mode service not available',
+            'wmx/axes/set_axis_command_mode service not available',
         )
 
     def test_set_polarity_service_available(self):
         """set_polarity service should be available."""
-        client = self.node.create_client(SetAxis, 'wmx/axis/set_polarity')
+        client = self.node.create_client(SetAxes, 'wmx/axes/set_axis_polarity')
         self.assertTrue(
             client.wait_for_service(timeout_sec=20),
-            'wmx/axis/set_polarity service not available',
+            'wmx/axes/set_axis_polarity service not available',
         )
 
     def test_homing_service_available(self):
         """Homing service should be available."""
-        client = self.node.create_client(SetAxis, 'wmx/axis/homing')
+        client = self.node.create_client(SetAxes, 'wmx/axes/start_home')
         self.assertTrue(
             client.wait_for_service(timeout_sec=20),
-            'wmx/axis/homing service not available',
+            'wmx/axes/start_home service not available',
         )
 
     def test_get_params_service_call(self):
         """Get params service should respond with axis parameters."""
-        client = self.node.create_client(GetWmxParams, 'wmx/params/get')
+        client = self.node.create_client(GetWmxParams, 'wmx/core_motion/get_wmx_params')
         self.assertTrue(
             client.wait_for_service(timeout_sec=20),
-            'wmx/params/get service not available',
+            'wmx/core_motion/get_wmx_params service not available',
         )
 
         req = GetWmxParams.Request()
-        req.index = [0]
+        req.indices = [0]
         future = client.call_async(req)
         rclpy.spin_until_future_complete(self.node, future, timeout_sec=10)
 

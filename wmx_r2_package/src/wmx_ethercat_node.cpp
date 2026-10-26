@@ -3,105 +3,327 @@
 
 #include "wmx_ethercat_node.hpp"
 
+using std::placeholders::_1;
+using std::placeholders::_2;
+
 using wmx3Api::DeviceType;
 using wmx3Api::ErrorCode;
+using wmx3Api::ecApi::Ecat;
+
+namespace
+{
+std::string ecatErrorText(int err)
+{
+  char errString[256] = {};
+  Ecat::ErrorToString(err, errString, sizeof(errString));
+  return errString;
+}
+
+std::string failureText(const std::string & call, const std::string & where, int err)
+{
+  return call + " failed. " + where + " Error=" + std::to_string(err) +
+         " (" + ecatErrorText(err) + ")";
+}
+}  // namespace
+
+WmxEtherCatNodeApi::WmxEtherCatNodeApi(const rclcpp::Logger & logger)
+: logger_(logger)
+{
+}
+
+WmxEtherCatNodeApi::~WmxEtherCatNodeApi()
+{
+  if (wmxEcat_) {
+    releaseDevice();
+  }
+}
+
+int WmxEtherCatNodeApi::attachDevice(std::string & message)
+{
+  if (wmxEcat_) {
+    message = "Already attached to the WMX3 device";
+    return ErrorCode::None;
+  }
+
+  const int err = wmx3Lib_.CreateDevice(WMX3_SDK_PATH, DeviceType::DeviceTypeNormal, timeout_);
+  if (err != ErrorCode::None) {
+    if (err == ErrorCode::StartProcessLockError) {
+      message = "Failed to attach to device (lock busy, will retry on next signal).";
+      RCLCPP_WARN(logger_, "%s", message.c_str());
+    } else {
+      char errString[256] = {};
+      wmx3Lib_.ErrorToString(err, errString, sizeof(errString));
+      message = "Failed to attach to device. Error=" + std::to_string(err) +
+        " (" + errString + ")";
+      RCLCPP_ERROR(logger_, "%s", message.c_str());
+    }
+    return err;
+  }
+
+  wmx3Lib_.SetDeviceName(deviceName_);
+  wmxEcat_ = std::make_unique<Ecat>(&wmx3Lib_);
+
+  message = "Attached to WMX3 device";
+  RCLCPP_INFO(logger_, "%s", message.c_str());
+  return ErrorCode::None;
+}
+
+void WmxEtherCatNodeApi::releaseDevice()
+{
+  wmxEcat_.reset();
+
+  const int err = wmx3Lib_.CloseDevice();
+  if (err != ErrorCode::None) {
+    char errString[256] = {};
+    wmx3Lib_.ErrorToString(err, errString, sizeof(errString));
+    RCLCPP_ERROR(logger_, "Failed to close device. Error=%d (%s)", err, errString);
+  } else {
+    RCLCPP_INFO(logger_, "Device closed");
+  }
+}
+
+int WmxEtherCatNodeApi::getMasterInfo(
+  int32_t masterId, wmx3Api::ecApi::EcMasterInfo & info, std::string & message)
+{
+  if (!wmxEcat_) {
+    message = "Cannot read master info. EtherCAT is not attached.";
+    return ErrorCode::DeviceIsNull;
+  }
+
+  const int err = wmxEcat_->GetMasterInfo(masterId, &info);
+  if (err != ErrorCode::None) {
+    message = failureText("GetMasterInfo", "masterId=" + std::to_string(masterId), err);
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return err;
+  }
+
+  message = "Master " + std::to_string(masterId) + ": slaves=" + std::to_string(info.numOfSlaves);
+  RCLCPP_INFO(logger_, "%s", message.c_str());
+  return ErrorCode::None;
+}
+
+int WmxEtherCatNodeApi::registerRead(
+  int32_t masterId, int32_t slaveId, int32_t regAddress, int32_t length,
+  std::vector<uint8_t> & data, std::string & message)
+{
+  if (!wmxEcat_) {
+    message = "Cannot read register. EtherCAT is not attached.";
+    return ErrorCode::DeviceIsNull;
+  }
+
+  if (regAddress < 0 || regAddress > 0xFFF) {
+    message = "Invalid reg_address: must be in [0x000, 0xFFF].";
+    return ErrorCode::ArgumentOutOfRange;
+  }
+
+  if (length <= 0 || length > 0x1000) {
+    message = "Invalid length: must be in [1, 4096].";
+    return ErrorCode::ArgumentOutOfRange;
+  }
+
+  if (regAddress + length > 0x1000) {
+    message = "reg_address + length exceeds 0x1000.";
+    return ErrorCode::ArgumentOutOfRange;
+  }
+
+  std::vector<unsigned char> raw(length, 0);
+  const int err = wmxEcat_->RegisterRead(masterId, slaveId, regAddress, length, raw.data());
+
+  char where[128] = {};
+  snprintf(
+    where, sizeof(where), "slaveId=%d reg=0x%03X length=%d", slaveId, regAddress, length);
+
+  if (err != ErrorCode::None) {
+    message = failureText("RegisterRead", where, err);
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return err;
+  }
+
+  data.assign(raw.begin(), raw.end());
+  message = "RegisterRead success. " + std::string(where);
+  RCLCPP_INFO(logger_, "%s", message.c_str());
+  return ErrorCode::None;
+}
+
+int WmxEtherCatNodeApi::resetStatistics(int32_t masterId, std::string & message)
+{
+  if (!wmxEcat_) {
+    message = "Cannot reset statistics. EtherCAT is not attached.";
+    return ErrorCode::DeviceIsNull;
+  }
+
+  int err = wmxEcat_->ResetRefClockInfo(masterId);
+  if (err != ErrorCode::None) {
+    message = failureText("ResetRefClockInfo", "masterId=" + std::to_string(masterId), err);
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return err;
+  }
+
+  err = wmxEcat_->ResetTransmitStatisticsInfo(masterId);
+  if (err != ErrorCode::None) {
+    message = failureText(
+      "ResetTransmitStatisticsInfo", "masterId=" + std::to_string(masterId), err);
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return err;
+  }
+
+  wmxEcat_->ScanNetwork(masterId);
+
+  message = "Statistics reset and ScanNetwork done. masterId=" + std::to_string(masterId);
+  RCLCPP_INFO(logger_, "%s", message.c_str());
+  return ErrorCode::None;
+}
+
+int WmxEtherCatNodeApi::scanNetwork(int32_t masterId, std::string & message)
+{
+  if (!wmxEcat_) {
+    message = "Cannot scan network. EtherCAT is not attached.";
+    return ErrorCode::DeviceIsNull;
+  }
+
+  const int err = wmxEcat_->ScanNetwork(masterId);
+  if (err != ErrorCode::None) {
+    message = failureText("ScanNetwork", "masterId=" + std::to_string(masterId), err);
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return err;
+  }
+
+  message = "ScanNetwork done. masterId=" + std::to_string(masterId);
+  RCLCPP_INFO(logger_, "%s", message.c_str());
+  return ErrorCode::None;
+}
+
+int WmxEtherCatNodeApi::startHotconnect(int32_t masterId, std::string & message)
+{
+  if (!wmxEcat_) {
+    message = "Cannot start hotconnect. EtherCAT is not attached.";
+    return ErrorCode::DeviceIsNull;
+  }
+
+  const int err = wmxEcat_->StartHotconnect(masterId);
+  if (err != ErrorCode::None) {
+    message = failureText("StartHotconnect", "masterId=" + std::to_string(masterId), err);
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return err;
+  }
+
+  message = "StartHotconnect done. masterId=" + std::to_string(masterId);
+  RCLCPP_INFO(logger_, "%s", message.c_str());
+  return ErrorCode::None;
+}
 
 WmxEtherCatNode::WmxEtherCatNode()
-: Node("wmx_ethercat_node"), wmxEcat_(&wmx3Lib_)
+: LifecycleNode("wmx_ethercat_node")
 {
-  auto ready_qos = rclcpp::QoS(1).reliable().transient_local();
-  engineReadySub_ = this->create_subscription<std_msgs::msg::Bool>(
-    "wmx/engine/ready", ready_qos,
-    std::bind(&WmxEtherCatNode::onEngineReady, this, _1));
-
-  getNetworkStateService_ = this->create_service<wmx_r2_message::srv::EcatGetNetworkState>(
-    "wmx/ecat/get_network_state",
-    std::bind(&WmxEtherCatNode::getNetworkState, this, _1, _2));
-
-  registerReadService_ = this->create_service<wmx_r2_message::srv::EcatRegisterRead>(
-    "wmx/ecat/register_read",
-    std::bind(&WmxEtherCatNode::registerRead, this, _1, _2));
-
-  resetStatisticsService_ = this->create_service<wmx_r2_message::srv::EcatResetStatistics>(
-    "wmx/ecat/reset_statistics",
-    std::bind(&WmxEtherCatNode::resetStatistics, this, _1, _2));
-
-  startHotconnectService_ = this->create_service<wmx_r2_message::srv::EcatStartHotconnect>(
-    "wmx/ecat/start_hotconnect",
-    std::bind(&WmxEtherCatNode::startHotconnect, this, _1, _2));
-
-  RCLCPP_INFO(this->get_logger(), "wmx_ethercat_node waiting for engine...");
+  api_ = std::make_unique<WmxEtherCatNodeApi>(this->get_logger());
+  RCLCPP_INFO(this->get_logger(), "wmx_ethercat_node is unconfigured, waiting for configure...");
 }
 
 WmxEtherCatNode::~WmxEtherCatNode()
 {
-  if (initialized_) {
-    err_ = wmx3Lib_.CloseDevice();
-    if (err_ != ErrorCode::None) {
-      wmx3Lib_.ErrorToString(err_, errString_, sizeof(errString_));
-      RCLCPP_ERROR(this->get_logger(), "Failed to close device");
-    } else {
-      RCLCPP_INFO(this->get_logger(), "Device closed");
-    }
-  }
+  api_.reset();
   RCLCPP_INFO(this->get_logger(), "wmx_ethercat_node stopped");
 }
 
-void WmxEtherCatNode::onEngineReady(const std_msgs::msg::Bool::SharedPtr msg)
+bool WmxEtherCatNode::isNodeActive()
 {
-  if (!msg->data || initialized_) {
-    return;
-  }
-
-  RCLCPP_INFO(this->get_logger(), "Engine ready — initializing EtherCAT node...");
-
-  unsigned int timeout = 10000;
-  err_ = wmx3Lib_.CreateDevice(WMX3_SDK_PATH, DeviceType::DeviceTypeNormal, timeout);
-
-  if (err_ != ErrorCode::None) {
-    wmx3Lib_.ErrorToString(err_, errString_, sizeof(errString_));
-    if (err_ == ErrorCode::StartProcessLockError) {
-      RCLCPP_WARN(
-        this->get_logger(), "Failed to attach to device (lock busy, will retry on next signal).");
-    } else {
-      RCLCPP_ERROR(
-        this->get_logger(),
-        "Failed to attach to device. Error=%d (%s)", err_, errString_);
-    }
-    return;
-  }
-
-  wmx3Lib_.SetDeviceName("wmx_ethercat_node");
-  initialized_ = true;
-
-  engineReadySub_.reset();
-
-  RCLCPP_INFO(this->get_logger(), "wmx_ethercat_node is ready");
+  return this->get_current_state().id() ==
+         lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE;
 }
 
-void WmxEtherCatNode::getNetworkState(
+std::string WmxEtherCatNode::notActiveMessage()
+{
+  return "wmx_ethercat_node is not active (state: " +
+         this->get_current_state().label() + ").";
+}
+
+WmxEtherCatNode::CallbackReturn WmxEtherCatNode::on_configure(const rclcpp_lifecycle::State &)
+{
+  RCLCPP_INFO(this->get_logger(), "Configuring wmx_ethercat_node...");
+
+  std::string message;
+  if (api_->attachDevice(message) != ErrorCode::None) {
+    return CallbackReturn::FAILURE;
+  }
+
+  getNetworkStateService_ = this->create_service<wmx_r2_message::srv::EcatGetNetworkState>(
+    "wmx/ecat/get_network_state",
+    std::bind(&WmxEtherCatNode::getNetworkStateCallback, this, _1, _2));
+
+  registerReadService_ = this->create_service<wmx_r2_message::srv::EcatRegisterRead>(
+    "wmx/ecat/register_read",
+    std::bind(&WmxEtherCatNode::registerReadCallback, this, _1, _2));
+
+  resetStatisticsService_ = this->create_service<wmx_r2_message::srv::EcatResetStatistics>(
+    "wmx/ecat/reset_statistics",
+    std::bind(&WmxEtherCatNode::resetStatisticsCallback, this, _1, _2));
+
+  scanNetworkService_ = this->create_service<wmx_r2_message::srv::EcatScanNetwork>(
+    "wmx/ecat/scan_network",
+    std::bind(&WmxEtherCatNode::scanNetworkCallback, this, _1, _2));
+
+  startHotconnectService_ = this->create_service<wmx_r2_message::srv::EcatStartHotconnect>(
+    "wmx/ecat/start_hotconnect",
+    std::bind(&WmxEtherCatNode::startHotconnectCallback, this, _1, _2));
+
+  RCLCPP_INFO(this->get_logger(), "wmx_ethercat_node is configured");
+  return CallbackReturn::SUCCESS;
+}
+
+WmxEtherCatNode::CallbackReturn WmxEtherCatNode::on_activate(
+  const rclcpp_lifecycle::State & previous_state)
+{
+  LifecycleNode::on_activate(previous_state);
+  RCLCPP_INFO(this->get_logger(), "wmx_ethercat_node is active");
+  return CallbackReturn::SUCCESS;
+}
+
+WmxEtherCatNode::CallbackReturn WmxEtherCatNode::on_deactivate(
+  const rclcpp_lifecycle::State & previous_state)
+{
+  LifecycleNode::on_deactivate(previous_state);
+  RCLCPP_INFO(this->get_logger(), "wmx_ethercat_node is inactive");
+  return CallbackReturn::SUCCESS;
+}
+
+WmxEtherCatNode::CallbackReturn WmxEtherCatNode::on_cleanup(const rclcpp_lifecycle::State &)
+{
+  getNetworkStateService_.reset();
+  registerReadService_.reset();
+  resetStatisticsService_.reset();
+  scanNetworkService_.reset();
+  startHotconnectService_.reset();
+
+  if (api_->isDeviceOpen()) {
+    api_->releaseDevice();
+  }
+
+  RCLCPP_INFO(this->get_logger(), "wmx_ethercat_node is cleaned up");
+  return CallbackReturn::SUCCESS;
+}
+
+WmxEtherCatNode::CallbackReturn WmxEtherCatNode::on_shutdown(
+  const rclcpp_lifecycle::State & previous_state)
+{
+  return on_cleanup(previous_state);
+}
+
+void WmxEtherCatNode::getNetworkStateCallback(
   const std::shared_ptr<wmx_r2_message::srv::EcatGetNetworkState::Request> request,
   std::shared_ptr<wmx_r2_message::srv::EcatGetNetworkState::Response> response)
 {
-  if (!initialized_) {
+  if (!isNodeActive()) {
     response->success = false;
-    response->message = "EtherCAT node not initialized. Engine not ready.";
+    response->message = notActiveMessage();
     return;
   }
 
   wmx3Api::ecApi::EcMasterInfo info;
-  err_ = wmxEcat_.GetMasterInfo(request->master_id, &info);
+  std::string message;
 
-  if (err_ != ErrorCode::None) {
-    char ecErrString[256];
-    wmx3Api::ecApi::Ecat::ErrorToString(err_, ecErrString, sizeof(ecErrString));
-    snprintf(
-      buffer_, sizeof(buffer_),
-      "GetMasterInfo failed. masterId=%d Error=%d (%s)",
-      request->master_id, err_, ecErrString);
-    RCLCPP_ERROR(this->get_logger(), "%s", buffer_);
+  if (api_->getMasterInfo(request->master_id, info, message) != ErrorCode::None) {
     response->success = false;
-    response->message = std::string(buffer_);
+    response->message = message;
     return;
   }
 
@@ -147,161 +369,86 @@ void WmxEtherCatNode::getNetworkState(
     response->slave_num_of_axes.push_back(static_cast<int32_t>(s.numOfAxes));
   }
 
-  snprintf(
-    buffer_, sizeof(buffer_),
-    "Master %d: slaves=%u", request->master_id, info.numOfSlaves);
-  RCLCPP_INFO(this->get_logger(), "%s", buffer_);
   response->success = true;
-  response->message = std::string(buffer_);
+  response->message = message;
 }
 
-
-void WmxEtherCatNode::registerRead(
+void WmxEtherCatNode::registerReadCallback(
   const std::shared_ptr<wmx_r2_message::srv::EcatRegisterRead::Request> request,
   std::shared_ptr<wmx_r2_message::srv::EcatRegisterRead::Response> response)
 {
-  if (!initialized_) {
+  if (!isNodeActive()) {
     response->success = false;
-    response->message = "EtherCAT node not initialized. Engine not ready.";
+    response->message = notActiveMessage();
     return;
   }
 
-  if (request->reg_address < 0 || request->reg_address > 0xFFF) {
-    response->success = false;
-    response->message = "Invalid reg_address: must be in [0x000, 0xFFF].";
-    return;
-  }
+  std::vector<uint8_t> data;
+  std::string message;
+  const int err = api_->registerRead(
+    request->master_id, request->slave_id, request->reg_address, request->length, data, message);
 
-  if (request->length <= 0 || request->length > 0x1000) {
-    response->success = false;
-    response->message = "Invalid length: must be in [1, 4096].";
-    return;
-  }
-
-  if (request->reg_address + request->length > 0x1000) {
-    response->success = false;
-    response->message = "reg_address + length exceeds 0x1000.";
-    return;
-  }
-
-  std::vector<unsigned char> buf(request->length, 0);
-
-  err_ = wmxEcat_.RegisterRead(
-    request->master_id,
-    request->slave_id,
-    request->reg_address,
-    request->length,
-    buf.data());
-
-  if (err_ != ErrorCode::None) {
-    char ecErrString[256];
-    wmx3Api::ecApi::Ecat::ErrorToString(err_, ecErrString, sizeof(ecErrString));
-    snprintf(
-      buffer_, sizeof(buffer_),
-      "RegisterRead failed. slaveId=%d reg=0x%03X length=%d Error=%d (%s)",
-      request->slave_id, request->reg_address, request->length, err_, ecErrString);
-    RCLCPP_ERROR(this->get_logger(), "%s", buffer_);
-    response->success = false;
-    response->message = std::string(buffer_);
-    return;
-  }
-
-  response->data.assign(buf.begin(), buf.end());
-  snprintf(
-    buffer_, sizeof(buffer_),
-    "RegisterRead success. slaveId=%d reg=0x%03X length=%d",
-    request->slave_id, request->reg_address, request->length);
-  RCLCPP_INFO(this->get_logger(), "%s", buffer_);
-  response->success = true;
-  response->message = std::string(buffer_);
+  response->success = (err == ErrorCode::None);
+  response->data = data;
+  response->message = message;
 }
 
-void WmxEtherCatNode::resetStatistics(
+void WmxEtherCatNode::resetStatisticsCallback(
   const std::shared_ptr<wmx_r2_message::srv::EcatResetStatistics::Request> request,
   std::shared_ptr<wmx_r2_message::srv::EcatResetStatistics::Response> response)
 {
-  if (!initialized_) {
+  if (!isNodeActive()) {
     response->success = false;
-    response->message = "EtherCAT node not initialized. Engine not ready.";
+    response->message = notActiveMessage();
     return;
   }
 
-  err_ = wmxEcat_.ResetRefClockInfo(request->master_id);
-  if (err_ != ErrorCode::None) {
-    char ecErrString[256];
-    wmx3Api::ecApi::Ecat::ErrorToString(err_, ecErrString, sizeof(ecErrString));
-    snprintf(
-      buffer_, sizeof(buffer_),
-      "ResetRefClockInfo failed. masterId=%d Error=%d (%s)",
-      request->master_id, err_, ecErrString);
-    RCLCPP_ERROR(this->get_logger(), "%s", buffer_);
-    response->success = false;
-    response->message = std::string(buffer_);
-    return;
-  }
+  std::string message;
+  const int err = api_->resetStatistics(request->master_id, message);
 
-  err_ = wmxEcat_.ResetTransmitStatisticsInfo(request->master_id);
-  if (err_ != ErrorCode::None) {
-    char ecErrString[256];
-    wmx3Api::ecApi::Ecat::ErrorToString(err_, ecErrString, sizeof(ecErrString));
-    snprintf(
-      buffer_, sizeof(buffer_),
-      "ResetTransmitStatisticsInfo failed. masterId=%d Error=%d (%s)",
-      request->master_id, err_, ecErrString);
-    RCLCPP_ERROR(this->get_logger(), "%s", buffer_);
-    response->success = false;
-    response->message = std::string(buffer_);
-    return;
-  }
-
-  wmxEcat_.ScanNetwork(request->master_id);
-
-  snprintf(
-    buffer_, sizeof(buffer_),
-    "Statistics reset and ScanNetwork done. masterId=%d", request->master_id);
-  RCLCPP_INFO(this->get_logger(), "%s", buffer_);
-  response->success = true;
-  response->message = std::string(buffer_);
+  response->success = (err == ErrorCode::None);
+  response->message = message;
 }
 
-void WmxEtherCatNode::startHotconnect(
+void WmxEtherCatNode::scanNetworkCallback(
+  const std::shared_ptr<wmx_r2_message::srv::EcatScanNetwork::Request> request,
+  std::shared_ptr<wmx_r2_message::srv::EcatScanNetwork::Response> response)
+{
+  if (!isNodeActive()) {
+    response->success = false;
+    response->message = notActiveMessage();
+    return;
+  }
+
+  std::string message;
+  const int err = api_->scanNetwork(request->master_id, message);
+
+  response->success = (err == ErrorCode::None);
+  response->message = message;
+}
+
+void WmxEtherCatNode::startHotconnectCallback(
   const std::shared_ptr<wmx_r2_message::srv::EcatStartHotconnect::Request> request,
   std::shared_ptr<wmx_r2_message::srv::EcatStartHotconnect::Response> response)
 {
-  if (!initialized_) {
+  if (!isNodeActive()) {
     response->success = false;
-    response->message = "EtherCAT node not initialized. Engine not ready.";
+    response->message = notActiveMessage();
     return;
   }
 
-  err_ = wmxEcat_.StartHotconnect(request->master_id);
+  std::string message;
+  const int err = api_->startHotconnect(request->master_id, message);
 
-  if (err_ != ErrorCode::None) {
-    char ecErrString[256];
-    wmx3Api::ecApi::Ecat::ErrorToString(err_, ecErrString, sizeof(ecErrString));
-    snprintf(
-      buffer_, sizeof(buffer_),
-      "StartHotconnect failed. masterId=%d Error=%d (%s)",
-      request->master_id, err_, ecErrString);
-    RCLCPP_ERROR(this->get_logger(), "%s", buffer_);
-    response->success = false;
-    response->message = std::string(buffer_);
-    return;
-  }
-
-  snprintf(
-    buffer_, sizeof(buffer_),
-    "StartHotconnect done. masterId=%d", request->master_id);
-  RCLCPP_INFO(this->get_logger(), "%s", buffer_);
-  response->success = true;
-  response->message = std::string(buffer_);
+  response->success = (err == ErrorCode::None);
+  response->message = message;
 }
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<WmxEtherCatNode>();
-  rclcpp::spin(node);
+  rclcpp::spin(node->get_node_base_interface());
   rclcpp::shutdown();
   return 0;
 }

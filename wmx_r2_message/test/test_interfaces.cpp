@@ -6,9 +6,9 @@
 #include <string>
 #include <vector>
 
-#include "wmx_r2_message/msg/axis_pose.hpp"
-#include "wmx_r2_message/msg/axis_state.hpp"
-#include "wmx_r2_message/msg/axis_velocity.hpp"
+#include "wmx_r2_message/msg/axes_pose.hpp"
+#include "wmx_r2_message/msg/axes_status.hpp"
+#include "wmx_r2_message/msg/axes_velocity.hpp"
 #include "wmx_r2_message/srv/ecat_get_network_state.hpp"
 #include "wmx_r2_message/srv/ecat_register_read.hpp"
 #include "wmx_r2_message/srv/ecat_reset_statistics.hpp"
@@ -17,49 +17,49 @@
 #include "wmx_r2_message/srv/get_io_bytes.hpp"
 #include "wmx_r2_message/srv/get_wmx_params.hpp"
 #include "wmx_r2_message/srv/load_wmx_params.hpp"
-#include "wmx_r2_message/srv/set_axis.hpp"
-#include "wmx_r2_message/srv/set_axis_gear_ratio.hpp"
+#include "wmx_r2_message/srv/set_axes.hpp"
+#include "wmx_r2_message/srv/set_axes_gear_ratio.hpp"
 #include "wmx_r2_message/srv/set_engine.hpp"
 #include "wmx_r2_message/srv/set_io_bit.hpp"
 #include "wmx_r2_message/srv/set_io_bytes.hpp"
 
-TEST(AxisState, roundtrip_fields) {
-  wmx_r2_message::msg::AxisState msg;
-  msg.amp_alarm = {false, true};
-  msg.amp_alarm_code = {0, 0x7380};
+TEST(AxesStatus, roundtrip_fields) {
+  wmx_r2_message::msg::AxesStatus msg;
+  msg.amp_alarms = {false, true};
+  msg.amp_alarm_codes = {0, 0x7380};
   msg.servo_on = {true, false};
-  msg.actual_pos = {1.5, -2.0};
-  msg.actual_velocity = {0.1, 0.2};
-  msg.pos_cmd = {3.0, 4.0};
+  msg.actual_positions = {1.5, -2.0};
+  msg.actual_velocities = {0.1, 0.2};
+  msg.position_commands = {3.0, 4.0};
 
-  EXPECT_EQ(msg.amp_alarm.size(), 2u);
-  EXPECT_EQ(msg.amp_alarm_code[1], 0x7380);
+  EXPECT_EQ(msg.amp_alarms.size(), 2u);
+  EXPECT_EQ(msg.amp_alarm_codes[1], 0x7380);
   EXPECT_EQ(msg.servo_on[0], true);
-  EXPECT_DOUBLE_EQ(msg.actual_pos[1], -2.0);
-  EXPECT_DOUBLE_EQ(msg.pos_cmd[0], 3.0);
+  EXPECT_DOUBLE_EQ(msg.actual_positions[1], -2.0);
+  EXPECT_DOUBLE_EQ(msg.position_commands[0], 3.0);
 }
 
-TEST(AxisPose, roundtrip_fields) {
-  wmx_r2_message::msg::AxisPose msg;
-  msg.index = {0, 1, 2};
-  msg.target = {10.0, 20.0, 30.0};
-  msg.velocity = {1.0, 2.0, 3.0};
-  msg.acc = {100.0, 100.0, 100.0};
-  msg.dec = {50.0, 50.0, 50.0};
+TEST(AxesPose, roundtrip_fields) {
+  wmx_r2_message::msg::AxesPose msg;
+  msg.indices = {0, 1, 2};
+  msg.positions = {10.0, 20.0, 30.0};
+  msg.velocities = {1.0, 2.0, 3.0};
+  msg.accelerations = {100.0, 100.0, 100.0};
+  msg.decelerations = {50.0, 50.0, 50.0};
 
-  EXPECT_EQ(msg.index.size(), 3u);
-  EXPECT_DOUBLE_EQ(msg.target[2], 30.0);
+  EXPECT_EQ(msg.indices.size(), 3u);
+  EXPECT_DOUBLE_EQ(msg.positions[2], 30.0);
 }
 
-TEST(AxisVelocity, roundtrip_fields) {
-  wmx_r2_message::msg::AxisVelocity msg;
-  msg.index = {0};
-  msg.velocity = {5.5};
-  msg.acc = {200.0};
-  msg.dec = {200.0};
+TEST(AxesVelocity, roundtrip_fields) {
+  wmx_r2_message::msg::AxesVelocity msg;
+  msg.indices = {0};
+  msg.velocities = {5.5};
+  msg.accelerations = {200.0};
+  msg.decelerations = {200.0};
 
-  EXPECT_EQ(msg.index[0], 0);
-  EXPECT_DOUBLE_EQ(msg.velocity[0], 5.5);
+  EXPECT_EQ(msg.indices[0], 0);
+  EXPECT_DOUBLE_EQ(msg.velocities[0], 5.5);
 }
 
 TEST(SetEngine, request_and_response) {
@@ -76,20 +76,20 @@ TEST(SetEngine, request_and_response) {
   EXPECT_FALSE(res.success);
 }
 
-TEST(SetAxis, request_arrays) {
-  wmx_r2_message::srv::SetAxis::Request req;
-  req.index = {0, 1, 2};
+TEST(SetAxes, request_arrays) {
+  wmx_r2_message::srv::SetAxes::Request req;
+  req.indices = {0, 1, 2};
   req.data = {1, 1, 0};
-  ASSERT_EQ(req.index.size(), req.data.size());
+  ASSERT_EQ(req.indices.size(), req.data.size());
   EXPECT_EQ(req.data[2], 0);
 }
 
-TEST(SetAxisGearRatio, request_arrays) {
-  wmx_r2_message::srv::SetAxisGearRatio::Request req;
-  req.index = {0};
-  req.numerator = {1.0};
-  req.denominator = {2.0};
-  EXPECT_DOUBLE_EQ(req.numerator[0] / req.denominator[0], 0.5);
+TEST(SetAxesGearRatio, request_arrays) {
+  wmx_r2_message::srv::SetAxesGearRatio::Request req;
+  req.indices = {0};
+  req.numerators = {1.0};
+  req.denominators = {2.0};
+  EXPECT_DOUBLE_EQ(req.numerators[0] / req.denominators[0], 0.5);
 }
 
 TEST(GetIoBit, request_and_response) {
@@ -172,7 +172,7 @@ TEST(LoadWmxParams, path) {
 
 TEST(GetWmxParams, dump_lines) {
   wmx_r2_message::srv::GetWmxParams::Request req;
-  req.index = {0, 1};
+  req.indices = {0, 1};
   wmx_r2_message::srv::GetWmxParams::Response res;
   res.success = true;
   res.params_dump = {"=== Axis 0 ===", "[AxisParam]"};

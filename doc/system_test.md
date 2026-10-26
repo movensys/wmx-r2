@@ -71,9 +71,9 @@ colcon test-result --verbose --test-result-base build/wmx_r2_package
 
 | Test | Subtests | What it covers |
 |------|----------|----------------|
-| test_message_interfaces | 29 | All 3 msg types (AxisState, AxisPose, AxisVelocity) and 13 srv types: field existence, types, population, renames (in_pos->motion_complete, denumerator->denominator) |
+| test_message_interfaces | 29 | All 3 msg types (AxesStatus, AxesPose, AxesVelocity) and 13 srv types: field existence, types, population, renames (in_pos->motion_complete, denumerator->denominator) |
 | test_engine_lifecycle | 3 | Engine publishes ready=True, get_status service responds with valid state, clean shutdown |
-| test_core_motion_node | 9 | AxisState publishing with header (stamp, frame_id), array field length consistency, 5 service availability checks, get_params returns data |
+| test_core_motion_node | 9 | AxesStatus publishing with header (stamp, frame_id), array field length consistency, 5 service availability checks, get_params returns data |
 | test_io_node | 7 | All 6 IO services available and responding (get/set input/output bit/bytes), clean shutdown |
 | test_ethercat_node | 6 | All 4 EtherCAT services available (get_network_state, register_read, reset_statistics, start_hotconnect), master field population, clean shutdown |
 | Lint (6 tests) | — | cppcheck, flake8, lint_cmake, pep257, uncrustify, xmllint |

@@ -7,31 +7,19 @@ differential_drive_controller:
     dec_time: 1.0
     wheel_radius: 0.095
     wheel_to_wheel: 0.55
-    # Odometry (pose + /odom_deltas) is dead-reckoned from encoder position deltas.
-    # pos_unit_scale converts actualPos (WMX user-unit) to wheel rad; 1.0 when the
-    # WMX param file already scales to rad (same scaling that makes actualVelocity rad/s).
     pos_unit_scale: 1.0
-    # Jump guard: re-baseline (skip the cycle) when |dPhi - actualVelocity*dt| exceeds
-    # this [rad] -- rejects homing / encoder-rollover jumps; generous so real motion passes.
     jump_guard_tol: 0.5
-    # Stale-command safety: zero the wheels if no /cmd_vel within this window [s].
     cmd_vel_timeout: 0.25
-    # /odom_accel is rate-limited to this rate [Hz] relative to the control loop.
     accel_publish_rate: 10.0
     accel_alpha: 0.3
-    # Leave TF to the localization EKF when an IMU is present; enable only as a
-    # fallback for IMU-less configs.
     publish_tf: false
     odom_frame: odom
     base_frame: base_link
-    # Autonomy contract topics. /odom_enc feeds the localization EKF (its
-    # launch remaps the EKF input odom->odom_enc).
     cmd_vel_topic: /cmd_vel_safe
     encoder_odometry_topic: /odom_enc
     encoder_omega_topic: /omega_enc
     odom_deltas_topic: /odom_deltas
     odom_accel_topic: /odom_accel
-    wmx_param_file_path: ""  # resolved at launch time via get_package_share_directory
 
 joint_state_broadcaster:
   ros__parameters:
@@ -41,3 +29,31 @@ joint_state_broadcaster:
     encoder_joint_topic: /joint_states
     isaacsim_joint_topic: /isaacsim/joint_command
     gazebo_joint_topic: /velocity_controller/commands
+
+wmx_engine_node:
+  ros__parameters:
+    engine_core: -1           # CPU core for the RT engine (-1 = SDK default)
+    engine_affinity_mask: 0   # CPU affinity bitmask (0 = SDK default)
+    wmx_param_file_path: ""
+
+wmx_core_motion_node:
+  ros__parameters:
+    axes_status_rate: 100
+    jog_timeout_ms: 200.0
+    jog_run_time_ms: 2000.0
+    jog_jerk_ratio: 0.75
+    motion_controllers:
+      - differential_drive_controller
+    controller_resync_period: 0.2
+
+wmx_lifecycle_manager_node:
+  ros__parameters:
+    managed_nodes:
+      - wmx_core_motion_node
+      - wmx_io_node
+      - wmx_ethercat_node
+      - joint_state_broadcaster
+      - differential_drive_controller
+    engine_status_service: "wmx/engine/get_engine_status"
+    require_engine: true
+    discovery_period: 1.0

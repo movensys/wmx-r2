@@ -11,7 +11,6 @@ joint_trajectory_controller:
   ros__parameters:
     joint_axes: [0, 1, 2, 3, 4, 5]
     joint_trajectory_action: /movensys_manipulator_arm_controller/follow_joint_trajectory
-    wmx_param_file_path: ""  # resolved at launch time via get_package_share_directory
 
 joint_position_controller:
   ros__parameters:
@@ -83,3 +82,34 @@ servo_stream_controller:
     end_velocity_ratio: 0.0
     stop_on_error: true          # stop rather than skip a rejected setpoint
 
+wmx_engine_node:
+  ros__parameters:
+    engine_core: -1           # CPU core for the RT engine (-1 = SDK default)
+    engine_affinity_mask: 0   # CPU affinity bitmask (0 = SDK default)
+    wmx_param_file_path: ""
+
+wmx_core_motion_node:
+  ros__parameters:
+    axes_status_rate: 100
+    jog_timeout_ms: 200.0
+    jog_run_time_ms: 2000.0
+    jog_jerk_ratio: 0.75
+    motion_controllers:
+      - joint_trajectory_controller
+      - joint_position_controller
+    controller_resync_period: 0.2
+
+wmx_lifecycle_manager_node:
+  ros__parameters:
+    # Brought up in this order once the engine reports Communicating.
+    # Empty means every lifecycle node found on the graph.
+    managed_nodes:
+      - wmx_core_motion_node
+      - wmx_io_node
+      - wmx_ethercat_node
+      - joint_state_broadcaster
+      - joint_trajectory_controller
+      - joint_position_controller
+    engine_status_service: "wmx/engine/get_engine_status"
+    require_engine: true
+    discovery_period: 1.0

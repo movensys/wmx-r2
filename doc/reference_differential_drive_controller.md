@@ -9,8 +9,8 @@ header `differential_drive_controller.hpp`; the node is the ROS/WMX wiring aroun
 ```
 /cmd_vel_safe ──────────▶ ┌──────────────────────────────┐ ──▶ /odom_enc    (Odometry)
                           │ differential_drive_controller │ ──▶ /odom_deltas (TwistStamped)
-wmx/engine/ready (Bool) ─▶│  single loop @ rate (100 Hz)  │ ──▶ /odom_accel  (AccelStamped)
-                          │  WMX3 CoreMotion StartVel /   │ ──▶ /omega_enc   (Float64MultiArray)
+lifecycle configure/    ─▶│  single loop @ rate (100 Hz)  │ ──▶ /odom_accel  (AccelStamped)
+activate (manager)        │  WMX3 CoreMotion StartVel /   │ ──▶ /omega_enc   (Float64MultiArray)
                           │  GetStatus (one per cycle)    │ ──▶ /tf odom→base_link (optional)
                           └──────────────────────────────┘
 ```
@@ -84,7 +84,6 @@ in the generated node config like any other value.
 
 | Topic (default) | Dir | Type | QoS | Rate | Notes |
 |---|---|---|---|---|---|
-| `wmx/engine/ready` | sub | `std_msgs/Bool` | reliable, transient_local, depth 1 | 1 Hz | Init gate from `wmx_engine_node`, re-published every second (`false` until engine communication starts, `true` afterwards; transient_local so late joiners get the last sample). The controller acts on the first `true` and ignores the rest; the subscription is dropped after successful init. Name is fixed (not a parameter). |
 | `/cmd_vel_safe` | sub | `geometry_msgs/TwistStamped` | default (reliable, volatile), depth 1 | producer | **TwistStamped is mandatory** — the header stamp drives the staleness timeout (a zero/unset stamp falls back to arrival time). Uses `twist.linear.x` [m/s], `twist.angular.z` [rad/s]. |
 | `/odom_enc` | pub | `nav_msgs/Odometry` | default, depth 1 | `rate` | `header.frame_id = odom_frame`, `child_frame_id = base_frame`. **Pose** = dead-reckoned from per-wheel encoder **position deltas** (`actualPos`), exact-arc via the sinc midpoint form (dt-free). **Twist** = `vx`, `vy`(=0), `vyaw` from `actualVelocity` (forward kinematics). Covariance: see below. |
 | `/odom_deltas` | pub | `geometry_msgs/TwistStamped` | default, depth 1 | `rate` | Accumulated `Σ|Δs|` (in `twist.linear.x`, m) and `Σ|Δθ|` (in `twist.angular.z`, rad) from encoder **position deltas** since the previous publish (more exact than `Σ|v|·dt`); resets each publish. `frame_id = odom_frame`. |
@@ -94,11 +93,10 @@ in the generated node config like any other value.
 
 **Namespaces.** The five data-topic defaults are *absolute* names, so launching
 the node in a ROS namespace does **not** namespace them — override the topic
-parameters explicitly for multi-robot/namespaced deployments. The fixed
-`wmx/engine/ready` gate is *relative* (it follows the namespace, on both the
-engine and controller side): the controller must run in the **same namespace
-as `wmx_engine_node`**, or the ready signal never arrives and the node waits
-forever.
+parameters explicitly for multi-robot/namespaced deployments. The lifecycle
+services (`~/change_state`, `~/get_state`) follow the namespace, so
+`wmx_lifecycle_manager_node` must run where it can discover the controller —
+in practice, the **same namespace** — or the controller is never brought up.
 
 ### `/odom_enc` covariance (fixed, not parameterized)
 
@@ -156,24 +154,28 @@ authoritative for the no-EKF fallback where this odometry feeds Nav2 directly.
 
 ## Lifecycle and runtime behaviour
 
-**Startup.** The node starts idle and waits for `wmx/engine/ready` (latched `Bool`
-from `wmx_engine_node`). On `true` it runs the init sequence on a dedicated thread
-(so blocking retries never stall the executor):
+**Startup.** The node is a managed lifecycle node: it comes up `unconfigured` and
+does nothing until `wmx_lifecycle_manager_node` transitions it (the manager waits
+for the engine to report `Communicating` first). See "Node Lifecycle" in
+`reference_wmx_r2_general_nodes.md`.
 
-1. `CreateDevice(WMX3_SDK_PATH, DeviceTypeNormal, 10 s)` — on `StartProcessLockError`
-   retries every 1 s up to 30 times (another process holding the device lock);
-   any other error aborts this init attempt.
+`on_configure`:
+
+1. `CreateDevice(WMX3_SDK_PATH, DeviceTypeNormal, 10 s)` — any error fails the
+   transition and leaves the node `unconfigured`.
 2. `SetDeviceName("differential_drive_controller")`.
 3. `ImportAndSetAll(wmx_param_file_path)` — failure is logged but non-fatal.
-4. Create publishers/subscriber and the control timer; drop the ready subscription.
+4. Create publishers/subscriber and the control timer, with the timer cancelled.
 
-A failed init attempt is not terminal: it resets the init guard, and since the
-engine re-publishes `ready=true` at 1 Hz (and the ready subscription is only
-dropped on success), the full sequence is automatically re-attempted on the
-next ready message (~1 s later) until it succeeds. The process never exits
-with an error code on init failure — it stays alive and inert (no topics, no
-timer). Supervise via logs or topic liveness (`/odom_enc` at `rate` Hz), not
-exit codes.
+`on_activate` clears the odometry baselines and starts the control timer.
+`on_deactivate` stops the timer and commands both wheels to zero velocity;
+`on_cleanup` destroys the interfaces and closes the device.
+
+A failed `configure` is not terminal: the transition returns `FAILURE`, the node
+stays `unconfigured`, and the manager retries on its next discovery sweep. The
+process never exits with an error code on a failed transition — it stays alive
+and inert (no topics, no timer). Supervise via `wmx/lifecycle/get_node_states` or
+topic liveness (`/odom_enc` at `rate` Hz), not exit codes.
 
 The node does **not** start communication, clear alarms, or switch servos on —
 that is owned by the engine/general nodes (see
@@ -262,7 +264,7 @@ What the Toolkit needs to template per robot / per deployment:
   configured); otherwise two publishers would fight over `odom → base_link`.
 - **Usually defaults:** topic names (already the autonomy contract), frames, `rate`,
   `cmd_vel_timeout`, `accel_publish_rate`, `accel_alpha`, `acc_time`/`dec_time`.
-- **Not parameterized (by design):** the `wmx/engine/ready` gate topic, the
+- **Not parameterized (by design):** the lifecycle gate (the manager owns it), the
   `/odom_enc` covariance values, servo-on/alarm-clear handling (engine/general
   nodes own these), and any gear-ratio scaling (WMX XML owns it).
 

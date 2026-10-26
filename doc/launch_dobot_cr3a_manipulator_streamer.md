@@ -116,16 +116,16 @@ Confirm it in the log rather than repeating it by hand:
 
 | step | done by | log line to look for |
 |---|---|---|
-| Load axis parameters | `joint_trajectory_controller`, from `wmx_param_file_path` | `Success to set WMX params`, then per-axis numerator / denominator / polarity / abs encoder |
-| Clear alarms | `joint_state_broadcaster` | `wmx/axis/clear_alarm succeeded: Cleared alarm axis 0; ... axis 5;` |
-| Servo on | `joint_state_broadcaster` | `wmx/axis/set_on succeeded: Set axis 0 on; ... axis 5 on;` |
+| Load axis parameters | `wmx_engine_node`, from the `wmx_param_file` launch argument | per-axis numerator / denominator / polarity / abs encoder after `Device created` (a failure logs `Failed to load params from ...`) |
+| Clear alarms | `joint_state_broadcaster`, on activation by `wmx_lifecycle_manager_node` | `wmx/axes/clear_amp_alarm succeeded: ...` |
+| Servo on | `joint_state_broadcaster`, on activation by `wmx_lifecycle_manager_node` | `wmx/axes/set_servo_on succeeded: ...` |
 
-If the parameter lines are missing, check `wmx_param_file_path` in the launch —
+If the parameter lines are missing, check `wmx_param_file` in the launch —
 the axes will otherwise run on whatever scaling the engine already had.
 
 ### Homing — do not do this routinely ⚠
 
-`/wmx/axis/homing` sets `HomeType::CurrentPos` and starts homing, which
+`/wmx/axes/start_home` sets `HomeType::CurrentPos` and starts homing, which
 **redefines the axis' current physical position as zero**. The CR3A reports
 `abs encoder: 1` on all six axes, so it already knows where it is at power-on and
 does not need homing to establish a position.
@@ -322,8 +322,8 @@ engine-side buffer channels. A `kill -9` leaves the channels allocated; the next
 run reclaims them with `CreateApiBuffer failed ... reclaiming`.
 
 ```bash
-ros2 service call /wmx/axis/set_on wmx_r2_message/srv/SetAxis \
-  "{index: [0,1,2,3,4,5], data: [0,0,0,0,0,0]}"
+ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes \
+  "{indices: [0,1,2,3,4,5], data: [0,0,0,0,0,0]}"
 ```
 
 ---

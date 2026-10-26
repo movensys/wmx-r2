@@ -6,7 +6,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import LifecycleNode, Node
 
 
 def generate_launch_description():
@@ -24,7 +24,7 @@ def generate_launch_description():
     # joints by up to -6.8 rad and MoveIt would reject the start state. Pass
     # wmx_param_file:=<...>/synustech_wmx_parameters_sim.xml in that case; it is
     # the same file with the offsets on axes 2 to 7 zeroed.
-    wmx_param_file_path = LaunchConfiguration(
+    wmx_param_file = LaunchConfiguration(
         'wmx_param_file',
         default=os.path.join(pkg_share, 'config', 'synustech_wmx_parameters.xml'),
     )
@@ -33,44 +33,47 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(pkg_share, 'launch', 'wmx_r2_general_nodes.launch.py')
         ),
-        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            'config_file': manipulator_config,
+            'wmx_param_file': wmx_param_file,
+        }.items(),
     )
 
-    start_joint_state_broadcaster = Node(
+    start_joint_state_broadcaster = LifecycleNode(
         package='wmx_r2_package',
         executable='joint_state_broadcaster',
         name='joint_state_broadcaster',
+        namespace='',
         parameters=[manipulator_config, {'use_sim_time': use_sim_time}],
         output='screen',
     )
 
-    start_joint_trajectory_controller = Node(
+    start_joint_trajectory_controller = LifecycleNode(
         package='wmx_r2_package',
         executable='joint_trajectory_controller',
         name='joint_trajectory_controller',
-        parameters=[
-            manipulator_config,
-            {
-                'use_sim_time': use_sim_time,
-                'wmx_param_file_path': wmx_param_file_path,
-            },
-        ],
+        namespace='',
+        parameters=[manipulator_config, {'use_sim_time': use_sim_time}],
         output='screen',
     )
 
     # Direct path: one StartLinearIntplPos per Servo message, issued from the
-    # ROS callback. The default.
-    start_joint_position_controller = Node(
+    # ROS callback. The default. A lifecycle node, brought up by
+    # wmx_lifecycle_manager_node once the engine is communicating.
+    start_joint_position_controller = LifecycleNode(
         package='wmx_r2_package',
         executable='joint_position_controller',
         name='joint_position_controller',
+        namespace='',
         parameters=[manipulator_config, {'use_sim_time': use_sim_time}],
         output='screen',
         condition=UnlessCondition(use_api_buffer),
     )
 
     # Buffered path: Servo setpoints are recorded into the WMX3 API buffer and
-    # replayed under the RT OS at cycle boundaries.
+    # replayed under the RT OS at cycle boundaries. A plain node: it polls
+    # wmx/engine/get_engine_status itself and is not lifecycle-managed.
     start_servo_stream_controller = Node(
         package='wmx_r2_package',
         executable='servo_stream_controller',
@@ -90,7 +93,7 @@ def generate_launch_description():
             'wmx_param_file',
             default_value=os.path.join(pkg_share, 'config', 'synustech_wmx_parameters.xml'),
             description=(
-                'WMX3 axis parameter XML loaded by joint_trajectory_controller. '
+                'WMX3 axis parameter XML imported by wmx_engine_node at engine start. '
                 'Use synustech_wmx_parameters_sim.xml with the WMX simulation platform.'
             ),
         ),

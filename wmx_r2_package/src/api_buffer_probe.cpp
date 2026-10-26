@@ -34,7 +34,7 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/bool.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 #include "WMX3Api.h"
 #include "CoreMotionApi.h"
@@ -110,11 +110,17 @@ private:
 
   std::atomic<bool> initializing_{false};
   std::thread probeThread_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr engineReadySub_;
+
+  // Engine readiness is polled through wmx/engine/get_engine_status, the same
+  // way wmx_lifecycle_manager_node does it.
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr engineStatusClient_;
+  rclcpp::TimerBase::SharedPtr engineProbeTimer_;
+  bool engineProbePending_ = false;
 
   // --- helpers ------------------------------------------------------------
   void setRosParameter();
-  void onEngineReady(const std_msgs::msg::Bool::SharedPtr msg);
+  void probeEngine();
+  void onEngineReady();
   bool attachDevice(WMX3Api * lib, const char * name);
   bool check(int err, const char * what);
   bool getStatus(ApiBufferStatus * st);
@@ -135,10 +141,10 @@ ApiBufferProbe::ApiBufferProbe()
 {
   setRosParameter();
 
-  auto ready_qos = rclcpp::QoS(1).reliable().transient_local();
-  engineReadySub_ = this->create_subscription<std_msgs::msg::Bool>(
-    "wmx/engine/ready", ready_qos,
-    std::bind(&ApiBufferProbe::onEngineReady, this, _1));
+  engineStatusClient_ =
+    this->create_client<std_srvs::srv::Trigger>("wmx/engine/get_engine_status");
+  engineProbeTimer_ = this->create_wall_timer(
+    std::chrono::seconds(1), std::bind(&ApiBufferProbe::probeEngine, this));
 
   RCLCPP_INFO(this->get_logger(), "api_buffer_probe waiting for engine...");
 }
@@ -200,11 +206,30 @@ void ApiBufferProbe::setRosParameter()
   RCLCPP_INFO(this->get_logger(), "===========================");
 }
 
-void ApiBufferProbe::onEngineReady(const std_msgs::msg::Bool::SharedPtr msg)
+void ApiBufferProbe::probeEngine()
 {
-  if (!msg->data || initializing_.exchange(true)) {
+  if (initializing_ || engineProbePending_ || !engineStatusClient_->service_is_ready()) {
     return;
   }
+
+  engineProbePending_ = true;
+  engineStatusClient_->async_send_request(
+    std::make_shared<std_srvs::srv::Trigger::Request>(),
+    [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+      engineProbePending_ = false;
+      const auto result = future.get();
+      if (result->success && result->message == "Communicating") {
+        onEngineReady();
+      }
+    });
+}
+
+void ApiBufferProbe::onEngineReady()
+{
+  if (initializing_.exchange(true)) {
+    return;
+  }
+  engineProbeTimer_->cancel();
   RCLCPP_INFO(this->get_logger(), "Engine ready — starting probe on dedicated thread...");
   probeThread_ = std::thread(&ApiBufferProbe::runProbe, this);
 }

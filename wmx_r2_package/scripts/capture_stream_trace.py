@@ -9,9 +9,9 @@
 #
 #   setpoint    /movensys_manipulator_arm_controller/joint_trajectory  (40 Hz)
 #               what the streamer was ASKED to do
-#   pos_cmd     /wmx/axis/state.pos_cmd                                (100 Hz)
+#   pos_cmd     /wmx/axes/status.position_commands                     (100 Hz)
 #               what WMX3's interpolator actually generated
-#   actual_pos  /wmx/axis/state.actual_pos                             (100 Hz)
+#   actual_pos  /wmx/axes/status.actual_positions                      (100 Hz)
 #               what the arm physically did
 #
 # The split matters. setpoint -> pos_cmd is the API buffer and interpolation
@@ -33,7 +33,7 @@ import rclpy
 from rclpy.node import Node
 
 from trajectory_msgs.msg import JointTrajectory
-from wmx_r2_message.msg import AxisState
+from wmx_r2_message.msg import AxesStatus
 
 
 def stamp_to_sec(stamp):
@@ -50,7 +50,7 @@ class StreamTraceCapture(Node):
         self.create_subscription(
             JointTrajectory, args.trajectory_topic, self.on_trajectory, 50)
         self.create_subscription(
-            AxisState, args.axis_state_topic, self.on_axis_state, 50)
+            AxesStatus, args.axis_state_topic, self.on_axis_state, 50)
 
         self.get_logger().info(
             f'capturing {args.seconds}s from {args.trajectory_topic} '
@@ -66,8 +66,8 @@ class StreamTraceCapture(Node):
     def on_axis_state(self, msg):
         self.states.append((
             stamp_to_sec(msg.header.stamp),
-            list(msg.pos_cmd),
-            list(msg.actual_pos)))
+            list(msg.position_commands),
+            list(msg.actual_positions)))
 
 
 def main():
@@ -78,7 +78,7 @@ def main():
     p.add_argument(
         '--trajectory-topic',
         default='/movensys_manipulator_arm_controller/joint_trajectory')
-    p.add_argument('--axis-state-topic', default='/wmx/axis/state')
+    p.add_argument('--axis-state-topic', default='/wmx/axes/status')
     args = p.parse_args()
 
     rclpy.init()

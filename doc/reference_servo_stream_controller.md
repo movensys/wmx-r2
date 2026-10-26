@@ -128,8 +128,10 @@ startup sequence in
 [reference_wmx_r2_general_nodes.md](reference_wmx_r2_general_nodes.md): load axis
 parameters, set gear ratios, clear alarms, servo on, home.
 
-The node waits for `wmx/engine/ready` before initialising, so it can be started
-first — it will sit at `waiting for engine...` until the engine node comes up.
+The node polls `wmx/engine/get_engine_status` once a second and initialises
+when the engine reports `Communicating`, so it can be started first — it will
+sit at `waiting for engine...` until the engine node comes up. It is a plain
+node, not a lifecycle node, so `wmx_lifecycle_manager_node` does not manage it.
 
 Engine access needs root. All commands below assume this wrapper, which is the
 same `sudo --preserve-env` invocation used throughout `doc/`:
@@ -374,7 +376,7 @@ the arm lags the stream.
 | topic | type | direction | notes |
 |---|---|---|---|
 | `<joint_trajectory_topic>` | `trajectory_msgs/JointTrajectory` | in | Servo setpoints; only the last point of each message is used |
-| `wmx/engine/ready` | `std_msgs/Bool` | in | Transient-local; gates initialisation |
+| `wmx/engine/get_engine_status` | `std_srvs/Trigger` (service client) | out | Polled at 1 Hz until the engine answers `Communicating`; gates initialisation |
 | `/moveit2_trajectory/execution_active` | `std_msgs/Bool` | in | Transient-local; blocks streaming while `move_group` owns the arm |
 | `/servo_stream_controller/queue_depth` | `std_msgs/Int32` | out | Setpoints in flight, published at 10 Hz |
 
@@ -481,7 +483,7 @@ earlier `USleep`-paced design.
 
 | message | meaning | what to do |
 |---|---|---|
-| `waiting for engine...` and nothing more | `wmx/engine/ready` never arrived | Start the general nodes (`wmx_r2_general_nodes.launch.py`); check the engine and EtherCAT state |
+| `waiting for engine...` and nothing more | `wmx/engine/get_engine_status` never answered `Communicating` | Start the general nodes (`wmx_r2_general_nodes.launch.py`); check the engine and EtherCAT state |
 | `servo_stream_test_source`: `Waiting for 'joint1' on /joint_states ...` forever | Either nothing publishes `/joint_states`, or it does but without that joint name | `ros2 topic info /joint_states` — `Publisher count: 0` means `joint_state_broadcaster` is not running; a nonzero count means the name does not match, so compare its `joint_name` with the test source's |
 | `API buffer not draining: N blocks in flight (expected 0-1)` | The engine is not consuming setpoints as fast as they arrive | Check the publisher's rate against `nominal_period_us`; check `apiWaitUntilMotionStart` in the startup log |
 | `Streaming but no blocks consumed in N ms` | Channel is Active but `cumulativeBlockCount` is not advancing | The engine has stalled mid-interpolation — check axis state, servo-on, and alarms |
@@ -538,7 +540,7 @@ The node now logs `linearIntplProfileCalcMode` and `linearIntplOverrideType` for
 both are inherited from the axis configuration, and issue 3 could not previously
 be diagnosed because neither was recorded.
 
-Caveat on that measurement: `wmx_core_motion_node` sizes `wmx/axis/state` from
+Caveat on that measurement: `wmx_core_motion_node` sizes `wmx/axes/status` from
 the axis count it reads out of `GetEngineStatus` at attach time, and on a CR3A
 launch it has been observed logging `is ready (1 axes, 100 Hz)` — so the topic
 may carry only axis 0 even on a six-axis arm. Check that line before relying on

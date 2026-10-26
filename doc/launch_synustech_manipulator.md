@@ -65,7 +65,7 @@ sudo --preserve-env=PATH \
 # Shutdown
 Ctrl-C the launch, then servo off the arm axes:
 ```
-ros2 service call /wmx/axis/set_on wmx_r2_message/srv/SetAxis "{index: [2,3,4,5,6,7], data: [0,0,0,0,0,0]}"
+ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{indices: [2,3,4,5,6,7], data: [0,0,0,0,0,0]}"
 ```
-Do not call `/wmx/axis/homing` on this arm. All six axes use absolute
+Do not call `/wmx/axes/start_home` on this arm. All six axes use absolute
 encoders and homing would overwrite the zero with the current position.

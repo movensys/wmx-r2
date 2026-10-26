@@ -1,216 +1,199 @@
 // Copyright 2026 Movensys Corporation.
 // Licensed under the MIT License. See LICENSE.txt for details.
 
-#include <iostream>
-#include <memory>
-#include <string>
-#include <vector>
+#include "joint_state_broadcaster.hpp"
+
 #include <chrono>
-#include <thread>
-#include <atomic>
 
-#include "rclcpp/rclcpp.hpp"
-#include "sensor_msgs/msg/joint_state.hpp"
-#include "std_msgs/msg/bool.hpp"
-#include "std_msgs/msg/float64_multi_array.hpp"
-
-#include "wmx_r2_message/srv/set_axis.hpp"
-
-#include "WMX3Api.h"
-#include "CoreMotionApi.h"
-#include "IOApi.h"
+#include "wmx_qos_compat.hpp"
 
 using std::placeholders::_1;
+
 using wmx3Api::CoreMotion;
 using wmx3Api::CoreMotionStatus;
 using wmx3Api::DeviceType;
 using wmx3Api::ErrorCode;
 using wmx3Api::IO;
-using wmx3Api::WMX3Api;
 
-class JointStateBroadcaster : public rclcpp::Node
+JointStateBroadcasterApi::JointStateBroadcasterApi(const rclcpp::Logger & logger)
+: logger_(logger)
 {
-public:
-  JointStateBroadcaster();
-  ~JointStateBroadcaster();
+}
 
-  int jointFeedbackRate_;
-  float gripperCloseValue_;
-  float gripperOpenValue_;
-  std::vector<int64_t> jointAxes_;
-  std::vector<std::string> jointNames_;
-  std::vector<std::string> gripperJointNames_;
-  std::vector<int64_t> gripperAddress_;
-  std::string encoderJointTopic_;
-  std::string isaacsimJointTopic_;
-  std::string gazeboJointTopic_;
-
-  unsigned char gripperData_;
-
-  int err_;
-  char errString_[256];
-
-private:
-  bool initialized_ = false;
-  std::atomic<bool> initializing_{false};
-
-  WMX3Api wmx3Lib_;
-  CoreMotionStatus cmStatus_;
-  std::unique_ptr<CoreMotion> wmx3LibCm_;
-  std::unique_ptr<IO> wmx3Lib_Io_;
-
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr coreMotionReadySub_;
-  rclcpp::Client<wmx_r2_message::srv::SetAxis>::SharedPtr clearAlarmClient_;
-  rclcpp::Client<wmx_r2_message::srv::SetAxis>::SharedPtr setAxisOnClient_;
-
-  rclcpp::TimerBase::SharedPtr encoderJointTimer_;
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr encoderJointPub_;
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr isaacsimJointPub_;
-  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr gazeboJointPub_;
-
-  std::thread init_thread_;
-
-  void onCoreMotionReady(const std_msgs::msg::Bool::SharedPtr msg);
-  void runInitSequence();
-  bool callSetAxisService(rclcpp::Client<wmx_r2_message::srv::SetAxis>::SharedPtr client,
-                          const std::string & service_name,
-                          const std::vector<int64_t> & index,
-                          const std::vector<int64_t> & data);
-  void publishJointState();
-  void setRosParameter();
-};
-
-JointStateBroadcaster::JointStateBroadcaster() : Node("joint_state_broadcaster")
+JointStateBroadcasterApi::~JointStateBroadcasterApi()
 {
-  RCLCPP_INFO(this->get_logger(), "start joint_state_broadcaster");
+  if (cm_) {
+    releaseDevice();
+  }
+}
+
+std::string JointStateBroadcasterApi::errorText(int err)
+{
+  char errString[256] = {};
+  wmx3Lib_.ErrorToString(err, errString, sizeof(errString));
+  return errString;
+}
+
+int JointStateBroadcasterApi::attachDevice(std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (cm_) {
+    message = "Already attached to the WMX3 device";
+    return ErrorCode::None;
+  }
+
+  const int err = wmx3Lib_.CreateDevice(WMX3_SDK_PATH, DeviceType::DeviceTypeNormal, timeout_);
+  if (err != ErrorCode::None) {
+    message = "Failed to attach to device. Error=" + std::to_string(err) +
+      " (" + errorText(err) + ")";
+    return err;
+  }
+
+  wmx3Lib_.SetDeviceName(deviceName_);
+
+  cm_ = std::make_unique<CoreMotion>(&wmx3Lib_);
+  io_ = std::make_unique<IO>(&wmx3Lib_);
+
+  message = "Attached to WMX3 device";
+  RCLCPP_INFO(logger_, "%s", message.c_str());
+  return ErrorCode::None;
+}
+
+void JointStateBroadcasterApi::releaseDevice()
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  io_.reset();
+  cm_.reset();
+
+  const int err = wmx3Lib_.CloseDevice();
+  if (err != ErrorCode::None) {
+    RCLCPP_ERROR(logger_, "Failed to close device. Error=%d (%s)", err, errorText(err).c_str());
+  } else {
+    RCLCPP_INFO(logger_, "Device closed");
+  }
+}
+
+int JointStateBroadcasterApi::getStatus(
+  const std::vector<int64_t> & axes, std::vector<AxisFeedback> & feedback, std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (!cm_) {
+    message = "Cannot read status. Core motion is not attached.";
+    return ErrorCode::DeviceIsNull;
+  }
+
+  CoreMotionStatus status;
+  const int err = cm_->GetStatus(&status);
+
+  feedback.clear();
+  feedback.reserve(axes.size());
+  for (const int64_t axis : axes) {
+    AxisFeedback entry;
+    entry.actualPos = status.axesStatus[axis].actualPos;
+    entry.actualVelocity = status.axesStatus[axis].actualVelocity;
+    feedback.push_back(entry);
+  }
+
+  return err;
+}
+
+int JointStateBroadcasterApi::getOutputBit(
+  int32_t byte, int32_t bit, int32_t & value, std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (!io_) {
+    message = "Cannot read output bit. IO is not attached.";
+    return ErrorCode::DeviceIsNull;
+  }
+
+  unsigned char data = 0;
+  const int err = io_->GetOutBit(byte, bit, &data);
+  value = static_cast<int32_t>(data);
+  return err;
+}
+
+int JointStateBroadcasterApi::setServoOn(int axis, int on, std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (!cm_) {
+    message = "Cannot set servo on axis " + std::to_string(axis) +
+      ". Core motion is not attached.";
+    return ErrorCode::DeviceIsNull;
+  }
+
+  const int err = cm_->axisControl->SetServoOn(axis, on);
+  if (err != ErrorCode::None) {
+    message = "Servo " + std::to_string(axis) + " error to " + (on ? "on" : "off") +
+      ". Error=" + std::to_string(err) + " (" + errorText(err) + ")";
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return err;
+  }
+
+  message = "Servo " + std::to_string(axis) + " " + (on ? "on" : "off");
+  RCLCPP_INFO(logger_, "%s", message.c_str());
+  return ErrorCode::None;
+}
+
+JointStateBroadcaster::JointStateBroadcaster()
+: LifecycleNode("joint_state_broadcaster")
+{
+  api_ = std::make_unique<JointStateBroadcasterApi>(this->get_logger());
 
   setRosParameter();
 
-  auto ready_qos = rclcpp::QoS(1).reliable().transient_local();
-  coreMotionReadySub_ = this->create_subscription<std_msgs::msg::Bool>(
-    "wmx/core_motion/ready", ready_qos,
-    std::bind(&JointStateBroadcaster::onCoreMotionReady, this, _1));
+  axisClientCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
-  clearAlarmClient_ = this->create_client<wmx_r2_message::srv::SetAxis>(
-    "wmx/axis/clear_alarm");
+  clearAmpAlarmClient_ = this->create_client<wmx_r2_message::srv::SetAxes>(
+    "wmx/axes/clear_amp_alarm", servicesQos(), axisClientCbGroup_);
 
-  setAxisOnClient_ = this->create_client<wmx_r2_message::srv::SetAxis>(
-    "wmx/axis/set_on");
+  setServoOnClient_ = this->create_client<wmx_r2_message::srv::SetAxes>(
+    "wmx/axes/set_servo_on", servicesQos(), axisClientCbGroup_);
 
-  RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster waiting for core_motion...");
+  RCLCPP_INFO(
+    this->get_logger(), "joint_state_broadcaster is unconfigured, waiting for configure...");
 }
 
 JointStateBroadcaster::~JointStateBroadcaster()
 {
-  RCLCPP_INFO(this->get_logger(), "Stop joint_state_broadcaster");
+  servoOff();
+  api_.reset();
 
-  if (init_thread_.joinable()) {
-    init_thread_.join();
-  }
-
-  if (initialized_) {
-    if (encoderJointTimer_) {
-      encoderJointTimer_->cancel();
-    }
-
-    for (int axis : jointAxes_) {
-      err_ = wmx3LibCm_->axisControl->SetServoOn(axis, 0);
-      if (err_ != ErrorCode::None) {
-        wmx3Lib_.ErrorToString(err_, errString_, sizeof(errString_));
-        RCLCPP_ERROR(
-          this->get_logger(), "Servo %d error to off. Error=%d (%s)", axis, err_,
-          errString_);
-      } else {
-        RCLCPP_INFO(this->get_logger(), "Servo %d off", axis);
-      }
-    }
-
-    err_ = wmx3Lib_.CloseDevice();
-    if (err_ != ErrorCode::None) {
-      wmx3Lib_.ErrorToString(err_, errString_, sizeof(errString_));
-      RCLCPP_ERROR(this->get_logger(), "Failed to close device. Error=%d (%s)", err_, errString_);
-    } else {
-      RCLCPP_INFO(this->get_logger(), "Device closed");
-    }
-  }
-
-  RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster is stopped");
+  RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster stopped");
 }
 
-void JointStateBroadcaster::onCoreMotionReady(const std_msgs::msg::Bool::SharedPtr msg)
+bool JointStateBroadcaster::isNodeActive() const
 {
-  if (!msg->data || initialized_ || initializing_.exchange(true)) {
-    return;
-  }
-
-  RCLCPP_INFO(this->get_logger(), "CoreMotion ready — starting init on dedicated thread...");
-
-  // Join any previous thread (e.g. from a failed retry)
-  if (init_thread_.joinable()) {
-    init_thread_.join();
-  }
-
-  // Spawn dedicated thread so blocking wait_for() doesn't block executor
-  init_thread_ = std::thread(&JointStateBroadcaster::runInitSequence, this);
+  return isNodeActive_.load();
 }
 
-void JointStateBroadcaster::runInitSequence()
+void JointStateBroadcaster::servoOff()
 {
-  unsigned int timeout = 10000;
-  static constexpr int kMaxDeviceRetries = 30;
-
-  for (int attempt = 1; attempt <= kMaxDeviceRetries; ++attempt) {
-    err_ = wmx3Lib_.CreateDevice(WMX3_SDK_PATH, DeviceType::DeviceTypeNormal, timeout);
-    if (err_ == ErrorCode::None) {
-      break;
-    }
-    wmx3Lib_.ErrorToString(err_, errString_, sizeof(errString_));
-    if (err_ == ErrorCode::StartProcessLockError) {
-      RCLCPP_WARN(
-        this->get_logger(), "Device lock busy, retrying in 1s... (%d/%d)",
-        attempt, kMaxDeviceRetries);
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-    } else {
-      RCLCPP_ERROR(
-        this->get_logger(), "Failed to attach to device. Error=%d (%s)", err_,
-        errString_);
-      initializing_ = false;
-      return;
-    }
-  }
-
-  if (err_ != ErrorCode::None) {
-    RCLCPP_FATAL(
-      this->get_logger(), "Device lock busy after %d retries, giving up", kMaxDeviceRetries);
-    initializing_ = false;
+  if (!isNodeActive() || !api_ || !api_->isDeviceOpen()) {
     return;
   }
 
-  wmx3Lib_.SetDeviceName("joint_state_broadcaster");
+  for (const int64_t axis : jointAxes_) {
+    std::string message;
+    api_->setServoOn(static_cast<int>(axis), 0, message);
+  }
+}
 
-  RCLCPP_INFO(this->get_logger(), "Attached to WMX3 device");
+JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_configure(
+  const rclcpp_lifecycle::State &)
+{
+  RCLCPP_INFO(this->get_logger(), "Configuring joint_state_broadcaster...");
 
-  wmx3LibCm_ = std::make_unique<CoreMotion>(&wmx3Lib_);
-  wmx3Lib_Io_ = std::make_unique<IO>(&wmx3Lib_);
-
-  std::vector<int64_t> zeroData(jointAxes_.size(), 0);
-  std::vector<int64_t> onData(jointAxes_.size(), 1);
-
-  // Clear alarms on all axes
-  if (!callSetAxisService(clearAlarmClient_, "wmx/axis/clear_alarm", jointAxes_, zeroData)) {
-    RCLCPP_ERROR(this->get_logger(), "Init failed at clear_alarm — node will not retry");
-    initializing_ = false;
-    return;
+  std::string message;
+  if (api_->attachDevice(message) != ErrorCode::None) {
+    RCLCPP_ERROR(this->get_logger(), "%s", message.c_str());
+    return CallbackReturn::FAILURE;
   }
 
-  // Set servo on for all axes
-  if (!callSetAxisService(setAxisOnClient_, "wmx/axis/set_on", jointAxes_, onData)) {
-    RCLCPP_ERROR(this->get_logger(), "Init failed at set_on — node will not retry");
-    initializing_ = false;
-    return;
-  }
-
-  // Create publishers and timer on the node (thread-safe in rclcpp)
   encoderJointPub_ = this->create_publisher<sensor_msgs::msg::JointState>(encoderJointTopic_, 1);
   isaacsimJointPub_ = this->create_publisher<sensor_msgs::msg::JointState>(isaacsimJointTopic_, 1);
   gazeboJointPub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(gazeboJointTopic_, 1);
@@ -218,17 +201,79 @@ void JointStateBroadcaster::runInitSequence()
   encoderJointTimer_ = this->create_wall_timer(
     std::chrono::milliseconds(1000 / jointFeedbackRate_),
     std::bind(&JointStateBroadcaster::publishJointState, this));
+  encoderJointTimer_->cancel();
 
-  initialized_ = true;
-  coreMotionReadySub_.reset();
-  RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster is ready");
+  RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster is configured");
+  return CallbackReturn::SUCCESS;
 }
 
-bool JointStateBroadcaster::callSetAxisService(
-              rclcpp::Client<wmx_r2_message::srv::SetAxis>::SharedPtr client,
-              const std::string & service_name,
-              const std::vector<int64_t> & index,
-              const std::vector<int64_t> & data)
+JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_activate(
+  const rclcpp_lifecycle::State & previous_state)
+{
+  std::vector<int64_t> zeroData(jointAxes_.size(), 0);
+  std::vector<int64_t> onData(jointAxes_.size(), 1);
+
+  if (!callSetAxesService(
+      clearAmpAlarmClient_, "wmx/axes/clear_amp_alarm", jointAxes_, zeroData))
+  {
+    RCLCPP_ERROR(this->get_logger(), "Activation failed at clear_amp_alarm");
+    return CallbackReturn::FAILURE;
+  }
+
+  if (!callSetAxesService(setServoOnClient_, "wmx/axes/set_servo_on", jointAxes_, onData)) {
+    RCLCPP_ERROR(this->get_logger(), "Activation failed at set_servo_on");
+    return CallbackReturn::FAILURE;
+  }
+
+  LifecycleNode::on_activate(previous_state);
+  isNodeActive_ = true;
+  encoderJointTimer_->reset();
+
+  RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster is active");
+  return CallbackReturn::SUCCESS;
+}
+
+JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_deactivate(
+  const rclcpp_lifecycle::State & previous_state)
+{
+  encoderJointTimer_->cancel();
+  servoOff();
+  isNodeActive_ = false;
+
+  LifecycleNode::on_deactivate(previous_state);
+  RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster is inactive");
+  return CallbackReturn::SUCCESS;
+}
+
+JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_cleanup(
+  const rclcpp_lifecycle::State &)
+{
+  isNodeActive_ = false;
+
+  encoderJointTimer_.reset();
+  encoderJointPub_.reset();
+  isaacsimJointPub_.reset();
+  gazeboJointPub_.reset();
+
+  if (api_->isDeviceOpen()) {
+    api_->releaseDevice();
+  }
+
+  RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster is cleaned up");
+  return CallbackReturn::SUCCESS;
+}
+
+JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_shutdown(
+  const rclcpp_lifecycle::State & previous_state)
+{
+  return on_cleanup(previous_state);
+}
+
+bool JointStateBroadcaster::callSetAxesService(
+  rclcpp::Client<wmx_r2_message::srv::SetAxes>::SharedPtr client,
+  const std::string & service_name,
+  const std::vector<int64_t> & index,
+  const std::vector<int64_t> & data)
 {
   const int max_retries = 5;
   const auto service_timeout = std::chrono::seconds(10);
@@ -240,8 +285,8 @@ bool JointStateBroadcaster::callSetAxisService(
   }
 
   for (int attempt = 1; attempt <= max_retries; attempt++) {
-    auto request = std::make_shared<wmx_r2_message::srv::SetAxis::Request>();
-    request->index.assign(index.begin(), index.end());
+    auto request = std::make_shared<wmx_r2_message::srv::SetAxes::Request>();
+    request->indices.assign(index.begin(), index.end());
     request->data.assign(data.begin(), data.end());
 
     RCLCPP_INFO(
@@ -250,6 +295,7 @@ bool JointStateBroadcaster::callSetAxisService(
 
     auto future = client->async_send_request(request);
     if (future.wait_for(call_timeout) != std::future_status::ready) {
+      client->remove_pending_request(future);
       RCLCPP_WARN(
         this->get_logger(), "Service call %s timed out (attempt %d/%d)",
         service_name.c_str(), attempt, max_retries);
@@ -258,7 +304,6 @@ bool JointStateBroadcaster::callSetAxisService(
 
     auto response = future.get();
     if (!response->success) {
-      // Server may not be initialized yet -- retry instead of aborting
       if (response->message.find("not initialized") != std::string::npos) {
         RCLCPP_WARN(
           this->get_logger(),
@@ -311,6 +356,13 @@ void JointStateBroadcaster::setRosParameter()
   this->get_parameter("isaacsim_joint_topic", isaacsimJointTopic_);
   this->get_parameter("gazebo_joint_topic", gazeboJointTopic_);
 
+  if (jointFeedbackRate_ <= 0) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "joint_feedback_rate must be > 0, got %d. Falling back to 100 Hz.", jointFeedbackRate_);
+    jointFeedbackRate_ = 100;
+  }
+
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
   RCLCPP_INFO(this->get_logger(), "joint_feedback_rate: %d", jointFeedbackRate_);
 
@@ -335,7 +387,7 @@ void JointStateBroadcaster::setRosParameter()
       gripper_joint_names_str += gripperJointNames_[i];
     }
     RCLCPP_INFO(this->get_logger(), "gripper_joint_name: [%s]", gripper_joint_names_str.c_str());
-    RCLCPP_INFO(this->get_logger(), "gripper_open_value: %f",  gripperOpenValue_);
+    RCLCPP_INFO(this->get_logger(), "gripper_open_value: %f", gripperOpenValue_);
     RCLCPP_INFO(this->get_logger(), "gripper_close_value: %f", gripperCloseValue_);
     if (gripperAddress_.size() >= 2) {
       RCLCPP_INFO(
@@ -353,21 +405,27 @@ void JointStateBroadcaster::setRosParameter()
 
 void JointStateBroadcaster::publishJointState()
 {
-  wmx3LibCm_->GetStatus(&cmStatus_);
+  std::string message;
+
+  std::vector<JointStateBroadcasterApi::AxisFeedback> feedback;
+  api_->getStatus(jointAxes_, feedback, message);
 
   sensor_msgs::msg::JointState encoderJointMsg_;
   std_msgs::msg::Float64MultiArray gazeboJointMsg_;
 
-  for (size_t i = 0; i < jointAxes_.size(); ++i) {
+  for (size_t i = 0; i < feedback.size(); ++i) {
     encoderJointMsg_.name.push_back(jointNames_[i]);
-    encoderJointMsg_.position.push_back(cmStatus_.axesStatus[jointAxes_[i]].actualPos);
-    encoderJointMsg_.velocity.push_back(cmStatus_.axesStatus[jointAxes_[i]].actualVelocity);
+    encoderJointMsg_.position.push_back(feedback[i].actualPos);
+    encoderJointMsg_.velocity.push_back(feedback[i].actualVelocity);
   }
 
   for (size_t i = 0; i < gripperJointNames_.size() && gripperAddress_.size() >= 1; ++i) {
     encoderJointMsg_.name.push_back(gripperJointNames_[i]);
-    wmx3Lib_Io_->GetOutBit(gripperAddress_[0], gripperAddress_[1], &gripperData_);
-    if (gripperData_) {
+
+    int32_t gripperData = 0;
+    api_->getOutputBit(gripperAddress_[0], gripperAddress_[1], gripperData, message);
+
+    if (gripperData) {
       encoderJointMsg_.position.push_back(gripperCloseValue_);
       encoderJointMsg_.velocity.push_back(0.000);
     } else {
@@ -388,7 +446,9 @@ int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<JointStateBroadcaster>();
-  rclcpp::spin(node);
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(node->get_node_base_interface());
+  executor.spin();
   rclcpp::shutdown();
   return 0;
 }

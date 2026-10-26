@@ -104,9 +104,10 @@ chmod +x ~/wmxrun
 Verify:
 
 ```bash
-ros2 service call /wmx/engine/get_status std_srvs/srv/Trigger "{}"
+ros2 service call /wmx/engine/get_engine_status std_srvs/srv/Trigger "{}"
+# expect: success=True, message='Communicating'
 ros2 node list
-# expect: wmx_engine_node, wmx_core_motion_node, wmx_io_node, wmx_ethercat_node
+# expect: wmx_engine_node, wmx_lifecycle_manager_node, wmx_core_motion_node, wmx_io_node, wmx_ethercat_node
 ```
 
 This launch does **not** start `joint_state_broadcaster` — the manipulator
@@ -119,7 +120,7 @@ launches add that, so a bench session runs it by hand in step 3.
 Plain service calls, no root needed.
 
 ```bash
-ros2 service call /wmx/params/load wmx_r2_message/srv/LoadWmxParams \
+ros2 service call /wmx/engine/load_wmx_params wmx_r2_message/srv/LoadWmxParams \
   "{file_path: '$HOME/workspaces/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/${ROBOT}_wmx_parameters.xml'}"
 ```
 
@@ -134,8 +135,8 @@ Both robots' parameter files exist, so loading the **wrong** one will not error.
 Confirm `ROBOT` matches the arm in front of you.
 
 ```bash
-ros2 service call /wmx/axis/clear_alarm wmx_r2_message/srv/SetAxis "{index: [0], data: [0]}"
-ros2 service call /wmx/axis/set_on      wmx_r2_message/srv/SetAxis "{index: [0], data: [1]}"
+ros2 service call /wmx/axes/clear_amp_alarm wmx_r2_message/srv/SetAxes "{indices: [0], data: [0]}"
+ros2 service call /wmx/axes/set_servo_on    wmx_r2_message/srv/SetAxes "{indices: [0], data: [1]}"
 ```
 
 If you reload parameters later, **re-run both** — they act on the axis as scaled
@@ -143,7 +144,7 @@ at the time they were called.
 
 ### Homing is not part of this procedure ⚠
 
-`/wmx/axis/homing` sets `HomeType::CurrentPos`, which **redefines the axis'
+`/wmx/axes/start_home` sets `HomeType::CurrentPos`, which **redefines the axis'
 current physical position as zero**. On an arm with absolute encoders
 (`abs encoder: 1` in the parameter-load log) the position is already known at
 power-on, and re-zeroing at an arbitrary pose discards the calibration that the
@@ -165,10 +166,12 @@ recalibration.
 ~/wmxrun ros2 run wmx_r2_package joint_state_broadcaster --ros-args --params-file $BENCH
 ```
 
-This node calls `wmx/axis/clear_alarm` and `wmx/axis/set_on` for its own
-`joint_axes` during init, so **starting it turns the servos on**. It also does
-not retry: if those service calls fail because the engine is not up yet, it logs
-`Init failed at ...` and never publishes. Start it only after step 1 is confirmed.
+This is a lifecycle node: `wmx_lifecycle_manager_node` (part of step 1)
+configures and activates it once the engine reports `Communicating`. On
+activation it calls `wmx/axes/clear_amp_alarm` and `wmx/axes/set_servo_on` for
+its own `joint_axes`, so **starting it turns the servos on**. If those calls
+fail it logs `Activation failed at ...` and the manager retries on its next
+discovery sweep. Start it only after step 1 is confirmed.
 
 Verify — the test source waits forever otherwise:
 
@@ -364,7 +367,7 @@ the next run detects and reclaims it
 Servo off when you are done:
 
 ```bash
-ros2 service call /wmx/axis/set_on wmx_r2_message/srv/SetAxis "{index: [0], data: [0]}"
+ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{indices: [0], data: [0]}"
 ```
 
 ---
@@ -386,8 +389,8 @@ ros2 service call /wmx/axis/set_on wmx_r2_message/srv/SetAxis "{index: [0], data
 |---|---|---|
 | `Couldn't parse params file ... Error opening YAML file` | `$BENCH` unset, stale, or pointing at a deleted file | `ls -l "$BENCH"`; the message does not distinguish a missing file from bad YAML |
 | `LoadWmxParams` → `success=False, 'File operation failed'` | `$ROBOT` unset, so the path collapsed to `_wmx_parameters.xml` | `echo "$ROBOT"`, then re-run |
-| Controller stuck at `waiting for engine...` | `wmx/engine/ready` never arrived | Step 1 is not up |
+| Controller stuck at `waiting for engine...` | `wmx/engine/get_engine_status` never answered `Communicating` | Step 1 is not up, or the engine is not communicating |
 | Test source repeats `Waiting for 'joint1' on /joint_states ...` | No publisher, or a joint-name mismatch | `ros2 topic info /joint_states` — `Publisher count: 0` means the broadcaster is not running; nonzero means compare its `joint_name` with the test source's |
-| Broadcaster logs `Init failed at clear_alarm` / `at set_on` | Engine services were not available at its startup | It does not retry — restart it after step 1 is confirmed |
+| Broadcaster logs `Activation failed at clear_amp_alarm` / `at set_servo_on` | The core motion services did not answer | The lifecycle manager retries on its next sweep; check `wmx_core_motion_node` is active |
 | Broadcaster crashes immediately | `joint_feedback_rate` is 0 (its default), giving `1000 / 0` in the timer period | Set it; the bench config uses 100 |
 | Controller runs but nothing moves | `/moveit2_trajectory/execution_active` is latched true, so setpoints are discarded | Check that no `move_group` execution is in progress |
