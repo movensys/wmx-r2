@@ -4,6 +4,7 @@
 #ifndef WMX_R2_CONTROL__WMX_SYSTEM_HARDWARE_HPP_
 #define WMX_R2_CONTROL__WMX_SYSTEM_HARDWARE_HPP_
 
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -53,8 +54,8 @@ public:
   WmxSystemHardwareApi(const rclcpp::Logger & logger, const Config & config);
   ~WmxSystemHardwareApi();
 
-  int attachDevice(std::string & message);
-  void releaseDevice();
+  int createDevice(std::string & message);
+  void closeDevice();
 
   int importAndSetAll(const std::string & path, std::string & message);
 
@@ -63,10 +64,11 @@ public:
     bool & communicating, std::string & message);
 
   int startVel(int axis, double omega, std::string & message);
-  int setServoOn(int axis, int on, std::string & message);
+  int stop(int axis, std::string & message);
+  int waitForMotionComplete(
+    const std::vector<int> & axes, unsigned int timeoutMilliseconds, std::string & message);
+  int setServoOn(int axis, int newStatus, std::string & message);
   int clearAmpAlarm(int axis, std::string & message);
-
-  bool isDeviceOpen() const {return isDeviceAttached_;}
 
 private:
   rclcpp::Logger logger_;
@@ -76,7 +78,6 @@ private:
   unsigned int servoOnTimeout_ = 2000;
 
   mutable std::mutex deviceMutex_;
-  bool isDeviceAttached_ = false;
 
   wmx3Api::WMX3Api wmx3Lib_;
   wmx3Api::CoreMotion cm_;
@@ -98,7 +99,7 @@ struct WmxJoint
   double velState = 0.0;
 
   double cmd = 0.0;
-  double lastCmd = 0.0;
+  double lastCmd = std::numeric_limits<double>::quiet_NaN();
 };
 
 class WmxSystemHardware : public hardware_interface::SystemInterface
@@ -126,6 +127,12 @@ public:
   hardware_interface::CallbackReturn on_cleanup(
     const rclcpp_lifecycle::State & previous_state) override;
 
+  hardware_interface::CallbackReturn on_error(
+    const rclcpp_lifecycle::State & previous_state) override;
+
+  hardware_interface::CallbackReturn on_shutdown(
+    const rclcpp_lifecycle::State & previous_state) override;
+
   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
 
   std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
@@ -137,6 +144,8 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
+  void stopAllAxes();
+
   rclcpp::Logger logger_ = rclcpp::get_logger("WmxSystemHardware");
   rclcpp::Clock clock_{RCL_STEADY_TIME};
 
@@ -151,6 +160,7 @@ private:
   std::string wmxParamFile_;
   int maxDeviceRetries_ = 30;
   bool autoServoOn_ = true;
+  unsigned int stopTimeout_ = 2000;
   hardware_interface::CallbackReturn initImpl();
   std::string getHwParam(const std::string & key, const std::string & def) const;
   bool waitForCommunicating();

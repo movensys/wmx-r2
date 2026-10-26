@@ -5,6 +5,7 @@
 #define JOINT_TRAJECTORY_CONTROLLER_HPP_
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -34,19 +35,18 @@ public:
   explicit JointTrajectoryControllerApi(const rclcpp::Logger & logger);
   ~JointTrajectoryControllerApi();
 
-  int attachDevice(std::string & message);
-  void releaseDevice();
+  int createDevice(std::string & message);
+  void closeDevice();
 
   int startCSplinePos(
     const std::vector<std::vector<double>> & positions,
     const std::vector<double> & timesMs,
     std::string & message);
 
-  int setAxes(const std::vector<int64_t> & axes, std::string & message);
+  int setAxisSelection(const std::vector<int64_t> & axes, std::string & message);
   int getInPos(bool & inPos, std::string & message);
-  int stopAxes(std::string & message);
+  int stop(std::string & message);
 
-  bool isDeviceOpen() const {return isDeviceAttached_;}
   size_t axisCount() const {return axisCount_;}
 
 private:
@@ -61,7 +61,6 @@ private:
   mutable std::mutex deviceMutex_;
 
   size_t axisCount_ = 0;
-  bool isDeviceAttached_ = false;
 
   wmx3Api::AxisSelection axisSel_;
   wmx3Api::AdvMotion::PointTimeSplineCommand splineCommand_;
@@ -94,16 +93,18 @@ private:
   std::unique_ptr<JointTrajectoryControllerApi> api_;
 
   std::vector<int64_t> jointAxes_;
+  std::vector<std::string> jointNames_;
+  std::map<std::string, size_t> columnByName_;
   std::string jointTrajectoryAction_;
 
   std::atomic<bool> isNodeActive_{false};
+  std::atomic<bool> goalRunning_{false};
 
   rclcpp_action::Server<FollowJointTrajectory>::SharedPtr actionServer_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Bool>::SharedPtr execActivePub_;
   rclcpp_lifecycle::LifecyclePublisher<control_msgs::msg::JointJog>::SharedPtr servoNodeResetPub_;
 
-  bool isNodeActive() const;
-  std::string notActiveMessage();
+  void waitForGoalToFinish();
 
   void setRosParameter();
 
@@ -116,6 +117,11 @@ private:
   void handleAccepted(std::shared_ptr<GoalHandleFJT> goalHandle);
 
   void executeGoal(std::shared_ptr<GoalHandleFJT> goalHandle);
+
+  bool mapGoalColumns(
+    const trajectory_msgs::msg::JointTrajectory & trajectory,
+    std::vector<size_t> & columns,
+    std::string & message) const;
 
   bool buildSplineInput(
     const trajectory_msgs::msg::JointTrajectory & trajectory,

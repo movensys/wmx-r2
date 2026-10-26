@@ -1,5 +1,0 @@
-int32[] indices   # specific axis indices to display parameters for
----
-bool success
-string message
-string[] params_dump   # formatted human-readable string of all parameters

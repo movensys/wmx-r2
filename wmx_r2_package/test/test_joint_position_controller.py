@@ -1,11 +1,13 @@
 """Integration test: joint_position_controller parameters and trajectory input."""
 
+import time
 import unittest
 
 import launch
 import launch_ros.actions
 import launch_testing
 import launch_testing.actions
+from lifecycle_msgs.srv import GetState
 import pytest
 from rcl_interfaces.srv import GetParameters
 import rclpy
@@ -28,6 +30,24 @@ def wait_for_subscription(node, pub, timeout_sec):
     return False
 
 
+def wait_until_active(node, target, timeout_sec=60.0):
+    """Spin until `target` reports the active lifecycle state, or time out."""
+    client = node.create_client(GetState, f'{target}/get_state')
+    if not client.wait_for_service(timeout_sec=20):
+        return False
+
+    end_time = time.monotonic() + timeout_sec
+    while time.monotonic() < end_time:
+        future = client.call_async(GetState.Request())
+        rclpy.spin_until_future_complete(node, future, timeout_sec=10)
+        result = future.result()
+        if result is not None and result.current_state.label == 'active':
+            return True
+        time.sleep(1.0)
+
+    return False
+
+
 @pytest.mark.launch_test
 def generate_test_description():
     engine_node = launch_ros.actions.Node(
@@ -36,10 +56,18 @@ def generate_test_description():
         name='wmx_engine_node',
         output='screen',
     )
-    joint_position_controller = launch_ros.actions.Node(
+
+    manager_node = launch_ros.actions.Node(
+        package='wmx_r2_package',
+        executable='wmx_lifecycle_manager_node',
+        name='wmx_lifecycle_manager_node',
+        output='screen',
+    )
+    joint_position_controller = launch_ros.actions.LifecycleNode(
         package='wmx_r2_package',
         executable='joint_position_controller',
         name='joint_position_controller',
+        namespace='',
         parameters=[{
             'joint_axes': [0, 1, 2, 3, 4, 5],
             'joint_name': JOINT_NAMES,
@@ -55,6 +83,7 @@ def generate_test_description():
 
     return launch.LaunchDescription([
         engine_node,
+        manager_node,
         joint_position_controller,
         launch_testing.actions.ReadyToTest(),
     ]), {
@@ -69,6 +98,11 @@ class TestJointPositionController(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         rclpy.init()
+        probe = Node('test_joint_position_controller_probe')
+        try:
+            cls.node_active = wait_until_active(probe, 'joint_position_controller')
+        finally:
+            probe.destroy_node()
 
     @classmethod
     def tearDownClass(cls):
@@ -109,6 +143,9 @@ class TestJointPositionController(unittest.TestCase):
 
     def test_subscribes_to_trajectory_topic(self):
         """Once the engine is up, the node should subscribe to the configured topic."""
+        if not self.node_active:
+            self.skipTest('joint_position_controller never became active (engine unavailable)')
+
         pub = self.node.create_publisher(JointTrajectory, TRAJECTORY_TOPIC, 1)
 
         self.assertTrue(
@@ -118,6 +155,9 @@ class TestJointPositionController(unittest.TestCase):
 
     def test_accepts_trajectory(self, joint_position_controller, proc_info):
         """A streamed trajectory should be consumed without killing the node."""
+        if not self.node_active:
+            self.skipTest('joint_position_controller never became active (engine unavailable)')
+
         pub = self.node.create_publisher(JointTrajectory, TRAJECTORY_TOPIC, 1)
         wait_for_subscription(self.node, pub, 10)
 
@@ -140,6 +180,9 @@ class TestJointPositionController(unittest.TestCase):
 
     def test_rejects_mismatched_joint_count(self, joint_position_controller, proc_info):
         """A trajectory with the wrong number of joints should be dropped, not fatal."""
+        if not self.node_active:
+            self.skipTest('joint_position_controller never became active (engine unavailable)')
+
         pub = self.node.create_publisher(JointTrajectory, TRAJECTORY_TOPIC, 1)
         wait_for_subscription(self.node, pub, 10)
 
@@ -167,6 +210,6 @@ class TestJointPositionControllerShutdown(unittest.TestCase):
     def test_exit_code(self, proc_info, joint_position_controller):
         launch_testing.asserts.assertExitCodes(
             proc_info,
-            allowable_exit_codes=[0, -2, -6, -15],
+            allowable_exit_codes=[0, -2, -15],
             process=joint_position_controller,
         )

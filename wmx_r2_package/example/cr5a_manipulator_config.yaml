@@ -1,0 +1,112 @@
+joint_state_broadcaster:
+  ros__parameters:
+    joint_feedback_rate: 100
+    joint_axes: [0, 1, 2, 3, 4, 5]
+    joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+    encoder_joint_topic: /joint_states
+    isaacsim_joint_topic: /isaacsim/joint_command
+    gazebo_position_joint_topic: /gazebo_position_controller/commands
+    gazebo_position_joint_axes: [0, 1, 2, 3, 4, 5]
+
+joint_trajectory_controller:
+  ros__parameters:
+    joint_axes: [0, 1, 2, 3, 4, 5]
+    joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+    joint_trajectory_action: /movensys_manipulator_arm_controller/follow_joint_trajectory
+
+joint_position_controller:
+  ros__parameters:
+    joint_axes: [0, 1, 2, 3, 4, 5]
+    joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+    joint_trajectory_topic: /movensys_manipulator_arm_controller/joint_trajectory
+    accel_ratio: 0.3
+    default_velocity: 0.5
+    min_step: 0.001
+    # Ceiling on the velocity buildCommand derives from step / time_from_start;
+    # a move that needs more is scaled down uniformly so the path stays straight
+    # and the arm lags instead of faulting the drive. Same value as the
+    # servo_stream_controller ceiling below. VERIFY against the arm's joint limits.
+    max_joint_velocity: 3.14
+    # = max_joint_velocity / (accel_ratio * Servo period 0.025 s), the acceleration
+    # a full-speed segment already commands. Bounds a tiny time_from_start, which
+    # the velocity cap alone does not. 0 disables.
+    max_joint_acceleration: 420.0
+
+# Buffered alternative to joint_position_controller: MoveIt Servo setpoints are
+# recorded into the WMX3 API buffer and replayed under the RT OS at cycle
+# boundaries. Selected with `use_api_buffer:=true`; only one of the two nodes
+# may run, since they subscribe to the same topic.
+# NOTE: these values are copied from the CR3A and have not been tuned for the
+# CR5A's reach and inertia. Re-run api_buffer_probe and re-tune before use.
+servo_stream_controller:
+  ros__parameters:
+    joint_axes: [0, 1, 2, 3, 4, 5]
+    # Order matters: axis[0] determines LinearIntplProfileCalcMode for the
+    # whole interpolation.
+    joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+    joint_trajectory_topic: /movensys_manipulator_arm_controller/joint_trajectory
+
+    api_buffer_channel: 0
+    estop_buffer_channel: 1      # watch trigger routine; must differ from the above
+    # 320 bytes/setpoint with no pacing block, so 1 MB holds ~3200. The channel
+    # is a ring and reclaims space as blocks execute, so this does not bound how
+    # long a stream can run.
+    api_buffer_size_mb: 1
+
+    # No queue, no pacing loop: one StartLinearIntplPos block per setpoint,
+    # executed as soon as it lands, overriding its predecessor mid-flight.
+    # queue_depth should read 0-1; anything standing above that means the engine
+    # is not keeping up.
+    #
+    # nominal_period_us is now the time each segment is given to cover its
+    # distance, which is what sets commanded velocity. It is the single most
+    # important value here. Too short over-drives: the axis reaches target early,
+    # decelerates to rest, and the stop-and-go this design exists to remove comes
+    # back. Too long under-drives and the arm lags the stream. Set it to Servo's
+    # actual publish period.
+    nominal_period_us: 25000     # = Servo publish_period 0.025 s
+
+    starvation_timeout_ms: 75    # 3x nominal period -> controlled stop
+    accel_ratio: 0.3             # accel phase spans 30% of a segment; retune with the surge data
+    max_joint_velocity: 3.14     # rad/s ceiling. VERIFY against the arm's real joint limits.
+    min_step_rad: 1.0e-6         # below this a setpoint is a hold and is not recorded
+    # Terminal velocity per segment as a fraction of its path velocity. 1.0
+    # removes the final decel segment, which is what overrides were colliding
+    # with; a completed segment then ends in a velocity step, so
+    # starvation_timeout_ms must land before the completion time the node prints
+    # at startup. 0 restores the old decelerate-to-rest behaviour.
+    #
+    # OFF here, deliberately. Enabling it needs nominal_period_us raised above
+    # this setup's worst-case setpoint gap first, the way cr3a was: at 25000 a
+    # segment completes in 28.8 ms, far inside the 75 ms starvation timeout, so
+    # the engine would step the axes to zero before the controlled stop ran.
+    # Measure the gap here, retune both values, then set this to 1.0.
+    end_velocity_ratio: 0.0
+    stop_on_error: true          # stop rather than skip a rejected setpoint
+
+wmx_engine_node:
+  ros__parameters:
+    core: -1           
+    affinity_mask: 0   
+    
+wmx_core_motion_node:
+  ros__parameters:
+    axes_status_rate: 100
+    jog_timeout_ms: 200.0
+    jog_run_time_ms: 2000.0
+    jog_jerk_ratio: 0.75
+    motion_controllers:
+      - joint_trajectory_controller
+      - joint_position_controller
+    controller_resync_period: 0.2
+
+wmx_lifecycle_manager_node:
+  ros__parameters:
+    managed_nodes:
+      - wmx_core_motion_node
+      - wmx_io_node
+      - wmx_ethercat_node
+      - joint_state_broadcaster
+      - joint_trajectory_controller
+      - joint_position_controller
+    discovery_period: 1.0

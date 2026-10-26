@@ -26,7 +26,7 @@ const char * engineStateLabel(wmx3Api::EngineState::T state)
 }  // namespace
 
 WmxEngineNodeApi::WmxEngineNodeApi(const rclcpp::Logger & logger, const Config & config)
-: logger_(logger), config_(config)
+: logger_(logger), config_(config), cm_(&wmx3Lib_)
 {
 }
 
@@ -37,26 +37,39 @@ WmxEngineNodeApi::~WmxEngineNodeApi()
   stopEngine(message);
 }
 
-std::string WmxEngineNodeApi::errorText(int err)
+std::string WmxEngineNodeApi::errorToString(int err)
 {
   char errString[256] = {};
   wmx3Lib_.ErrorToString(err, errString, sizeof(errString));
   return errString;
 }
 
+bool WmxEngineNodeApi::isEngineStarted()
+{
+  int deviceId = 0;
+  return wmx3Lib_.GetDeviceID(&deviceId) == wmx3Api::ErrorCode::None;
+}
+
+bool WmxEngineNodeApi::isEngineCommunicating()
+{
+  wmx3Api::EngineStatus engineStatus;
+  return wmx3Lib_.GetEngineStatus(&engineStatus) == wmx3Api::ErrorCode::None &&
+         engineStatus.state == wmx3Api::EngineState::Communicating;
+}
+
 int WmxEngineNodeApi::startEngine(std::string & message)
 {
   std::lock_guard<std::recursive_mutex> lock(deviceMutex_);
 
-  wmx3Api::EngineState::T state = wmx3Api::EngineState::Unknown;
-  engineState(state);
+  if (isEngineStarted()) {
+    if (isEngineCommunicating()) {
+      message = "Engine is already started and communicating";
+      RCLCPP_INFO(logger_, "%s", message.c_str());
+      return wmx3Api::ErrorCode::None;
+    }
 
-  if (state == wmx3Api::EngineState::Running ||
-    state == wmx3Api::EngineState::Communicating)
-  {
-    message = "Engine is already started (state '" + std::string(engineStateLabel(state)) + "')";
-    RCLCPP_WARN(logger_, "%s", message.c_str());
-    return wmx3Api::ErrorCode::None;
+    RCLCPP_INFO(logger_, "Device already created; starting communication only");
+    return startCommunication(message);
   }
 
   RCLCPP_INFO(
@@ -81,15 +94,18 @@ int WmxEngineNodeApi::startEngine(std::string & message)
       err = wmx3Lib_.SetDeviceName(deviceName_);
 
       if (err == wmx3Api::ErrorCode::None) {
-        isEngineStarted_ = true;
-
-        cm_ = std::make_unique<wmx3Api::CoreMotion>(&wmx3Lib_);
-        deviceOpen_ = true;
+        cm_ = wmx3Api::CoreMotion(&wmx3Lib_);
         RCLCPP_INFO(logger_, "Device created (attempt %d)", attempt + 1);
 
-        if (!config_.paramFilePath.empty()) {
+        if (!config_.wmxParamFilePath.empty()) {
           std::string paramMessage;
-          loadWmxParams(config_.paramFilePath, paramMessage);
+          const int paramErr = importAndSetAll(config_.wmxParamFilePath, paramMessage);
+          if (paramErr != wmx3Api::ErrorCode::None) {
+            message = "Refusing to start communication with default parameters. " + paramMessage;
+            RCLCPP_ERROR(logger_, "%s", message.c_str());
+            wmx3Lib_.CloseDevice();
+            return paramErr;
+          }
         }
 
         return startCommunication(message);
@@ -104,16 +120,16 @@ int WmxEngineNodeApi::startEngine(std::string & message)
     } else if (err == wmx3Api::ErrorCode::SetDeviceNameTimeout) {
       RCLCPP_WARN(
         logger_, "Failed to name the device '%s' (attempt %d/%d). Error=%d (%s)",
-        deviceName_, attempt + 1, maxRetries_, err, errorText(err).c_str());
+        deviceName_, attempt + 1, maxRetries_, err, errorToString(err).c_str());
     } else {
       RCLCPP_WARN(
         logger_, "Failed to create device (attempt %d/%d). Error=%d (%s)",
-        attempt + 1, maxRetries_, err, errorText(err).c_str());
+        attempt + 1, maxRetries_, err, errorToString(err).c_str());
     }
   }
 
   message = "Failed to create device after " + std::to_string(maxRetries_) +
-    " attempts. Error=" + std::to_string(err) + " (" + errorText(err) + ")";
+    " attempts. Error=" + std::to_string(err) + " (" + errorToString(err) + ")";
   RCLCPP_ERROR(logger_, "%s", message.c_str());
   return err;
 }
@@ -122,46 +138,59 @@ int WmxEngineNodeApi::stopEngine(std::string & message)
 {
   std::lock_guard<std::recursive_mutex> lock(deviceMutex_);
 
-  cm_.reset();
-  deviceOpen_ = false;
-
-  int err = wmx3Lib_.CloseDevice();
-  if (err != wmx3Api::ErrorCode::None) {
-    message = "Failed to close device. Error=" + std::to_string(err) +
-      " (" + errorText(err) + ")";
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-  } else {
-    message = "Device closed";
+  if (!isEngineStarted()) {
+    message = "Engine is already stopped";
     RCLCPP_INFO(logger_, "%s", message.c_str());
+    return wmx3Api::ErrorCode::None;
   }
 
-  err = wmx3Lib_.StopEngine(timeout_);
+  int stopError = wmx3Api::ErrorCode::None;
+
+  int err = wmx3Lib_.StopEngine(timeout_);
   if (err != wmx3Api::ErrorCode::None) {
+    stopError = err;
     message = "Failed to stop engine. Error=" + std::to_string(err) +
-      " (" + errorText(err) + ")";
+      " (" + errorToString(err) + ")";
     RCLCPP_ERROR(logger_, "%s", message.c_str());
   } else {
     message = "Engine stopped";
     RCLCPP_INFO(logger_, "%s", message.c_str());
   }
 
-  isCommStarted_ = false;
-  isEngineStarted_ = false;
+  err = wmx3Lib_.CloseDevice();
+  if (err != wmx3Api::ErrorCode::None) {
+    if (stopError == wmx3Api::ErrorCode::None) {
+      stopError = err;
+      message = "";
+    } else {
+      message += " ";
+    }
+    message += "Failed to close device. Error=" + std::to_string(err) +
+      " (" + errorToString(err) + ")";
+    RCLCPP_ERROR(logger_, "Failed to close device. Error=%d (%s)", err, errorToString(err).c_str());
+  } else {
+    RCLCPP_INFO(logger_, "Device closed");
+  }
 
-  return err;
+  return stopError;
 }
 
 int WmxEngineNodeApi::startCommunication(std::string & message)
 {
   std::lock_guard<std::recursive_mutex> lock(deviceMutex_);
 
+  if (isEngineCommunicating()) {
+    message = "Communication is already started";
+    RCLCPP_INFO(logger_, "%s", message.c_str());
+    return wmx3Api::ErrorCode::None;
+  }
+
   const int err = wmx3Lib_.StartCommunication(timeout_);
   if (err != wmx3Api::ErrorCode::None) {
     message = "Failed to start communication. Error=" + std::to_string(err) +
-      " (" + errorText(err) + ")";
+      " (" + errorToString(err) + ")";
     RCLCPP_ERROR(logger_, "%s", message.c_str());
   } else {
-    isCommStarted_ = true;
     message = "Communication started";
     RCLCPP_INFO(logger_, "%s", message.c_str());
   }
@@ -173,34 +202,28 @@ int WmxEngineNodeApi::stopCommunication(std::string & message)
 {
   std::lock_guard<std::recursive_mutex> lock(deviceMutex_);
 
-  if (!cm_) {
-    message = "Communication is not started";
+  if (!isEngineCommunicating()) {
+    message = "Communication is already stopped";
+    RCLCPP_INFO(logger_, "%s", message.c_str());
     return wmx3Api::ErrorCode::None;
   }
 
   const int err = wmx3Lib_.StopCommunication(timeout_);
   if (err != wmx3Api::ErrorCode::None) {
     message = "Failed to stop communication. Error=" + std::to_string(err) +
-      " (" + errorText(err) + ")";
+      " (" + errorToString(err) + ")";
     RCLCPP_ERROR(logger_, "%s", message.c_str());
   } else {
     message = "Communication stopped";
     RCLCPP_INFO(logger_, "%s", message.c_str());
   }
 
-  isCommStarted_ = false;
-
   return err;
 }
 
-int WmxEngineNodeApi::loadWmxParams(const std::string & path, std::string & message)
+int WmxEngineNodeApi::importAndSetAll(const std::string & path, std::string & message)
 {
   std::lock_guard<std::recursive_mutex> lock(deviceMutex_);
-
-  if (!cm_) {
-    message = "Cannot load params. Core motion is not exist.";
-    return wmx3Api::ErrorCode::DeviceIsNull;
-  }
 
   wmx3Api::Config::SystemParam sysParamErr;
   wmx3Api::Config::AxisParam axisParamErr;
@@ -208,12 +231,12 @@ int WmxEngineNodeApi::loadWmxParams(const std::string & path, std::string & mess
   std::vector<char> pathBuffer(path.begin(), path.end());
   pathBuffer.push_back('\0');
 
-  const int err = cm_->config->ImportAndSetAll(
+  const int err = cm_.config->ImportAndSetAll(
     pathBuffer.data(), &sysParamErr, &axisParamErr);
 
   if (err != wmx3Api::ErrorCode::None) {
     message = "Failed to load params from " + path + ". Error=" + std::to_string(err) +
-      " (" + errorText(err) + ")";
+      " (" + errorToString(err) + ")";
     RCLCPP_ERROR(logger_, "%s", message.c_str());
     return err;
   }
@@ -223,17 +246,12 @@ int WmxEngineNodeApi::loadWmxParams(const std::string & path, std::string & mess
   return wmx3Api::ErrorCode::None;
 }
 
-int WmxEngineNodeApi::getWmxParams(
-  const std::vector<int32_t> & axes, std::vector<std::string> & dump, std::string & message)
+int WmxEngineNodeApi::getAxisParam(
+  const std::vector<int32_t> & axis, std::vector<std::string> & axisParam, std::string & message)
 {
   std::lock_guard<std::recursive_mutex> lock(deviceMutex_);
 
-  if (!cm_) {
-    message = "Cannot get params. Core motion is not exist.";
-    return wmx3Api::ErrorCode::DeviceIsNull;
-  }
-
-  for (int32_t i : axes) {
+  for (int32_t i : axis) {
     if (i < 0 || i >= wmx3Api::constants::maxAxes) {
       message = "Axis " + std::to_string(i) + " is out of range (0.." +
         std::to_string(wmx3Api::constants::maxAxes - 1) + ")";
@@ -242,64 +260,53 @@ int WmxEngineNodeApi::getWmxParams(
     }
   }
 
-  wmx3Api::Config::AxisParam axisParam;
-  const int err = cm_->config->GetAxisParam(&axisParam);
+  wmx3Api::Config::AxisParam param;
+  const int err = cm_.config->GetAxisParam(&param);
 
   if (err != wmx3Api::ErrorCode::None) {
     message = "Failed to read axis params. Error=" + std::to_string(err) +
-      " (" + errorText(err) + ")";
+      " (" + errorToString(err) + ")";
     RCLCPP_ERROR(logger_, "%s", message.c_str());
     return err;
   }
 
-  dump.reserve(dump.size() + axes.size() * 6);
+  axisParam.reserve(axisParam.size() + axis.size() * 6);
 
-  for (int32_t i : axes) {
-    dump.push_back("=== Axis " + std::to_string(i) + " ===");
+  for (int32_t i : axis) {
+    axisParam.push_back("=== Axis " + std::to_string(i) + " ===");
 
-    dump.push_back("[AxisParam]");
-    dump.push_back(
-      "  GearRatio          = " + std::to_string(axisParam.gearRatioNumerator[i]) +
-      " / " + std::to_string(axisParam.gearRatioDenominator[i]));
-    dump.push_back(
+    axisParam.push_back("[AxisParam]");
+    axisParam.push_back(
+      "  GearRatio          = " + std::to_string(param.gearRatioNumerator[i]) +
+      " / " + std::to_string(param.gearRatioDenominator[i]));
+    axisParam.push_back(
       "  AxisPolarity       = " +
-      std::to_string(static_cast<int>(axisParam.axisPolarity[i])));
-    dump.push_back(
+      std::to_string(static_cast<int>(param.axisPolarity[i])));
+    axisParam.push_back(
       "  CommandMode        = " +
-      std::to_string(static_cast<int>(axisParam.axisCommandMode[i])));
-    dump.push_back("");
+      std::to_string(static_cast<int>(param.axisCommandMode[i])));
+    axisParam.push_back("");
   }
 
-  message = "Read params for " + std::to_string(axes.size()) + " axes";
+  message = "Read params for " + std::to_string(axis.size()) + " axes";
   return wmx3Api::ErrorCode::None;
 }
 
 int WmxEngineNodeApi::getEngineStatus(std::string & message)
 {
-  wmx3Api::EngineState::T state = wmx3Api::EngineState::Unknown;
+  std::lock_guard<std::recursive_mutex> lock(deviceMutex_);
 
-  const int err = engineState(state);
-  if (err != wmx3Api::ErrorCode::None) {
-    message = "Failed to read engine status. Error=" + std::to_string(err) +
-      " (" + errorText(err) + ")";
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
-
-  message = engineStateLabel(state);
-  return wmx3Api::ErrorCode::None;
-}
-
-int WmxEngineNodeApi::engineState(wmx3Api::EngineState::T & state)
-{
   wmx3Api::EngineStatus engineStatus;
 
   const int err = wmx3Lib_.GetEngineStatus(&engineStatus);
   if (err != wmx3Api::ErrorCode::None) {
+    message = "Failed to read engine status. Error=" + std::to_string(err) +
+      " (" + errorToString(err) + ")";
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
     return err;
   }
 
-  state = engineStatus.state;
+  message = engineStateLabel(engineStatus.state);
   return wmx3Api::ErrorCode::None;
 }
 
@@ -307,39 +314,40 @@ WmxEngineNode::WmxEngineNode()
 : Node("wmx_engine_node")
 {
   WmxEngineNodeApi::Config config;
-  config.core = this->declare_parameter<int>("engine_core", -1);
-  config.affinityMask = this->declare_parameter<int64_t>("engine_affinity_mask", 0);
-  config.paramFilePath = this->declare_parameter<std::string>("wmx_param_file_path", "");
+  config.core = this->declare_parameter<int>("core", -1);
+  config.affinityMask = this->declare_parameter<int64_t>("affinity_mask", 0);
+  config.wmxParamFilePath = this->declare_parameter<std::string>("wmx_param_file_path", "");
 
   api_ = std::make_unique<WmxEngineNodeApi>(this->get_logger(), config);
 
-  managerCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  oneCbOnlyGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
   setEngineService_ = this->create_service<std_srvs::srv::SetBool>(
     "wmx/engine/set_engine",
     std::bind(&WmxEngineNode::setEngineCallback, this, _1, _2),
-    servicesQos(), managerCbGroup_);
+    servicesQos(), oneCbOnlyGroup_);
 
-  setCommService_ = this->create_service<std_srvs::srv::SetBool>(
-    "wmx/engine/set_comm",
-    std::bind(&WmxEngineNode::setCommCallback, this, _1, _2),
-    servicesQos(), managerCbGroup_);
+  setCommunicationService_ = this->create_service<std_srvs::srv::SetBool>(
+    "wmx/engine/set_communication",
+    std::bind(&WmxEngineNode::setCommunicationCallback, this, _1, _2),
+    servicesQos(), oneCbOnlyGroup_);
 
   getEngineStatusService_ = this->create_service<std_srvs::srv::Trigger>(
     "wmx/engine/get_engine_status",
-    std::bind(&WmxEngineNode::getEngineStatusCallback, this, _1, _2));
+    std::bind(&WmxEngineNode::getEngineStatusCallback, this, _1, _2),
+    servicesQos(), oneCbOnlyGroup_);
 
-  loadWmxParamsService_ = this->create_service<wmx_r2_message::srv::LoadWmxParams>(
-    "wmx/engine/load_wmx_params",
-    std::bind(&WmxEngineNode::loadWmxParamsCallback, this, _1, _2),
-    servicesQos(), managerCbGroup_);
+  importAndSetAllService_ = this->create_service<wmx_r2_message::srv::ImportAndSetAll>(
+    "wmx/engine/import_and_set_all",
+    std::bind(&WmxEngineNode::importAndSetAllCallback, this, _1, _2),
+    servicesQos(), oneCbOnlyGroup_);
 
-  getWmxParamsService_ = this->create_service<wmx_r2_message::srv::GetWmxParams>(
-    "wmx/engine/get_wmx_params",
-    std::bind(&WmxEngineNode::getWmxParamsCallback, this, _1, _2),
-    servicesQos(), managerCbGroup_);
+  getAxisParamService_ = this->create_service<wmx_r2_message::srv::GetAxisParam>(
+    "wmx/engine/get_axis_param",
+    std::bind(&WmxEngineNode::getAxisParamCallback, this, _1, _2),
+    servicesQos(), oneCbOnlyGroup_);
 
-  startThread_ = std::thread(
+  startEngineThread_ = std::thread(
     [this]() {
       std::string message;
       api_->startEngine(message);
@@ -350,8 +358,8 @@ WmxEngineNode::WmxEngineNode()
 
 WmxEngineNode::~WmxEngineNode()
 {
-  if (startThread_.joinable()) {
-    startThread_.join();
+  if (startEngineThread_.joinable()) {
+    startEngineThread_.join();
   }
   api_.reset();
   std::this_thread::sleep_for(std::chrono::seconds(3));
@@ -362,12 +370,6 @@ void WmxEngineNode::getEngineStatusCallback(
   const std::shared_ptr<std_srvs::srv::Trigger::Request>,
   std::shared_ptr<std_srvs::srv::Trigger::Response> response)
 {
-  if (!api_->isEngineStarted()) {
-    response->success = false;
-    response->message = "Engine is not started yet";
-    return;
-  }
-
   std::string message;
   response->success = api_->getEngineStatus(message) == wmx3Api::ErrorCode::None;
   response->message = message;
@@ -378,38 +380,17 @@ void WmxEngineNode::setEngineCallback(
   std::shared_ptr<std_srvs::srv::SetBool::Response> response)
 {
   std::string message;
-  int err;
-
-  if (request->data) {
-    if (api_->isDeviceOpen()) {
-      response->success = false;
-      response->message = "Engine is already started";
-      return;
-    }
-    err = api_->startEngine(message);
-  } else {
-    if (!api_->isDeviceOpen()) {
-      response->success = false;
-      response->message = "Engine is not started";
-      return;
-    }
-    err = api_->stopEngine(message);
-  }
+  const int err = request->data ?
+    api_->startEngine(message) : api_->stopEngine(message);
 
   response->success = (err == wmx3Api::ErrorCode::None);
   response->message = message;
 }
 
-void WmxEngineNode::setCommCallback(
+void WmxEngineNode::setCommunicationCallback(
   const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
   std::shared_ptr<std_srvs::srv::SetBool::Response> response)
 {
-  if (!api_->isEngineStarted()) {
-    response->success = false;
-    response->message = "Engine is not started yet";
-    return;
-  }
-
   std::string message;
   const int err = request->data ?
     api_->startCommunication(message) : api_->stopCommunication(message);
@@ -418,35 +399,23 @@ void WmxEngineNode::setCommCallback(
   response->message = message;
 }
 
-void WmxEngineNode::loadWmxParamsCallback(
-  const std::shared_ptr<wmx_r2_message::srv::LoadWmxParams::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::LoadWmxParams::Response> response)
+void WmxEngineNode::importAndSetAllCallback(
+  const std::shared_ptr<wmx_r2_message::srv::ImportAndSetAll::Request> request,
+  std::shared_ptr<wmx_r2_message::srv::ImportAndSetAll::Response> response)
 {
-  if (!api_->isEngineStarted()) {
-    response->success = false;
-    response->message = "Engine is not started yet";
-    return;
-  }
-
   std::string message;
   response->success =
-    api_->loadWmxParams(request->file_path, message) == wmx3Api::ErrorCode::None;
+    api_->importAndSetAll(request->path, message) == wmx3Api::ErrorCode::None;
   response->message = message;
 }
 
-void WmxEngineNode::getWmxParamsCallback(
-  const std::shared_ptr<wmx_r2_message::srv::GetWmxParams::Request> request,
-  std::shared_ptr<wmx_r2_message::srv::GetWmxParams::Response> response)
+void WmxEngineNode::getAxisParamCallback(
+  const std::shared_ptr<wmx_r2_message::srv::GetAxisParam::Request> request,
+  std::shared_ptr<wmx_r2_message::srv::GetAxisParam::Response> response)
 {
-  if (!api_->isDeviceOpen()) {
-    response->success = false;
-    response->message = "Cannot get params. Engine or core motion are not exist.";
-    return;
-  }
-
   std::string message;
   response->success =
-    api_->getWmxParams(request->indices, response->params_dump, message) ==
+    api_->getAxisParam(request->axis, response->axis_param, message) ==
     wmx3Api::ErrorCode::None;
   response->message = message;
 }

@@ -9,9 +9,9 @@
 #
 #   setpoint    /movensys_manipulator_arm_controller/joint_trajectory  (40 Hz)
 #               what the streamer was ASKED to do
-#   pos_cmd     /wmx/axes/status.position_commands                     (100 Hz)
+#   pos_cmd     /wmx/axes/status.pos_cmd                               (100 Hz)
 #               what WMX3's interpolator actually generated
-#   actual_pos  /wmx/axes/status.actual_positions                      (100 Hz)
+#   actual_pos  /wmx/axes/status.actual_pos                            (100 Hz)
 #               what the arm physically did
 #
 # The split matters. setpoint -> pos_cmd is the API buffer and interpolation
@@ -66,8 +66,8 @@ class StreamTraceCapture(Node):
     def on_axis_state(self, msg):
         self.states.append((
             stamp_to_sec(msg.header.stamp),
-            list(msg.position_commands),
-            list(msg.actual_positions)))
+            list(msg.pos_cmd),
+            list(msg.actual_pos)))
 
 
 def main():

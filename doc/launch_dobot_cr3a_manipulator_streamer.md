@@ -5,7 +5,7 @@ i.e. `servo_stream_controller` in place of `joint_position_controller`.
 
 - Node reference: [reference_servo_stream_controller.md](reference_servo_stream_controller.md)
 - Single-axis bench procedure: [launch_single_servo_streamer.md](launch_single_servo_streamer.md)
-- Normal (direct-path) CR3A launch: [launch_dobot_cr3a_manipulator.md](launch_dobot_cr3a_manipulator.md)
+- Normal (direct-path) CR3A launch: [launch_manipulator.md](launch_manipulator.md)
 
 ---
 
@@ -59,12 +59,14 @@ Root access uses the `~/wmxrun` wrapper described in
 ## 2. Bring up the arm with the buffered path — terminal 1
 
 ```bash
-~/wmxrun ros2 launch wmx_r2_package wmx_r2_cr3a_manipulator.launch.py \
-  use_sim_time:=false use_api_buffer:=true
+~/wmxrun ros2 launch wmx_r2_package wmx_r2_manipulator.launch.py \
+  use_sim_time:=false use_gripper:=true use_api_buffer:=true \
+  'config_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/cr3a_manipulator_config.yaml' \
+  'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/cr3a_wmx_parameters.xml'
 ```
 
-`use_api_buffer:=true` is the whole difference from the standard CR3A launch. The
-launch starts:
+`use_api_buffer:=true` is the whole difference from the standard CR3A launch
+(see [launch_manipulator.md](launch_manipulator.md)). The launch starts:
 
 | node | note |
 |---|---|
@@ -80,7 +82,7 @@ otherwise double-command the arm. Do not start either by hand alongside this
 launch.
 
 Parameters come from the `servo_stream_controller:` block of
-`config/cr3a_manipulator_config.yaml` — all six axes, `nominal_period_us: 25000`,
+`example/cr3a_manipulator_config.yaml` — all six axes, `nominal_period_us: 25000`,
 `max_joint_velocity: 3.14`.
 
 Expect, from the controller:
@@ -323,7 +325,7 @@ run reclaims them with `CreateApiBuffer failed ... reclaiming`.
 
 ```bash
 ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes \
-  "{indices: [0,1,2,3,4,5], data: [0,0,0,0,0,0]}"
+  "{axis: [0,1,2,3,4,5], data: [0,0,0,0,0,0]}"
 ```
 
 ---

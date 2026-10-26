@@ -5,8 +5,8 @@
   <version>0.1.0</version>
   <description>
     ros2_control hardware interface (SystemInterface) for the WMX3 EtherCAT motion
-    control SDK, plus controller configs and launch files for the diffbot base and
-    Dobot CR3A manipulator. Drives WMX3 axes from standard ros2_controllers
+    control SDK, plus controller configs and launch files for the differential drive and
+    manipulator. Drives WMX3 axes from standard ros2_controllers
     (diff_drive_controller, joint_trajectory_controller, joint_state_broadcaster).
   </description>
   <maintainer email="mfikih@movensys.com">Fikih Muhamad</maintainer>

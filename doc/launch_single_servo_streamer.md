@@ -51,7 +51,7 @@ source /opt/ros/jazzy/setup.bash
 source ~/workspaces/movensys_ws/install/setup.bash
 
 export ROBOT=cr3a     # or cr5a — must match the actual arm
-export BENCH=$HOME/workspaces/movensys_ws/src/wmx-r2/wmx_r2_package/config/bench_servo_stream_config.yaml
+export BENCH=$HOME/workspaces/movensys_ws/src/wmx-r2/wmx_r2_package/example/bench_servo_stream_config.yaml
 ```
 
 **Verify both resolve, in every new terminal:**
@@ -120,8 +120,8 @@ launches add that, so a bench session runs it by hand in step 3.
 Plain service calls, no root needed.
 
 ```bash
-ros2 service call /wmx/engine/load_wmx_params wmx_r2_message/srv/LoadWmxParams \
-  "{file_path: '$HOME/workspaces/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/config/${ROBOT}_wmx_parameters.xml'}"
+ros2 service call /wmx/engine/import_and_set_all wmx_r2_message/srv/ImportAndSetAll \
+  "{path: '$HOME/workspaces/movensys_ws/install/wmx_r2_package/share/wmx_r2_package/example/${ROBOT}_wmx_parameters.xml'}"
 ```
 
 **This must return `success=True` before you go on.** On failure the engine keeps
@@ -135,8 +135,8 @@ Both robots' parameter files exist, so loading the **wrong** one will not error.
 Confirm `ROBOT` matches the arm in front of you.
 
 ```bash
-ros2 service call /wmx/axes/clear_amp_alarm wmx_r2_message/srv/SetAxes "{indices: [0], data: [0]}"
-ros2 service call /wmx/axes/set_servo_on    wmx_r2_message/srv/SetAxes "{indices: [0], data: [1]}"
+ros2 service call /wmx/axes/clear_amp_alarm wmx_r2_message/srv/SetAxes "{axis: [0], data: [0]}"
+ros2 service call /wmx/axes/set_servo_on    wmx_r2_message/srv/SetAxes "{axis: [0], data: [1]}"
 ```
 
 If you reload parameters later, **re-run both** — they act on the axis as scaled
@@ -367,7 +367,7 @@ the next run detects and reclaims it
 Servo off when you are done:
 
 ```bash
-ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{indices: [0], data: [0]}"
+ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{axis: [0], data: [0]}"
 ```
 
 ---
@@ -388,7 +388,7 @@ ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{indices: [
 | symptom | cause | fix |
 |---|---|---|
 | `Couldn't parse params file ... Error opening YAML file` | `$BENCH` unset, stale, or pointing at a deleted file | `ls -l "$BENCH"`; the message does not distinguish a missing file from bad YAML |
-| `LoadWmxParams` → `success=False, 'File operation failed'` | `$ROBOT` unset, so the path collapsed to `_wmx_parameters.xml` | `echo "$ROBOT"`, then re-run |
+| `ImportAndSetAll` → `success=False` with a file error | `$ROBOT` unset, so the path collapsed to `_wmx_parameters.xml` | `echo "$ROBOT"`, then re-run |
 | Controller stuck at `waiting for engine...` | `wmx/engine/get_engine_status` never answered `Communicating` | Step 1 is not up, or the engine is not communicating |
 | Test source repeats `Waiting for 'joint1' on /joint_states ...` | No publisher, or a joint-name mismatch | `ros2 topic info /joint_states` — `Publisher count: 0` means the broadcaster is not running; nonzero means compare its `joint_name` with the test source's |
 | Broadcaster logs `Activation failed at clear_amp_alarm` / `at set_servo_on` | The core motion services did not answer | The lifecycle manager retries on its next sweep; check `wmx_core_motion_node` is active |

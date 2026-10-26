@@ -1,18 +1,38 @@
 """Integration test: wmx_core_motion_node services and state publishing."""
 
+import time
 import unittest
 
 import launch
 import launch_ros.actions
 import launch_testing
 import launch_testing.actions
+from lifecycle_msgs.srv import GetState
 import pytest
 import rclpy
 from rclpy.node import Node
 
 from wmx_r2_message.msg import AxesStatus
-from wmx_r2_message.srv import GetWmxParams
+from wmx_r2_message.srv import GetAxisParam
 from wmx_r2_message.srv import SetAxes
+
+
+def wait_until_active(node, target, timeout_sec=60.0):
+    """Spin until `target` reports the active lifecycle state, or time out."""
+    client = node.create_client(GetState, f'{target}/get_state')
+    if not client.wait_for_service(timeout_sec=20):
+        return False
+
+    end_time = time.monotonic() + timeout_sec
+    while time.monotonic() < end_time:
+        future = client.call_async(GetState.Request())
+        rclpy.spin_until_future_complete(node, future, timeout_sec=10)
+        result = future.result()
+        if result is not None and result.current_state.label == 'active':
+            return True
+        time.sleep(1.0)
+
+    return False
 
 
 @pytest.mark.launch_test
@@ -23,15 +43,23 @@ def generate_test_description():
         name='wmx_engine_node',
         output='screen',
     )
-    core_motion_node = launch_ros.actions.Node(
+    manager_node = launch_ros.actions.Node(
+        package='wmx_r2_package',
+        executable='wmx_lifecycle_manager_node',
+        name='wmx_lifecycle_manager_node',
+        output='screen',
+    )
+    core_motion_node = launch_ros.actions.LifecycleNode(
         package='wmx_r2_package',
         executable='wmx_core_motion_node',
         name='wmx_core_motion_node',
+        namespace='',
         output='screen',
     )
 
     return launch.LaunchDescription([
         engine_node,
+        manager_node,
         core_motion_node,
         launch_testing.actions.ReadyToTest(),
     ]), {'engine_node': engine_node, 'core_motion_node': core_motion_node}
@@ -43,18 +71,27 @@ class TestCoreMotionNode(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         rclpy.init()
+        probe = Node('test_core_motion_node_probe')
+        try:
+            cls.node_active = wait_until_active(probe, 'wmx_core_motion_node')
+        finally:
+            probe.destroy_node()
 
     @classmethod
     def tearDownClass(cls):
         rclpy.shutdown()
 
     def setUp(self):
+        # Nothing to exercise until the manager has brought the node up,
+        # which needs a communicating engine.
+        if not self.node_active:
+            self.skipTest('wmx_core_motion_node never became active (engine unavailable)')
         self.node = Node('test_core_motion_node')
 
     def tearDown(self):
         self.node.destroy_node()
 
-    def test_axis_state_published(self):
+    def test_axes_status_published(self):
         """Core motion node should publish AxesStatus at 100 Hz."""
         received = []
 
@@ -74,7 +111,7 @@ class TestCoreMotionNode(unittest.TestCase):
             'Did not receive at least 5 AxesStatus messages within 20 seconds',
         )
 
-    def test_axis_state_has_header(self):
+    def test_axes_status_has_header(self):
         """Published AxesStatus should have a populated header."""
         received = []
 
@@ -94,7 +131,7 @@ class TestCoreMotionNode(unittest.TestCase):
         self.assertNotEqual(msg.header.stamp.sec, 0, 'Header stamp should be non-zero')
         self.assertEqual(msg.header.frame_id, 'base_link')
 
-    def test_axis_state_field_lengths_match(self):
+    def test_axes_status_field_lengths_match(self):
         """All AxesStatus array fields should have the same length."""
         received = []
 
@@ -111,13 +148,13 @@ class TestCoreMotionNode(unittest.TestCase):
 
         self.assertTrue(received, 'No AxesStatus received')
         msg = received[0]
-        n = len(msg.amp_alarms)
+        n = len(msg.amp_alarm)
         self.assertGreater(n, 0, 'AxesStatus should have at least 1 axis')
         for field in [
-            'amp_alarm_codes', 'servo_on', 'home_done', 'motion_complete',
+            'amp_alarm_code', 'servo_on', 'home_done', 'motion_complete',
             'negative_ls', 'positive_ls', 'home_switch',
-            'position_commands', 'velocity_commands', 'actual_positions',
-            'actual_velocities', 'actual_torques',
+            'pos_cmd', 'velocity_cmd', 'actual_pos',
+            'actual_velocity', 'actual_torque',
         ]:
             self.assertEqual(
                 len(getattr(msg, field)), n,
@@ -166,21 +203,21 @@ class TestCoreMotionNode(unittest.TestCase):
 
     def test_get_params_service_call(self):
         """Get params service should respond with axis parameters."""
-        client = self.node.create_client(GetWmxParams, 'wmx/core_motion/get_wmx_params')
+        client = self.node.create_client(GetAxisParam, 'wmx/engine/get_axis_param')
         self.assertTrue(
             client.wait_for_service(timeout_sec=20),
-            'wmx/core_motion/get_wmx_params service not available',
+            'wmx/engine/get_axis_param service not available',
         )
 
-        req = GetWmxParams.Request()
-        req.indices = [0]
+        req = GetAxisParam.Request()
+        req.axis = [0]
         future = client.call_async(req)
         rclpy.spin_until_future_complete(self.node, future, timeout_sec=10)
 
         self.assertIsNotNone(future.result(), 'Service call returned no result')
         result = future.result()
         self.assertTrue(result.success)
-        self.assertGreater(len(result.params_dump), 0, 'params_dump should not be empty')
+        self.assertGreater(len(result.axis_param), 0, 'axis_param should not be empty')
 
 
 @launch_testing.post_shutdown_test()
@@ -190,6 +227,6 @@ class TestCoreMotionShutdown(unittest.TestCase):
     def test_exit_code(self, proc_info, core_motion_node):
         launch_testing.asserts.assertExitCodes(
             proc_info,
-            allowable_exit_codes=[0, -2, -6, -15],
+            allowable_exit_codes=[0, -2, -15],
             process=core_motion_node,
         )

@@ -1,0 +1,96 @@
+# Single-axis bench config for characterising the buffered Servo streaming path.
+#
+# Drives a standalone bench session — servo_stream_controller plus the
+# joint_state_broadcaster it needs for feedback — without MoveIt, IK, or a
+# six-axis arm in the loop. See doc/reference_servo_stream_controller.md.
+#
+# This is a BRING-UP and MEASUREMENT config, not a robot config: the robot
+# configs (cr3a/cr5a_manipulator_config.yaml) are what the launch files use.
+# Point ros2 run at this file directly from the source tree so it can be edited
+# and re-run without a rebuild.
+
+servo_stream_controller:
+  ros__parameters:
+    joint_axes: [0]
+    # Order matters: axis[0] determines LinearIntplProfileCalcMode for the
+    # whole interpolation.
+    joint_name: ["joint1"]
+    joint_trajectory_topic: /movensys_manipulator_arm_controller/joint_trajectory
+
+    api_buffer_channel: 0
+    estop_buffer_channel: 1      # watch trigger routine; must differ from the above
+    # 320 bytes/setpoint with no pacing block, so 1 MB holds ~3200. The channel
+    # is a ring and reclaims space as blocks execute, so this does not bound how
+    # long a stream can run.
+    api_buffer_size_mb: 1
+
+    # There is no queue and no pacing loop: one StartLinearIntplPos block per
+    # setpoint, executed as soon as it lands. queue_depth should read 0-1.
+    #
+    # nominal_period_us is now the time each segment is given to cover its
+    # distance, which is what sets commanded velocity. It is the single most
+    # important value here. Too short over-drives: the axis reaches target early,
+    # decelerates to rest, and the stop-and-go this design exists to remove comes
+    # back. Too long under-drives and the arm lags the stream. Set it to the
+    # publisher's actual period.
+    nominal_period_us: 25000     # = 40 Hz publisher
+
+    starvation_timeout_ms: 75    # 3x nominal period -> controlled stop
+    accel_ratio: 0.3             # accel phase spans 30% of a segment; retune with the surge data
+    max_joint_velocity: 3.14     # rad/s ceiling. VERIFY against this axis' real limit.
+    min_step_rad: 1.0e-6         # below this a setpoint is a hold and is not recorded
+    # Terminal velocity per segment as a fraction of its path velocity. 1.0
+    # removes the final decel segment, which is what overrides were colliding
+    # with; a completed segment then ends in a velocity step, so
+    # starvation_timeout_ms must land before the completion time the node prints
+    # at startup. 0 restores the old decelerate-to-rest behaviour.
+    #
+    # OFF here, deliberately. Enabling it needs nominal_period_us raised above
+    # this setup's worst-case setpoint gap first, the way cr3a was: at 25000 a
+    # segment completes in 28.8 ms, far inside the 75 ms starvation timeout, so
+    # the engine would step the axes to zero before the controlled stop ran.
+    # Measure the gap here, retune both values, then set this to 1.0.
+    end_velocity_ratio: 0.0
+    stop_on_error: true
+    # Per-setpoint trace: 0 = off, N = log every Nth recorded setpoint.
+    # 1 traces every command; at 40-50 Hz set it to the rate for ~1 line/sec.
+    # Runs on the pump thread, so leave it off for latency measurements.
+    setpoint_log_every: 0
+
+# Publishes /joint_states, which servo_stream_test_source needs to centre its
+# waveform on and which every measurement of the streaming path depends on.
+# NOT started by wmx_r2_general_nodes.launch.py — the manipulator launches add
+# it, so a bench session has to run it by hand.
+joint_state_broadcaster:
+  ros__parameters:
+    joint_axes: [0]
+    joint_name: ["joint1"]
+    joint_feedback_rate: 100
+    encoder_joint_topic: /joint_states
+    isaacsim_joint_topic: /isaacsim/joint_command
+    gazebo_position_joint_topic: /gazebo_position_controller/commands
+    gazebo_position_joint_axes: [0]
+
+# Synthetic stand-in for MoveIt Servo. amplitude_rad 0.0 is a pure hold: the full
+# streaming path runs at rate with zero commanded motion, which is the correct
+# first test with the servos on. Raise it only once queue depth is stable.
+servo_stream_test_source:
+  ros__parameters:
+    joint_name: ["joint1"]
+    joint_states_topic: /joint_states
+    output_topic: /movensys_manipulator_arm_controller/joint_trajectory
+    amplitude_rad: 0.0
+    frequency_hz: 0.25
+    publish_rate_hz: 40.0
+    ramp_seconds: 2.0
+    waveform: sine
+
+# Run-once buffer characterisation. Commands no motion; safe with servos off,
+# and that is the recommended way to run it.
+api_buffer_probe:
+  ros__parameters:
+    joint_axes: [0]
+    api_buffer_channel: 0
+    api_buffer_size_mb: 1
+    sample_count: 100
+    sleep_sample_count: 50

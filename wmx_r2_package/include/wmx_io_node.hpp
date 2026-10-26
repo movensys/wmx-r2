@@ -4,19 +4,21 @@
 #ifndef WMX_IO_NODE_HPP_
 #define WMX_IO_NODE_HPP_
 
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
-
 #include "lifecycle_msgs/msg/state.hpp"
 
 #include "wmx_r2_message/srv/get_io_bit.hpp"
+#include "wmx_r2_message/srv/get_io_bits.hpp"
+#include "wmx_r2_message/srv/get_io_byte.hpp"
 #include "wmx_r2_message/srv/get_io_bytes.hpp"
 #include "wmx_r2_message/srv/set_io_bit.hpp"
+#include "wmx_r2_message/srv/set_io_bits.hpp"
+#include "wmx_r2_message/srv/set_io_byte.hpp"
 #include "wmx_r2_message/srv/set_io_bytes.hpp"
 
 #include "WMX3Api.h"
@@ -28,20 +30,30 @@ public:
   explicit WmxIoNodeApi(const rclcpp::Logger & logger);
   ~WmxIoNodeApi();
 
-  int attachDevice(std::string & message);
-  void releaseDevice();
+  int createDevice(std::string & message);
+  void closeDevice();
 
-  int getInputBit(int32_t byte, int32_t bit, int32_t & value, std::string & message);
-  int getInputBytes(
-    int32_t byte, int32_t length, std::vector<uint8_t> & data, std::string & message);
-  int getOutputBit(int32_t byte, int32_t bit, int32_t & value, std::string & message);
-  int getOutputBytes(
-    int32_t byte, int32_t length, std::vector<uint8_t> & data, std::string & message);
+  int getInBit(int32_t addr, int32_t bit, uint8_t & data, std::string & message);
+  int getInBits(
+    const std::vector<int32_t> & addr, const std::vector<int32_t> & bit,
+    std::vector<uint8_t> & data, std::string & message);
+  int getInByte(int32_t addr, uint8_t & data, std::string & message);
+  int getInBytes(
+    int32_t addr, int32_t size, std::vector<uint8_t> & data, std::string & message);
+  int getOutBit(int32_t addr, int32_t bit, uint8_t & data, std::string & message);
+  int getOutBits(
+    const std::vector<int32_t> & addr, const std::vector<int32_t> & bit,
+    std::vector<uint8_t> & data, std::string & message);
+  int getOutByte(int32_t addr, uint8_t & data, std::string & message);
+  int getOutBytes(
+    int32_t addr, int32_t size, std::vector<uint8_t> & data, std::string & message);
 
-  int setOutputBit(int32_t byte, int32_t bit, int32_t value, std::string & message);
-  int setOutputBytes(int32_t byte, const std::vector<uint8_t> & data, std::string & message);
-
-  bool isDeviceOpen() const {return wmxIo_ != nullptr;}
+  int setOutBit(int32_t addr, int32_t bit, uint8_t data, std::string & message);
+  int setOutBits(
+    const std::vector<int32_t> & addr, const std::vector<int32_t> & bit,
+    const std::vector<uint8_t> & data, std::string & message);
+  int setOutByte(int32_t addr, uint8_t data, std::string & message);
+  int setOutBytes(int32_t addr, const std::vector<uint8_t> & data, std::string & message);
 
 private:
   rclcpp::Logger logger_;
@@ -50,7 +62,7 @@ private:
   unsigned int timeout_ = 10000;
 
   wmx3Api::WMX3Api wmx3Lib_;
-  std::unique_ptr<wmx3Api::IO> wmxIo_;
+  wmx3Api::IO wmxIo_;
 };
 
 class WmxIoNode : public rclcpp_lifecycle::LifecycleNode
@@ -71,32 +83,53 @@ public:
 private:
   std::unique_ptr<WmxIoNodeApi> api_;
 
-  rclcpp::Service<wmx_r2_message::srv::GetIoBit>::SharedPtr getInputBitService_;
-  rclcpp::Service<wmx_r2_message::srv::GetIoBit>::SharedPtr getOutputBitService_;
-  rclcpp::Service<wmx_r2_message::srv::GetIoBytes>::SharedPtr getInputBytesService_;
-  rclcpp::Service<wmx_r2_message::srv::GetIoBytes>::SharedPtr getOutputBytesService_;
-  rclcpp::Service<wmx_r2_message::srv::SetIoBit>::SharedPtr setOutputBitService_;
-  rclcpp::Service<wmx_r2_message::srv::SetIoBytes>::SharedPtr setOutputBytesService_;
+  rclcpp::Service<wmx_r2_message::srv::GetIoBit>::SharedPtr getInBitService_;
+  rclcpp::Service<wmx_r2_message::srv::GetIoBits>::SharedPtr getInBitsService_;
+  rclcpp::Service<wmx_r2_message::srv::GetIoByte>::SharedPtr getInByteService_;
+  rclcpp::Service<wmx_r2_message::srv::GetIoBytes>::SharedPtr getInBytesService_;
+  rclcpp::Service<wmx_r2_message::srv::GetIoBit>::SharedPtr getOutBitService_;
+  rclcpp::Service<wmx_r2_message::srv::GetIoBits>::SharedPtr getOutBitsService_;
+  rclcpp::Service<wmx_r2_message::srv::GetIoByte>::SharedPtr getOutByteService_;
+  rclcpp::Service<wmx_r2_message::srv::GetIoBytes>::SharedPtr getOutBytesService_;
+  rclcpp::Service<wmx_r2_message::srv::SetIoBit>::SharedPtr setOutBitService_;
+  rclcpp::Service<wmx_r2_message::srv::SetIoBits>::SharedPtr setOutBitsService_;
+  rclcpp::Service<wmx_r2_message::srv::SetIoByte>::SharedPtr setOutByteService_;
+  rclcpp::Service<wmx_r2_message::srv::SetIoBytes>::SharedPtr setOutBytesService_;
 
-  bool isNodeActive();
-  std::string notActiveMessage();
-
-  void getInputBitCallback(
+  void getInBitCallback(
     const std::shared_ptr<wmx_r2_message::srv::GetIoBit::Request> request,
     std::shared_ptr<wmx_r2_message::srv::GetIoBit::Response> response);
-  void getOutputBitCallback(
+  void getInBitsCallback(
+    const std::shared_ptr<wmx_r2_message::srv::GetIoBits::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::GetIoBits::Response> response);
+  void getInByteCallback(
+    const std::shared_ptr<wmx_r2_message::srv::GetIoByte::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::GetIoByte::Response> response);
+  void getInBytesCallback(
+    const std::shared_ptr<wmx_r2_message::srv::GetIoBytes::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::GetIoBytes::Response> response);
+  void getOutBitCallback(
     const std::shared_ptr<wmx_r2_message::srv::GetIoBit::Request> request,
     std::shared_ptr<wmx_r2_message::srv::GetIoBit::Response> response);
-  void getInputBytesCallback(
+  void getOutBitsCallback(
+    const std::shared_ptr<wmx_r2_message::srv::GetIoBits::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::GetIoBits::Response> response);
+  void getOutByteCallback(
+    const std::shared_ptr<wmx_r2_message::srv::GetIoByte::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::GetIoByte::Response> response);
+  void getOutBytesCallback(
     const std::shared_ptr<wmx_r2_message::srv::GetIoBytes::Request> request,
     std::shared_ptr<wmx_r2_message::srv::GetIoBytes::Response> response);
-  void getOutputBytesCallback(
-    const std::shared_ptr<wmx_r2_message::srv::GetIoBytes::Request> request,
-    std::shared_ptr<wmx_r2_message::srv::GetIoBytes::Response> response);
-  void setOutputBitCallback(
+  void setOutBitCallback(
     const std::shared_ptr<wmx_r2_message::srv::SetIoBit::Request> request,
     std::shared_ptr<wmx_r2_message::srv::SetIoBit::Response> response);
-  void setOutputBytesCallback(
+  void setOutBitsCallback(
+    const std::shared_ptr<wmx_r2_message::srv::SetIoBits::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::SetIoBits::Response> response);
+  void setOutByteCallback(
+    const std::shared_ptr<wmx_r2_message::srv::SetIoByte::Request> request,
+    std::shared_ptr<wmx_r2_message::srv::SetIoByte::Response> response);
+  void setOutBytesCallback(
     const std::shared_ptr<wmx_r2_message::srv::SetIoBytes::Request> request,
     std::shared_ptr<wmx_r2_message::srv::SetIoBytes::Response> response);
 };

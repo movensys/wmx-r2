@@ -35,6 +35,7 @@ public:
   bool shutdown(const std::string & node, std::string & message);
 
   static bool isKnownTransition(const std::string & transition);
+  static bool isDownwardTransition(const std::string & transition);
   static std::string knownTransitions();
 
   bool applyTransition(
@@ -47,7 +48,7 @@ public:
 
   std::string resolveNodeName(const std::string & name) const;
 
-  void markHandled(const std::string & node) {handledNodes_.insert(node);}
+  void markManual(const std::string & node, bool goingDown);
 
   void clearHandled() {handledNodes_.clear();}
 
@@ -77,11 +78,10 @@ public:
 private:
   std::unique_ptr<LifecycleManager> lifecycle_;
 
-  std::string engineStatusService_;
-  bool requireEngine_ = true;
   bool nodesAreUp_ = false;
+  int engineMissCount_ = 0;
 
-  rclcpp::CallbackGroup::SharedPtr managerCbGroup_;
+  rclcpp::CallbackGroup::SharedPtr oneCbOnlyGroup_;
   rclcpp::CallbackGroup::SharedPtr clientCbGroup_;
 
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr engineStatusClient_;
@@ -90,7 +90,7 @@ private:
   rclcpp::Service<wmx_r2_message::srv::SetNodeState>::SharedPtr setNodeStateService_;
   rclcpp::Service<wmx_r2_message::srv::GetNodeStates>::SharedPtr getNodeStatesService_;
 
-  bool isEngineCommunicating();
+  bool isEngineCommunicating(bool & isEngineAnswered);
   void discoveryStep();
 
   void setNodeStateCallback(

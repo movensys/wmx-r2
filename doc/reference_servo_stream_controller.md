@@ -7,7 +7,7 @@ issued from a ROS callback.
 - Package: `wmx_r2_package`
 - Executable: `servo_stream_controller`
 - Source: [`src/servo_stream_controller.cpp`](../wmx_r2_package/src/servo_stream_controller.cpp)
-- Config: `servo_stream_controller:` block in `config/cr3a_manipulator_config.yaml` / `config/cr5a_manipulator_config.yaml`
+- Config: `servo_stream_controller:` block in the robot config passed as `config_file`, e.g. `example/cr3a_manipulator_config.yaml`, `example/cr5a_manipulator_config.yaml` or `example/synustech_manipulator_config.yaml`
 
 ---
 
@@ -125,7 +125,7 @@ proportional to the backlog, exactly when the system is already behind.
 
 The engine must be up and the axes ready before this node can stream. Follow the
 startup sequence in
-[reference_wmx_r2_general_nodes.md](reference_wmx_r2_general_nodes.md): load axis
+[reference_general_nodes.md](reference_general_nodes.md): load axis
 parameters, set gear ratios, clear alarms, servo on, home.
 
 The node polls `wmx/engine/get_engine_status` once a second and initialises
@@ -158,12 +158,15 @@ chmod +x ~/wmxrun
 Pass `use_api_buffer:=true` to swap `joint_position_controller` for this node:
 
 ```bash
-~/wmxrun ros2 launch wmx_r2_package wmx_r2_cr5a_manipulator.launch.py \
-  use_sim_time:=false use_api_buffer:=true
+~/wmxrun ros2 launch wmx_r2_package wmx_r2_manipulator.launch.py \
+  use_sim_time:=false use_api_buffer:=true \
+  'config_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/cr5a_manipulator_config.yaml' \
+  'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/cr5a_wmx_parameters.xml'
 ```
 
-Use `wmx_r2_cr3a_manipulator.launch.py` for the CR3A. Parameters come from that
-robot's `*_manipulator_config.yaml`.
+Pass the CR3A or Synustech example files for those arms (add `use_gripper:=true`
+on the CR3A). Parameters come from the `servo_stream_controller:` block of the
+`*_manipulator_config.yaml` given as `config_file`.
 
 ### 2. Standalone (bench work and tuning)
 
@@ -171,7 +174,7 @@ Run the node by itself against an already-running engine, using the single-axis
 bench config that ships with the package:
 
 ```
-wmx_r2_package/config/bench_servo_stream_config.yaml
+wmx_r2_package/example/bench_servo_stream_config.yaml
 ```
 
 It carries a section for each node a bench session uses —
@@ -183,7 +186,7 @@ Point `ros2 run` at the **source tree** copy so it can be edited and re-run
 without a rebuild:
 
 ```bash
-export BENCH=$HOME/workspaces/movensys_ws/src/wmx-r2/wmx_r2_package/config/bench_servo_stream_config.yaml
+export BENCH=$HOME/workspaces/movensys_ws/src/wmx-r2/wmx_r2_package/example/bench_servo_stream_config.yaml
 ls -l "$BENCH"        # confirm it resolves — see below
 ```
 
@@ -194,7 +197,7 @@ over the one you just typed, and `rcl` then reports
 rather than the YAML.
 
 The installed copy also exists after a build, at
-`install/wmx_r2_package/share/wmx_r2_package/config/bench_servo_stream_config.yaml`,
+`install/wmx_r2_package/share/wmx_r2_package/example/bench_servo_stream_config.yaml`,
 but editing that one is overwritten by the next `colcon build`.
 
 This is a bring-up and measurement config, not a robot config — the launch files
@@ -224,7 +227,7 @@ hand.
 
 **2. Axis bring-up.** Load axis parameters, set gear ratios, clear alarms, servo
 on, home — the sequence in
-[reference_wmx_r2_general_nodes.md](reference_wmx_r2_general_nodes.md). Nothing
+[reference_general_nodes.md](reference_general_nodes.md). Nothing
 below will move an axis until this is done.
 
 **3. Joint feedback** (second terminal). Needs root, since it reads axis status

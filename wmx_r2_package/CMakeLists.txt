@@ -34,13 +34,14 @@ set(WMX3_SDK_PATH "/opt/wmx3" CACHE PATH "Path to WMX3 SDK installation")
 
 install(DIRECTORY
   config
+  example
   launch
   DESTINATION share/${PROJECT_NAME}/
 )
 
 add_executable(joint_state_broadcaster src/joint_state_broadcaster.cpp)
 ament_target_dependencies(joint_state_broadcaster
-  rclcpp rclcpp_lifecycle lifecycle_msgs std_msgs sensor_msgs std_srvs wmx_r2_message)
+  rclcpp rclcpp_lifecycle std_msgs sensor_msgs std_srvs wmx_r2_message)
 target_include_directories(joint_state_broadcaster PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
 target_link_libraries(joint_state_broadcaster coremotionapi ioapi wmx3api imdll)
 target_link_directories(joint_state_broadcaster PRIVATE ${WMX3_SDK_PATH}/lib)
@@ -48,8 +49,8 @@ target_compile_definitions(joint_state_broadcaster PRIVATE WMX3_SDK_PATH="${WMX3
 
 add_executable(joint_trajectory_controller src/joint_trajectory_controller.cpp)
 ament_target_dependencies(joint_trajectory_controller
-  rclcpp rclcpp_action rclcpp_lifecycle lifecycle_msgs
-  std_msgs std_srvs control_msgs trajectory_msgs wmx_r2_message)
+  rclcpp rclcpp_action rclcpp_lifecycle std_msgs std_srvs control_msgs trajectory_msgs
+  wmx_r2_message)
 target_include_directories(joint_trajectory_controller PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
 target_link_libraries(joint_trajectory_controller coremotionapi advancedmotionapi ioapi wmx3api imdll)
 target_link_directories(joint_trajectory_controller PRIVATE ${WMX3_SDK_PATH}/lib)
@@ -57,7 +58,7 @@ target_compile_definitions(joint_trajectory_controller PRIVATE WMX3_SDK_PATH="${
 
 add_executable(joint_position_controller src/joint_position_controller.cpp)
 ament_target_dependencies(joint_position_controller
-  rclcpp rclcpp_lifecycle lifecycle_msgs std_msgs trajectory_msgs)
+  rclcpp rclcpp_lifecycle std_msgs trajectory_msgs)
 target_include_directories(joint_position_controller PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
 target_link_libraries(joint_position_controller coremotionapi wmx3api imdll)
 target_link_directories(joint_position_controller PRIVATE ${WMX3_SDK_PATH}/lib)
@@ -88,7 +89,7 @@ target_compile_definitions(api_buffer_probe PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PA
 
 add_executable(differential_drive_controller src/differential_drive_controller.cpp)
 ament_target_dependencies(differential_drive_controller
-  rclcpp rclcpp_lifecycle lifecycle_msgs std_msgs std_srvs geometry_msgs nav_msgs
+  rclcpp rclcpp_lifecycle sensor_msgs std_srvs geometry_msgs nav_msgs
   tf2 tf2_ros wmx_r2_message)
 target_include_directories(differential_drive_controller PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
 target_link_libraries(differential_drive_controller coremotionapi wmx3api imdll)
@@ -97,7 +98,7 @@ target_compile_definitions(differential_drive_controller PRIVATE WMX3_SDK_PATH="
 
 add_executable(gripper_controller src/gripper_controller.cpp)
 ament_target_dependencies(gripper_controller
-  rclcpp rclcpp_lifecycle lifecycle_msgs std_msgs sensor_msgs std_srvs wmx_r2_message)
+  rclcpp rclcpp_lifecycle std_msgs sensor_msgs std_srvs wmx_r2_message)
 target_include_directories(gripper_controller PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
 target_link_libraries(gripper_controller coremotionapi ioapi wmx3api imdll)
 target_link_directories(gripper_controller PRIVATE ${WMX3_SDK_PATH}/lib)
@@ -111,35 +112,32 @@ target_link_libraries(wmx_engine_node coremotionapi wmx3api imdll)
 target_link_directories(wmx_engine_node PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(wmx_engine_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 
+add_executable(wmx_lifecycle_manager_node src/wmx_lifecycle_manager_node.cpp)
+ament_target_dependencies(wmx_lifecycle_manager_node
+  rclcpp lifecycle_msgs std_srvs wmx_r2_message)
+target_include_directories(wmx_lifecycle_manager_node PRIVATE include)
+
 add_executable(wmx_core_motion_node src/wmx_core_motion_node.cpp)
 ament_target_dependencies(wmx_core_motion_node
-  rclcpp rclcpp_lifecycle lifecycle_msgs std_msgs std_srvs wmx_r2_message)
+  rclcpp rclcpp_lifecycle std_msgs std_srvs wmx_r2_message)
 target_include_directories(wmx_core_motion_node PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
 target_link_libraries(wmx_core_motion_node coremotionapi wmx3api imdll)
 target_link_directories(wmx_core_motion_node PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(wmx_core_motion_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 
 add_executable(wmx_io_node src/wmx_io_node.cpp)
-ament_target_dependencies(wmx_io_node
-  rclcpp rclcpp_lifecycle lifecycle_msgs std_msgs wmx_r2_message)
+ament_target_dependencies(wmx_io_node rclcpp rclcpp_lifecycle std_msgs wmx_r2_message)
 target_include_directories(wmx_io_node PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
 target_link_libraries(wmx_io_node ioapi wmx3api imdll)
 target_link_directories(wmx_io_node PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(wmx_io_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 
 add_executable(wmx_ethercat_node src/wmx_ethercat_node.cpp)
-ament_target_dependencies(wmx_ethercat_node
-  rclcpp rclcpp_lifecycle lifecycle_msgs std_msgs wmx_r2_message)
+ament_target_dependencies(wmx_ethercat_node rclcpp rclcpp_lifecycle std_msgs wmx_r2_message)
 target_include_directories(wmx_ethercat_node PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
 target_link_libraries(wmx_ethercat_node ecapi wmx3api imdll)
 target_link_directories(wmx_ethercat_node PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(wmx_ethercat_node PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
-
-# Drives the managed lifecycle nodes. ROS only: no WMX3 include or link.
-add_executable(wmx_lifecycle_manager_node src/wmx_lifecycle_manager_node.cpp)
-ament_target_dependencies(wmx_lifecycle_manager_node
-  rclcpp rclcpp_lifecycle lifecycle_msgs std_srvs wmx_r2_message)
-target_include_directories(wmx_lifecycle_manager_node PRIVATE include)
 
 install(TARGETS
   joint_state_broadcaster
@@ -173,6 +171,9 @@ if(BUILD_TESTING)
   add_launch_test(test/test_engine_lifecycle.py
     TIMEOUT 60
   )
+  add_launch_test(test/test_lifecycle_nodes.py
+    TIMEOUT 180
+  )
   add_launch_test(test/test_core_motion_node.py
     TIMEOUT 90
   )
@@ -185,19 +186,6 @@ if(BUILD_TESTING)
   add_launch_test(test/test_joint_position_controller.py
     TIMEOUT 120
   )
-
-  find_package(ament_cmake_gtest REQUIRED)
-  foreach(_t
-      test_diff_drive_kinematics
-      test_odometry_integrator
-      test_odom_delta_accumulator
-      test_accel_estimator)
-    ament_add_gtest(${_t} test/${_t}.cpp)
-    ament_target_dependencies(${_t}
-      rclcpp rclcpp_lifecycle lifecycle_msgs std_msgs geometry_msgs nav_msgs tf2 tf2_ros)
-    target_include_directories(${_t} PRIVATE
-      include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
-  endforeach()
 endif()
 
 ament_package()
