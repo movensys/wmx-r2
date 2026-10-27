@@ -1,31 +1,67 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <!--
+    stream_position:
+      false - joints are feedback-only (default). Motion comes from the standalone
+              wmx_r2_package joint_trajectory_controller / joint_position_controller.
+      true  - each joint exports a 'position' command interface, which
+              WmxSystemHardware streams to the servos through the WMX3 cyclic
+              buffer, so a standard JointTrajectoryController can drive the arm.
+
+    cyclic_max_acc is a trip, not a limiter: exceeding it quick-stops the axis and
+    clears the buffer. The engine checks it on the per-cycle change of the command
+    velocity, so with cyclic_subsample:=linear every write() boundary is a velocity
+    step and the engine sees about (real acceleration) x (cycles per write()).
+    cyclic_subsample:=hermite samples the (position, velocity) cubic once per cycle,
+    so the trip compares to the real acceleration; the arm controller must then
+    claim [position, velocity] (config/cr3a_controllers_hermite.yaml).
+  -->
   <xacro:macro name="movensys_manipulator_arm_wmx_r2_control"
                params="name:=WmxManipulatorArmSystem
-                       wmx_param_file">
+                       wmx_param_file
+                       stream_position:=false
+                       cyclic_max_acc:=5.0
+                       cyclic_target_periods:=2
+                       cyclic_push_period_ms:=10.0
+                       cyclic_buffer_horizon_s:=5.0
+                       cyclic_subsample:=linear">
 
     <ros2_control name="${name}" type="system">
       <hardware>
         <plugin>wmx_r2_control/WmxSystemHardware</plugin>
         <param name="device_name">wmx_cr3a_control</param>
         <param name="wmx_param_file">${wmx_param_file}</param>
+        <!-- Seed for the write() period. The hardware measures the real period
+             and converges on it, so this only has to be close; keep it equal to
+             1000 / controller_manager update_rate. -->
+        <param name="cyclic_push_period_ms">${cyclic_push_period_ms}</param>
+        <param name="cyclic_target_periods">${cyclic_target_periods}</param>
+        <param name="cyclic_max_acc">${cyclic_max_acc}</param>
+        <param name="cyclic_buffer_horizon_s">${cyclic_buffer_horizon_s}</param>
+        <param name="cyclic_subsample">${cyclic_subsample}</param>
       </hardware>
 
-      <xacro:macro name="arm_joint" params="joint axis">
+      <xacro:macro name="arm_joint" params="joint axis stream">
         <joint name="${joint}">
           <param name="axis">${axis}</param>
+          <xacro:if value="${stream}">
+            <command_interface name="position"/>
+            <xacro:if value="${cyclic_subsample == 'hermite'}">
+              <command_interface name="velocity"/>
+            </xacro:if>
+          </xacro:if>
           <state_interface name="position"/>
           <state_interface name="velocity"/>
         </joint>
       </xacro:macro>
 
-      <xacro:arm_joint joint="joint1" axis="0"/>
-      <xacro:arm_joint joint="joint2" axis="1"/>
-      <xacro:arm_joint joint="joint3" axis="2"/>
-      <xacro:arm_joint joint="joint4" axis="3"/>
-      <xacro:arm_joint joint="joint5" axis="4"/>
-      <xacro:arm_joint joint="joint6" axis="5"/>
+      <xacro:arm_joint joint="joint1" axis="0" stream="${stream_position}"/>
+      <xacro:arm_joint joint="joint2" axis="1" stream="${stream_position}"/>
+      <xacro:arm_joint joint="joint3" axis="2" stream="${stream_position}"/>
+      <xacro:arm_joint joint="joint4" axis="3" stream="${stream_position}"/>
+      <xacro:arm_joint joint="joint5" axis="4" stream="${stream_position}"/>
+      <xacro:arm_joint joint="joint6" axis="5" stream="${stream_position}"/>
     </ros2_control>
 
   </xacro:macro>

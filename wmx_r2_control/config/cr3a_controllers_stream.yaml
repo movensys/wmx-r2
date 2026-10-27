@@ -1,0 +1,43 @@
+controller_manager:
+  ros__parameters:
+    # Sets the write() period, and so how many engine cycles each cyclic-buffer
+    # command spans. Raising it tightens teleop latency (a smaller quantum lets
+    # cyclic_target_periods come down); keep cyclic_push_period_ms in
+    # cr3a.wmx.ros2_control.xacro equal to 1000 / this value.
+    update_rate: 100
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    # Named to match what the MoveIt side already expects, so no manipulator-side
+    # config changes are needed:
+    #   <name>/joint_trajectory        <- moveit_servo command_out_topic
+    #   <name>/follow_joint_trajectory <- moveit_controllers.yaml action_ns
+    movensys_manipulator_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+movensys_manipulator_arm_controller:
+  ros__parameters:
+    joints:
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6
+
+    # Position only: WmxSystemHardware streams positions into the cyclic buffer,
+    # which interpolates each one across its intervalCycles inside the engine.
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
+    # MoveIt plans for the whole group; a partial goal would leave the remaining
+    # axes uncommanded while the buffer is running.
+    allow_partial_joints_goal: false
+
+    constraints:
+      stopped_velocity_tolerance: 0.01
+      goal_time: 0.5

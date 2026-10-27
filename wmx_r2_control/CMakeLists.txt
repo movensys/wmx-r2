@@ -20,6 +20,7 @@ set(WMX3_SDK_PATH "/opt/wmx3" CACHE PATH "Path to WMX3 SDK installation")
 
 add_library(wmx_system_hardware SHARED
   src/wmx_system_hardware.cpp
+  src/wmx_cyclic_stream.cpp
 )
 target_include_directories(wmx_system_hardware PRIVATE
   include
@@ -28,7 +29,8 @@ target_include_directories(wmx_system_hardware PRIVATE
 )
 target_compile_definitions(wmx_system_hardware PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 target_link_directories(wmx_system_hardware PRIVATE ${WMX3_SDK_PATH}/lib)
-target_link_libraries(wmx_system_hardware coremotionapi wmx3api imdll)
+# cyclicbufferapi before wmx3api: static archives must precede what they need.
+target_link_libraries(wmx_system_hardware coremotionapi cyclicbufferapi wmx3api imdll)
 ament_target_dependencies(wmx_system_hardware
   hardware_interface
   pluginlib
@@ -63,6 +65,31 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   set(ament_cmake_copyright_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  # Cyclic-buffer stream timing: header-only, free of WMX and ROS types.
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_cyclic_stream_timing test/test_cyclic_stream_timing.cpp)
+  target_include_directories(test_cyclic_stream_timing PRIVATE include)
+
+  # WmxCyclicStream guard clauses and on_init() parsing: they reject before the
+  # classes touch the engine, so they need no hardware -- only the SDK headers.
+  foreach(_test test_wmx_cyclic_stream test_wmx_system_hardware_init)
+    ament_add_gtest(${_test} test/${_test}.cpp)
+    target_include_directories(${_test} PRIVATE
+      include
+      ${WMX3_SDK_PATH}/include
+      ${WMX3_SDK_PATH}/sample/Header
+    )
+    target_link_directories(${_test} PRIVATE ${WMX3_SDK_PATH}/lib)
+    target_link_libraries(${_test}
+      wmx_system_hardware coremotionapi cyclicbufferapi wmx3api imdll)
+    ament_target_dependencies(${_test}
+      hardware_interface
+      pluginlib
+      rclcpp
+      rclcpp_lifecycle
+    )
+  endforeach()
 endif()
 
 ament_export_include_directories(include)

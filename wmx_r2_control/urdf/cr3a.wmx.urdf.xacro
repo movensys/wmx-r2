@@ -4,11 +4,23 @@
   <xacro:arg name="wmx_param_file"
              default="$(find wmx_r2_package)/example/cr3a_wmx_parameters.xml"/>
 
+  <!-- Cyclic-buffer position streaming; see cr3a.wmx.ros2_control.xacro. -->
+  <xacro:arg name="stream_position" default="false"/>
+  <xacro:arg name="cyclic_max_acc" default="5.0"/>
+  <xacro:arg name="cyclic_target_periods" default="2"/>
+  <xacro:arg name="cyclic_push_period_ms" default="10.0"/>
+  <xacro:arg name="cyclic_subsample" default="linear"/>
+
   <xacro:include filename="$(find movensys_manipulator_description)/urdf/dobot_cr3a/movensys_manipulator.xacro"/>
   <xacro:include filename="$(find wmx_r2_control)/urdf/cr3a.wmx.ros2_control.xacro"/>
 
   <xacro:movensys_manipulator_arm_wmx_r2_control
       name="WmxManipulatorArmSystem"
-      wmx_param_file="$(arg wmx_param_file)"/>
+      wmx_param_file="$(arg wmx_param_file)"
+      stream_position="$(arg stream_position)"
+      cyclic_max_acc="$(arg cyclic_max_acc)"
+      cyclic_target_periods="$(arg cyclic_target_periods)"
+      cyclic_push_period_ms="$(arg cyclic_push_period_ms)"
+      cyclic_subsample="$(arg cyclic_subsample)"/>
 
 </robot>
