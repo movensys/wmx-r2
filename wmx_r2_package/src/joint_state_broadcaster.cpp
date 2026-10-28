@@ -3,6 +3,12 @@
 
 #include "joint_state_broadcaster.hpp"
 
+#include <cerrno>
+#include <cstring>
+#include <pthread.h>
+
+#include "realtime_tools/realtime_helpers.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <thread>
@@ -210,6 +216,10 @@ void JointStateBroadcaster::setRosParameter()
   gazeboVelocityAxes_ = this->declare_parameter<std::vector<int64_t>>(
     "gazebo_velocity_joint_axes", std::vector<int64_t>{});
 
+  // thread_priority 0 = plain thread, no SCHED_FIFO. Keep it below the WMX engine threads (71 and up).
+  // thread_priority 0 = 일반 스레드, SCHED_FIFO 없음. WMX 엔진 스레드(71 이상)보다 낮게 둔다.
+  threadPriority_ = this->declare_parameter<int>("thread_priority", 50);
+
   if (jointFeedbackRate_ <= 0) {
     RCLCPP_WARN(
       this->get_logger(),
@@ -227,6 +237,7 @@ void JointStateBroadcaster::setRosParameter()
 
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
   RCLCPP_INFO(this->get_logger(), "joint_feedback_rate: %d", jointFeedbackRate_);
+  RCLCPP_INFO(this->get_logger(), "thread_priority: %d", threadPriority_);
 
   std::string jointNamesText;
   for (size_t i = 0; i < jointNames_.size(); ++i) {
@@ -344,9 +355,10 @@ JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_activate(
 
   LifecycleNode::on_activate(previous_state);
 
-  encoderJointTimer_ = this->create_wall_timer(
-    periodFromRate(jointFeedbackRate_),
-    std::bind(&JointStateBroadcaster::publishJointState, this));
+  // Start the feedback loop on its own thread (was: a ROS wall timer on the executor).
+  // 피드백 루프를 전용 스레드에서 시작한다 (이전: executor 위의 ROS wall timer).
+  loopRunning_ = true;
+  loopThread_ = std::thread(&JointStateBroadcaster::feedbackLoop, this);
 
   RCLCPP_INFO(this->get_logger(), "joint_state_broadcaster is active");
   return CallbackReturn::SUCCESS;
@@ -355,7 +367,13 @@ JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_activate(
 JointStateBroadcaster::CallbackReturn JointStateBroadcaster::on_deactivate(
   const rclcpp_lifecycle::State & previous_state)
 {
-  encoderJointTimer_.reset();
+  // Stop the loop thread first, so it never publishes after the publishers are reset below.
+  // 루프 스레드를 먼저 멈춘다. 아래에서 publisher를 지운 뒤에 publish 하는 일이 없도록.
+  loopRunning_ = false;
+  if (loopThread_.joinable()) {
+    loopThread_.join();
+  }
+
   servoOff();
 
   LifecycleNode::on_deactivate(previous_state);
@@ -467,6 +485,45 @@ bool JointStateBroadcaster::getAxisParam(std::string & message)
   return response->success;
 }
 
+// The feedback loop thread. Same shape as ros2_control's cm_thread:
+// set SCHED_FIFO -> loop { sleep until next tick; do the work }.
+// Only this thread is real-time. The executor (services, parameters, lifecycle) stays normal.
+// 피드백 루프 스레드. ros2_control의 cm_thread와 같은 모양:
+// SCHED_FIFO -> 반복 { 다음 tick까지 대기; 일 하기 }.
+// 이 스레드만 실시간이다. executor(서비스, 파라미터, 라이프사이클)는 일반 우선순위 그대로.
+void JointStateBroadcaster::feedbackLoop()
+{
+  // Name the thread so it is easy to find in a kernel trace (15 chars max).
+  // 커널 트레이스에서 찾기 쉽도록 스레드에 이름을 붙인다 (최대 15자).
+  pthread_setname_np(pthread_self(), "joint_state_rt");
+
+  // SCHED_FIFO. If it fails (no rtprio limit), keep running as a normal thread and say so.
+  // SCHED_FIFO. 실패하면(rtprio 제한 없음) 일반 스레드로 계속 돌고 경고만 남긴다.
+  if (threadPriority_ > 0) {
+    if (realtime_tools::configure_sched_fifo(threadPriority_)) {
+      RCLCPP_INFO(this->get_logger(), "feedback loop: SCHED_FIFO priority %d", threadPriority_);
+    } else {
+      RCLCPP_WARN(
+        this->get_logger(), "feedback loop: SCHED_FIFO %d failed (%s); running without RT",
+        threadPriority_, strerror(errno));
+    }
+  }
+
+  // Fixed-period loop on absolute time: a slow tick does not push the next one later.
+  // 절대 시각 기준 고정 주기 루프: 한 tick이 늦어도 다음 tick 시각은 밀리지 않는다.
+  const auto period = periodFromRate(jointFeedbackRate_);
+  auto next = std::chrono::steady_clock::now();
+
+  while (loopRunning_ && rclcpp::ok()) {
+    next += period;
+    std::this_thread::sleep_until(next);
+
+    publishJointState();
+  }
+}
+
+// One tick of work: GetStatus -> build message -> publish. Called from feedbackLoop().
+// tick 한 번의 일: GetStatus -> 메시지 만들기 -> publish. feedbackLoop()에서 호출.
 void JointStateBroadcaster::publishJointState()
 {
   std::vector<JointStateBroadcasterApi::AxisFeedback> feedback;

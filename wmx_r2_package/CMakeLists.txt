@@ -18,6 +18,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(realtime_tools REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
@@ -46,6 +47,10 @@ target_include_directories(joint_state_broadcaster PRIVATE include ${WMX3_SDK_PA
 target_link_libraries(joint_state_broadcaster coremotionapi ioapi wmx3api imdll)
 target_link_directories(joint_state_broadcaster PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(joint_state_broadcaster PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
+
+# realtime_tools: SCHED_FIFO helper for the feedback loop thread
+# realtime_tools: 피드백 루프 스레드의 SCHED_FIFO 설정용
+target_link_libraries(joint_state_broadcaster realtime_tools::realtime_tools)
 
 add_executable(joint_trajectory_controller src/joint_trajectory_controller.cpp)
 ament_target_dependencies(joint_trajectory_controller

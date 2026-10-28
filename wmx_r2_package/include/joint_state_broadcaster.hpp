@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
@@ -98,7 +99,15 @@ private:
   rclcpp::Client<wmx_r2_message::srv::SetAxes>::SharedPtr setAxisOnClient_;
   rclcpp::Client<wmx_r2_message::srv::GetAxisParam>::SharedPtr getAxisParamClient_;
 
-  rclcpp::TimerBase::SharedPtr encoderJointTimer_;
+  // SCHED_FIFO priority of the feedback loop thread (same name as in ros2_control). 0 = off.
+  // 피드백 루프 스레드의 SCHED_FIFO 우선순위 (ros2_control과 같은 이름). 0 = 끔.
+  int threadPriority_ = 50;
+
+  // The feedback loop runs on this thread, not on a ROS timer. loopRunning_ stops it.
+  // 피드백 루프는 ROS 타이머가 아니라 이 스레드에서 돈다. loopRunning_으로 멈춘다.
+  std::thread loopThread_;
+  std::atomic<bool> loopRunning_{false};
+
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr encoderJointPub_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::JointState>::SharedPtr isaacsimJointPub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
@@ -117,6 +126,8 @@ private:
     const std::vector<int64_t> & data);
 
   bool getAxisParam(std::string & message);
+
+  void feedbackLoop();
 
   void publishJointState();
 };
