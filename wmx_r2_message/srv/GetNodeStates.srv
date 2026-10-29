@@ -1,0 +1,6 @@
+---
+bool success   # indicate successful run
+string message # response messages
+
+string[] node_names # every lifecycle node found, in bring-up order
+string[] states     # lifecycle state per entry

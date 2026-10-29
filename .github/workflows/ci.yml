@@ -31,6 +31,7 @@ jobs:
             ros-${{ matrix.ros_distro }}-ament-cpplint \
             ros-${{ matrix.ros_distro }}-ament-flake8 \
             ros-${{ matrix.ros_distro }}-ament-pep257 \
+            ros-${{ matrix.ros_distro }}-ament-uncrustify \
             ros-${{ matrix.ros_distro }}-ament-xmllint \
             cppcheck
 
@@ -40,11 +41,23 @@ jobs:
           ament_cpplint wmx_r2_package/src wmx_r2_package/include
           ament_cpplint wmx_r2_control/src wmx_r2_control/include
 
+      - name: ament_uncrustify
+        run: |
+          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          ament_uncrustify wmx_r2_package/src wmx_r2_package/include
+          ament_uncrustify wmx_r2_control/src wmx_r2_control/include
+
       - name: ament_flake8 (launch + tests)
         run: |
           source /opt/ros/${{ matrix.ros_distro }}/setup.bash
           ament_flake8 wmx_r2_package/launch wmx_r2_package/test
           ament_flake8 wmx_r2_control/launch
+
+      - name: ament_pep257 (launch + tests)
+        run: |
+          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          ament_pep257 wmx_r2_package/launch wmx_r2_package/test
+          ament_pep257 wmx_r2_control/launch
 
       - name: ament_xmllint (package.xml)
         run: |
@@ -97,3 +110,35 @@ jobs:
           colcon test --packages-select wmx_r2_message \
             --event-handlers console_cohesion+
           colcon test-result --verbose
+
+      - name: Generated interfaces are usable
+        run: |
+          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          source install/setup.bash
+          ros2 interface show wmx_r2_message/srv/SetNodeState
+          ros2 interface show wmx_r2_message/srv/EcatScanNetwork
+
+  launch-descriptions:
+    name: Launch descriptions (${{ matrix.ros_distro }})
+    runs-on: ${{ matrix.runner }}
+    container: ros:${{ matrix.ros_distro }}-ros-base
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ros_distro: humble
+            runner: ubuntu-22.04
+          - ros_distro: jazzy
+            runner: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The WMX3 SDK is not available in CI, so the nodes cannot be built here.
+      # Evaluating the launch descriptions still catches the mistakes that break
+      # a real launch: undefined launch configurations, parameter files that do
+      # not exist, lifecycle nodes declared without a namespace, and a launch
+      # file whose node count is not the one recorded in the script.
+      - name: Evaluate launch descriptions
+        run: |
+          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          python3 .github/scripts/check_launch_descriptions.py

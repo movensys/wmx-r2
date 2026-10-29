@@ -1,0 +1,4 @@
+string path   # absolute path to the WMX3 XML parameter file
+---
+bool success
+string message

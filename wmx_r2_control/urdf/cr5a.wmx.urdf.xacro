@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot name="movensys_manipulator" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="wmx_param_file"
+             default="$(find wmx_r2_package)/example/cr5a_wmx_parameters.xml"/>
+
+  <xacro:include filename="$(find movensys_manipulator_description)/urdf/dobot_cr5a/movensys_manipulator.xacro"/>
+  <xacro:include filename="$(find wmx_r2_control)/urdf/cr5a.wmx.ros2_control.xacro"/>
+
+  <xacro:movensys_manipulator_arm_wmx_r2_control
+      name="WmxManipulatorArmSystem"
+      wmx_param_file="$(arg wmx_param_file)"/>
+
+</robot>

@@ -1,0 +1,53 @@
+differential_drive_controller:
+  ros__parameters:
+    left_axis: 0
+    right_axis: 1
+    rate: 100
+    acc_time: 1.0
+    dec_time: 1.0
+    wheel_radius: 0.095
+    wheel_to_wheel: 0.55
+    cmd_vel_timeout: 0.25
+    publish_tf: false
+    odom_frame: odom
+    base_frame: base_link
+    joint_name: ["drivewheel_left_joint", "drivewheel_right_joint"]
+    cmd_vel_topic: /cmd_vel_safe
+    cmd_omega_topic: /omega_cmd
+    encoder_odometry_topic: /odom_enc
+    encoder_omega_topic: /omega_enc
+
+joint_state_broadcaster:
+  ros__parameters:
+    joint_feedback_rate: 100
+    joint_axes: [0, 1]
+    joint_name: ["drivewheel_left_joint", "drivewheel_right_joint"]
+    encoder_joint_topic: /joint_states
+    isaacsim_joint_topic: /isaacsim/joint_command
+    gazebo_velocity_joint_topic: /velocity_controller/commands
+    gazebo_velocity_joint_axes: [0, 1]
+    
+wmx_engine_node:
+  ros__parameters:
+    core: -1          
+    affinity_mask: 0   
+    
+wmx_core_motion_node:
+  ros__parameters:
+    axes_status_rate: 100
+    jog_timeout_ms: 200.0
+    jog_run_time_ms: 2000.0
+    jog_jerk_ratio: 0.75
+    motion_controllers:
+      - differential_drive_controller
+    controller_resync_period: 0.2
+
+wmx_lifecycle_manager_node:
+  ros__parameters:
+    managed_nodes:
+      - wmx_core_motion_node
+      - wmx_io_node
+      - wmx_ethercat_node
+      - joint_state_broadcaster
+      - differential_drive_controller
+    discovery_period: 1.0
