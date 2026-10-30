@@ -6,7 +6,6 @@ services:
     build:
       context: .
       dockerfile: general.Dockerfile
-      network: host
       args:
         - ROS_DISTRO=${ROS_DISTRO}
         - WMX3_SDK_PATH=${WMX3_SDK_PATH}
