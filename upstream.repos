@@ -1,0 +1,5 @@
+# One line per repo, flow form: dir: {type: git, url: ..., version: <40-hex sha>}
+repositories:
+  upstream/ros2_control: {type: git, url: https://github.com/ros-controls/ros2_control.git, version: 67646cfe21853fe3a66386b106daed1853dc5197}
+  upstream/ros2_controllers: {type: git, url: https://github.com/ros-controls/ros2_controllers.git, version: d71703b362a6bbb4637a246d22b9960f8d149b20}
+  upstream/ros2_control_cmake: {type: git, url: https://github.com/ros-controls/ros2_control_cmake.git, version: cb788a3f3354902c959c3bf667e293cfc04be2bc}

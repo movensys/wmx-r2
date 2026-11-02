@@ -23,3 +23,6 @@ Thumbs.db
 
 # Log files
 *.log
+
+# Vendored upstream ros2_control sources (see upstream.repos, scripts/upstream.sh)
+/upstream/
