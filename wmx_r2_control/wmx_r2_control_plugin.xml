@@ -5,7 +5,7 @@
     <description>
       ros2_control SystemInterface for WMX3 EtherCAT axes. Reads encoder
       feedback via CoreMotion GetStatus; drives velocity joints with StartVel
-      and position joints with the CyclicBuffer (AbsolutePos) module. Attaches
+      and position joints with StartLinearIntplPos. Attaches
       to the engine owned by wmx_engine_node (does not start/stop it).
     </description>
   </class>

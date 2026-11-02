@@ -26,6 +26,7 @@ using wmx3Api::CoreMotionStatus;
 using wmx3Api::DeviceType;
 using wmx3Api::EngineState;
 using wmx3Api::ErrorCode;
+using wmx3Api::Motion;
 using wmx3Api::ProfileType;
 using wmx3Api::Velocity;
 
@@ -154,7 +155,7 @@ int WmxSystemHardwareApi::getStatus(
       return ErrorCode::ArgumentOutOfRange;
     }
     const CoreMotionAxisStatus & raw = status.axesStatus[axis];
-    feedback.push_back({raw.actualPos, raw.actualVelocity, raw.servoOn, raw.ampAlarm});
+    feedback.push_back({raw.actualPos, raw.actualVelocity, raw.servoOn, raw.ampAlarm, raw.posCmd});
   }
 
   communicating = status.engineState == EngineState::T::Communicating;
@@ -248,6 +249,36 @@ int WmxSystemHardwareApi::setServoOn(int axis, int newStatus, std::string & mess
   return ErrorCode::None;
 }
 
+int WmxSystemHardwareApi::startLinearIntplPos(
+  const std::vector<int> & axes, const std::vector<double> & targets,
+  const std::vector<double> & maxVelocity, const std::vector<double> & maxAcc,
+  std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  Motion::LinearIntplCommand intpl;
+  intpl.axisCount = static_cast<unsigned int>(axes.size());
+  for (size_t i = 0; i < axes.size(); ++i) {
+    intpl.axis[i] = axes[i];
+    intpl.target[i] = targets[i];
+    intpl.maxVelocity[i] = maxVelocity[i];
+    intpl.maxAcc[i] = maxAcc[i];
+    intpl.maxDec[i] = maxAcc[i];
+  }
+  intpl.profile.type = ProfileType::Trapezoidal;
+  intpl.profile.velocity = 0.0;
+  intpl.profile.acc = 0.0;
+  intpl.profile.dec = 0.0;
+
+  const int err = cm_.motion->StartLinearIntplPos(&intpl);
+  if (err != ErrorCode::None) {
+    message = "StartLinearIntplPos failed. Error=" + std::to_string(err) + " (" +
+      errorToString(err) + ")";
+    return err;
+  }
+  return ErrorCode::None;
+}
+
 int WmxSystemHardwareApi::clearAmpAlarm(int axis, std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
@@ -310,6 +341,13 @@ hardware_interface::CallbackReturn WmxSystemHardware::initImpl()
   maxDeviceRetries_ = config.maxDeviceRetries;
   autoServoOn_ = (getHwParam("auto_servo_on", "true") == "true");
   stopTimeout_ = static_cast<unsigned int>(std::stoul(getHwParam("stop_timeout_ms", "2000")));
+  accelRatio_ = std::stod(getHwParam("accel_ratio", "0.3"));
+  minStep_ = std::stod(getHwParam("min_step", "0.001"));
+  if (!(accelRatio_ > 0.0) || !(minStep_ >= 0.0)) {
+    RCLCPP_FATAL(
+      logger_, "accel_ratio must be > 0 and min_step >= 0 (got %f, %f)", accelRatio_, minStep_);
+    return hardware_interface::CallbackReturn::ERROR;
+  }
 
   api_ = std::make_unique<WmxSystemHardwareApi>(logger_, config);
 
@@ -317,6 +355,11 @@ hardware_interface::CallbackReturn WmxSystemHardware::initImpl()
   joints_.reserve(info_.joints.size());
   axes_.clear();
   axes_.reserve(info_.joints.size());
+  positionAxes_.reserve(info_.joints.size());
+  positionJoints_.reserve(info_.joints.size());
+  targets_.reserve(info_.joints.size());
+  maxVelocity_.reserve(info_.joints.size());
+  maxAcc_.reserve(info_.joints.size());
 
   for (const auto & j : info_.joints) {
     WmxJoint joint;
@@ -342,18 +385,21 @@ hardware_interface::CallbackReturn WmxSystemHardware::initImpl()
       joint.mode = JointMode::StateOnly;
     } else if (cmd_ifs.size() == 1 && cmd_ifs[0].name == hardware_interface::HW_IF_VELOCITY) {
       joint.mode = JointMode::Velocity;
+    } else if (cmd_ifs.size() == 1 && cmd_ifs[0].name == hardware_interface::HW_IF_POSITION) {
+      joint.mode = JointMode::Position;
     } else {
       RCLCPP_FATAL(
         logger_,
         "Joint '%s' must declare either no command_interface (state-only) or a "
-        "single 'velocity' command_interface", j.name.c_str());
+        "single 'velocity' or 'position' command_interface", j.name.c_str());
       return hardware_interface::CallbackReturn::ERROR;
     }
 
     RCLCPP_INFO(
       logger_, "Joint '%s' -> WMX axis %d, mode=%s",
       joint.name.c_str(), joint.axis,
-      joint.mode == JointMode::Velocity ? "velocity" : "state-only");
+      joint.mode == JointMode::Velocity ? "velocity" :
+      joint.mode == JointMode::Position ? "position" : "state-only");
 
     axes_.push_back(joint.axis);
     joints_.push_back(joint);
@@ -386,20 +432,22 @@ bool WmxSystemHardware::waitForCommunicating()
   return false;
 }
 
-void WmxSystemHardware::seedJointStates()
+bool WmxSystemHardware::seedJointStates()
 {
   std::string message;
   if (api_->getStatus(axes_, feedback_, communicating_, message) != ErrorCode::None) {
     RCLCPP_WARN(logger_, "Could not seed joint states: %s", message.c_str());
-    return;
+    return false;
   }
 
   for (size_t i = 0; i < joints_.size() && i < feedback_.size(); ++i) {
     joints_[i].posState = feedback_[i].actualPos;
     joints_[i].velState = feedback_[i].actualVelocity;
-    joints_[i].cmd = 0.0;
+    // A position command of 0 would jump the arm; hold where it is until commanded.
+    joints_[i].cmd = joints_[i].mode == JointMode::Position ? feedback_[i].actualPos : 0.0;
     joints_[i].lastCmd = std::numeric_limits<double>::quiet_NaN();
   }
+  return true;
 }
 
 hardware_interface::CallbackReturn WmxSystemHardware::on_configure(
@@ -449,7 +497,9 @@ hardware_interface::CallbackReturn WmxSystemHardware::on_activate(
     RCLCPP_INFO(logger_, "Servos enabled on all axes");
   }
 
-  seedJointStates();
+  if (!seedJointStates()) {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
 
   RCLCPP_INFO(logger_, "WmxSystemHardware activated");
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -545,6 +595,9 @@ std::vector<hardware_interface::CommandInterface> WmxSystemHardware::export_comm
     if (joint.mode == JointMode::Velocity) {
       command_interfaces.emplace_back(
         joint.name, hardware_interface::HW_IF_VELOCITY, &joint.cmd);
+    } else if (joint.mode == JointMode::Position) {
+      command_interfaces.emplace_back(
+        joint.name, hardware_interface::HW_IF_POSITION, &joint.cmd);
     }
   }
   return command_interfaces;
@@ -581,9 +634,12 @@ hardware_interface::return_type WmxSystemHardware::write(
     return hardware_interface::return_type::OK;
   }
 
+  positionAxes_.clear();
+  positionJoints_.clear();
+  bool positionsReady = true;
   for (size_t i = 0; i < joints_.size() && i < feedback_.size(); ++i) {
     WmxJoint & joint = joints_[i];
-    if (joint.mode != JointMode::Velocity) {
+    if (joint.mode == JointMode::StateOnly) {
       continue;
     }
 
@@ -591,16 +647,24 @@ hardware_interface::return_type WmxSystemHardware::write(
     if (!axisStatus.servoOn || axisStatus.ampAlarm) {
       RCLCPP_WARN_THROTTLE(
         logger_, clock_, 2000,
-        "Axis %d not ready (servoOn=%d, ampAlarm=%d); skipping velocity command",
+        "Axis %d not ready (servoOn=%d, ampAlarm=%d); skipping command",
         joint.axis, axisStatus.servoOn, axisStatus.ampAlarm);
       joint.lastCmd = std::numeric_limits<double>::quiet_NaN();
+      positionsReady &= joint.mode != JointMode::Position;
       continue;
     }
 
     if (!std::isfinite(joint.cmd)) {
       RCLCPP_ERROR_THROTTLE(
         logger_, clock_, 1000,
-        "Axis %d commanded %f; skipping velocity command", joint.axis, joint.cmd);
+        "Axis %d commanded %f; skipping command", joint.axis, joint.cmd);
+      positionsReady &= joint.mode != JointMode::Position;
+      continue;
+    }
+
+    if (joint.mode == JointMode::Position) {
+      positionAxes_.push_back(joint.axis);
+      positionJoints_.push_back(i);
       continue;
     }
 
@@ -614,7 +678,56 @@ hardware_interface::return_type WmxSystemHardware::write(
       joint.lastCmd = joint.cmd;
     }
   }
+
+  // The position joints move as one group: if any of them is unusable, none moves.
+  if (positionsReady) {
+    writePositions();
+  }
   return hardware_interface::return_type::OK;
+}
+
+void WmxSystemHardware::writePositions()
+{
+  if (positionAxes_.empty()) {
+    return;
+  }
+
+  // Same velocity/acceleration derivation as wmx_r2_package joint_position_controller, with
+  // the nominal control period as the time to reach the target.
+  const double dt = 1.0 / info_.rw_rate;
+  targets_.clear();
+  maxVelocity_.clear();
+  maxAcc_.clear();
+  double largestStep = 0.0;
+  double largestVelocity = 0.0;
+  for (const size_t i : positionJoints_) {
+    const double step = std::fabs(joints_[i].cmd - feedback_[i].posCmd);
+    largestStep = std::fmax(largestStep, step);
+    const double velocity = step / dt;
+    largestVelocity = std::fmax(largestVelocity, velocity);
+    targets_.push_back(joints_[i].cmd);
+    maxVelocity_.push_back(velocity);
+    maxAcc_.push_back(velocity / (accelRatio_ * dt));
+  }
+
+  if (largestStep < minStep_ || largestVelocity <= 0.0) {
+    return;
+  }
+
+  for (size_t k = 0; k < positionAxes_.size(); ++k) {
+    if (maxVelocity_[k] <= 0.0) {
+      maxVelocity_[k] = largestVelocity;
+      maxAcc_[k] = largestVelocity / (accelRatio_ * dt);
+    }
+  }
+
+  // Like the native joint_position_controller: log and drop, do not stop.
+  std::string message;
+  if (api_->startLinearIntplPos(
+      positionAxes_, targets_, maxVelocity_, maxAcc_, message) != ErrorCode::None)
+  {
+    RCLCPP_WARN_THROTTLE(logger_, clock_, 1000, "%s", message.c_str());
+  }
 }
 
 }  // namespace wmx_r2_control

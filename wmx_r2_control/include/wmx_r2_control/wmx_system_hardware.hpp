@@ -49,6 +49,7 @@ public:
     double actualVelocity = 0.0;
     bool servoOn = false;
     bool ampAlarm = false;
+    double posCmd = 0.0;
   };
 
   WmxSystemHardwareApi(const rclcpp::Logger & logger, const Config & config);
@@ -69,6 +70,10 @@ public:
     const std::vector<int> & axes, unsigned int timeoutMilliseconds, std::string & message);
   int setServoOn(int axis, int newStatus, std::string & message);
   int clearAmpAlarm(int axis, std::string & message);
+  int startLinearIntplPos(
+    const std::vector<int> & axes, const std::vector<double> & targets,
+    const std::vector<double> & maxVelocity, const std::vector<double> & maxAcc,
+    std::string & message);
 
 private:
   rclcpp::Logger logger_;
@@ -86,6 +91,7 @@ private:
 enum class JointMode
 {
   Velocity,    // command_interface "velocity" -> WMX CoreMotion StartVel
+  Position,    // command_interface "position" -> WMX CoreMotion StartLinearIntplPos
   StateOnly    // no command_interface -> feedback only (motion driven elsewhere)
 };
 
@@ -145,6 +151,7 @@ public:
 
 private:
   void stopAllAxes();
+  void writePositions();
 
   rclcpp::Logger logger_ = rclcpp::get_logger("WmxSystemHardware");
   rclcpp::Clock clock_{RCL_STEADY_TIME};
@@ -161,10 +168,18 @@ private:
   int maxDeviceRetries_ = 30;
   bool autoServoOn_ = true;
   unsigned int stopTimeout_ = 2000;
+  // Scratch buffers for writePositions(), reserved once so write() never allocates.
+  std::vector<int> positionAxes_;
+  std::vector<size_t> positionJoints_;
+  std::vector<double> targets_;
+  std::vector<double> maxVelocity_;
+  std::vector<double> maxAcc_;
+  double accelRatio_ = 0.3;
+  double minStep_ = 0.001;
   hardware_interface::CallbackReturn initImpl();
   std::string getHwParam(const std::string & key, const std::string & def) const;
   bool waitForCommunicating();
-  void seedJointStates();
+  bool seedJointStates();
 };
 
 }  // namespace wmx_r2_control
