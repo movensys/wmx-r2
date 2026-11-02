@@ -65,7 +65,7 @@ services:
 
                cd /home/admin/workspaces/movensys_ws && \
                echo ====== Build wmx_r2 ======= && \
-               colcon build --symlink-install && \
+               colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF && \
 
                echo ====== Build Terminated ======= && \
                source /home/admin/workspaces/movensys_ws/install/setup.bash && \
