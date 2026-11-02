@@ -38,12 +38,21 @@ own the engine, not the motion these controllers command.
 | `gripper_controller` | Gripper open/close over a WMX IO output bit | only with `use_gripper:=true` |
 
 "Started" is for `wmx_r2_manipulator.launch.py`.
-`wmx_r2_control_manipulator.launch.py` starts the same trajectory, position and
-gripper nodes, but **not** this `joint_state_broadcaster`: feedback there comes
-from `ros2_control_node` with `WmxSystemHardware` plus a spawned
-`joint_state_broadcaster/JointStateBroadcaster` of the same name, and the
-hardware interface itself clears alarms and switches the servos on at activate
-(hardware param `auto_servo_on`, default `true`).
+`wmx_r2_control_manipulator.launch.py` starts only the gripper node (with
+`use_gripper:=true`), **not** this `joint_state_broadcaster`, `joint_trajectory_controller`
+or `joint_position_controller`: feedback there comes from `ros2_control_node` with
+`WmxSystemHardware` plus a spawned `joint_state_broadcaster/JointStateBroadcaster` of
+the same name, `FollowJointTrajectory` is served by the official `ros2_controllers`
+`joint_trajectory_controller` spawned as `movensys_manipulator_arm_controller`
+(position command, sent by the hardware plugin each cycle as
+`StartLinearIntplPos`, same formula as the native `joint_position_controller`; hardware params `accel_ratio` 0.3, `min_step` 0.001; axes stay in Position (CSP) mode), and the
+hardware interface itself clears amp alarms at activate and, unless hardware param
+`auto_servo_on` is `false` (default `true`), switches the servos on.
+
+**Sim clock.** With `use_sim_time:=true` the `controller_manager` loop runs on the ROS
+clock (it sleeps until the next `/clock` message), so its 100 Hz loop only reaches the
+`/clock` rate (upstream behaviour, e.g. 60 Hz with a 60 Hz `/clock`). The native
+`joint_state_broadcaster` uses a steady clock and is unaffected.
 
 ---
 
@@ -102,17 +111,24 @@ wrong. Every deployment supplies a YAML.
 
 ### B. `joint_trajectory_controller`
 
+(Native path only; the ros2_control launch uses the official JTC instead.)
+
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
 | `joint_axes` | int[] | `[]` | – | WMX3 axis index per trajectory joint. |
 | `joint_name` | string[] | `[]` | – | Joint name per entry of `joint_axes`, same order. When the goal carries `joint_names`, each goal column is matched to its axis by name and a goal that names an unknown joint, repeats one, or leaves one out is rejected. Leave empty only to keep the old positional mapping, which the node warns about at startup. A length that does not match `joint_axes` is logged as an error and the list is dropped. |
 | `joint_trajectory_action` | string | `/joint_trajectory_action/no_param` | – | Name of the `FollowJointTrajectory` action server. Must equal the controller name MoveIt2 is configured to call (e.g. `/movensys_manipulator_arm_controller/follow_joint_trajectory`). |
 
+WMX `StartCSplinePos` rejects single-point trajectories (error 94225), so a native goal
+needs at least 2 points; MoveIt sends multi-point trajectories.
+
 `kMaxTrajectoryPoints` (1000) is a compile-time constant, not a parameter: it
 sizes the WMX spline buffer allocated at `configure` (channel `kSplineChannel` =
 0) and caps the accepted goal length.
 
 ### C. `joint_position_controller`
+
+(Native path only; not launched in the ros2_control path yet.)
 
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
@@ -313,7 +329,9 @@ component.
 ## Configuration files
 
 A deployment is one YAML plus the launch wiring
-(example: `launch/wmx_r2_manipulator.launch.py`):
+(example: `launch/wmx_r2_manipulator.launch.py`; for
+`wmx_r2_control_manipulator.launch.py` use the `example/*_control_manipulator_config.yaml`
+variants, see below):
 
 1. **ROS parameter YAML** — the manipulator config (examples:
    `example/cr3a_manipulator_config.yaml`, `example/cr5a_manipulator_config.yaml`),
@@ -395,6 +413,33 @@ wmx_lifecycle_manager_node:
       - joint_position_controller
       - gripper_controller
 ```
+
+**ros2_control path.** `example/cr3a_control_manipulator_config.yaml` (and `cr5a_`)
+sets `wmx_core_motion_node.motion_controllers: [movensys_manipulator_arm_controller]`
+and drops `joint_trajectory_controller` / `joint_position_controller` from
+`managed_nodes`. Rule: a ros2_control controller goes in `motion_controllers`
+(so the core motion node arbitrates its axes) and never in `managed_nodes` (the
+controller_manager owns its lifecycle). The official JTC serves no lifecycle
+`get_state`/`transition_event` (upstream creates controller nodes with lifecycle
+services disabled), so `wmx_core_motion_node` treats a listed ros2_control controller as
+always active and the jog/`start_pos` services stay blocked on this path. Launch:
+
+```
+ros2 launch wmx_r2_control wmx_r2_control_manipulator.launch.py \
+    'config_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/cr3a_control_manipulator_config.yaml' \
+    'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/cr3a_wmx_parameters.xml' \
+    'urdf_file:=$(ros2 pkg prefix --share wmx_r2_control)/urdf/cr3a.wmx.urdf.xacro' \
+    'controllers_file:=$(ros2 pkg prefix --share wmx_r2_control)/config/cr3a_controllers.yaml'
+```
+
+**Not yet in the ros2_control path:**
+
+- `/moveit2_trajectory/execution_active` is not published by the official JTC
+  (consumers: the gone `joint_position_controller`, and MoveIt-side
+  `moveit2_api`, `keyboard_teleop`, `quest_servo_teleop`).
+- MoveIt Servo's `/movensys_manipulator_arm_controller/joint_trajectory` stream now
+  goes straight to the official JTC's `~/joint_trajectory` subscriber and preempts an
+  active `FollowJointTrajectory` goal.
 
 The action name is also the MoveIt2 integration point: it must match the
 controller name in the MoveIt controllers YAML on the planning side.

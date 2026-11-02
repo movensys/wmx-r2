@@ -239,7 +239,7 @@ perception stacks live in companion repositories:
 | [wmx_r2_general_nodes.launch.py](wmx_r2_package/launch/wmx_r2_general_nodes.launch.py) | Low-level axis / IO / EtherCAT control | `wmx_engine_node`, `wmx_lifecycle_manager_node`, `wmx_core_motion_node`, `wmx_io_node`, `wmx_ethercat_node` |
 | [wmx_r2_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_manipulator.launch.py) | Manipulator trajectory control | general nodes + `joint_state_broadcaster`, `joint_trajectory_controller`, `joint_position_controller`, and `gripper_controller` when `use_gripper:=true` |
 | [wmx_r2_differential.launch.py](wmx_r2_package/launch/wmx_r2_differential.launch.py) | Differential-drive base control | general nodes + `joint_state_broadcaster`, `differential_drive_controller` |
-| [wmx_r2_control_manipulator.launch.py](wmx_r2_control/launch/wmx_r2_control_manipulator.launch.py) | Manipulator through `ros2_control` | general nodes + `joint_trajectory_controller`, `joint_position_controller`, `robot_state_publisher`, `ros2_control_node` (`WmxSystemHardware`), a `joint_state_broadcaster` spawner and an Isaac Sim relay |
+| [wmx_r2_control_manipulator.launch.py](wmx_r2_control/launch/wmx_r2_control_manipulator.launch.py) | Manipulator through `ros2_control` | general nodes + `robot_state_publisher`, `ros2_control_node` (`WmxSystemHardware`), `joint_state_broadcaster` and `movensys_manipulator_arm_controller` (official `joint_trajectory_controller`) spawners, and an Isaac Sim relay; with `use_gripper:=true` also `gripper_controller` |
 | [wmx_r2_control_differential.launch.py](wmx_r2_control/launch/wmx_r2_control_differential.launch.py) | Differential base through `ros2_control` | general nodes + `robot_state_publisher`, `ros2_control_node` (`WmxSystemHardware`), `joint_state_broadcaster` and `diff_drive_controller` spawners, and an Isaac Sim relay |
 
 No robot is baked into any launch file. Each takes its paths as launch
@@ -264,6 +264,14 @@ joint_trajectory_topic: /movensys_manipulator_arm_controller/joint_trajectory
 The action name must match the controller name in the MoveIt2 controllers YAML
 on the planning side. See
 [doc/reference_manipulator.md](doc/reference_manipulator.md).
+
+In the `ros2_control` launch the action is served by the official
+`ros2_controllers` `joint_trajectory_controller`, spawned as
+`movensys_manipulator_arm_controller` (position command); use
+`example/cr3a_control_manipulator_config.yaml` as `config_file`. The plugin sends
+each cycle as a CoreMotion `StartLinearIntplPos` (same velocity/accel formula as the native `joint_position_controller`; hardware params `accel_ratio` 0.3, `min_step` 0.001), axes stay in Position (CSP) mode.
+`joint_position_controller` is not launched there.
+
 
 ## Nav2 integration
 

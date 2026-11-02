@@ -23,6 +23,13 @@ cd ~/workspaces/movensys_ws/src && \
    git clone https://github.com/movensys/wmx-r2.git
 ```
 
+## Download ros2_control sources
+Needed for the ros2_control path (`wmx_r2_control`). Downloads the pinned official
+`ros2_control` / `ros2_controllers` into `wmx-r2/upstream/`; re-run after `git pull`.
+```
+cd ~/workspaces/movensys_ws/src/wmx-r2 && scripts/upstream.sh
+```
+
 ## Set CycloneDDS buffer
 ```
 sudo tee /etc/sysctl.d/99-network-buffers.conf << 'EOF'
