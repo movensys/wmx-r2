@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="stage">
+
+    <link name="table">
+        <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+            <mass value="0.653" />
+            <inertia ixx="0.00075137" ixy="-3.0366E-08" ixz="1.2825E-06"
+                    iyy="0.00080094" iyz="2.5423E-09" izz="0.0010902" />
+        </inertial>
+        <visual>
+            <origin xyz="-0.5 -0.35 -1.285" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://movensys_manipulator_description/urdf/dobot_cr3a/assets/table.STL" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="-0.5 -0.35 -1.285" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://movensys_manipulator_description/urdf/dobot_cr3a/assets/table.STL" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <link name="jetson_thor">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.2 0.2 0.07"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.8 0.8 0.8 1"/>
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.2 0.2 0.07"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="table_to_jetson_thor" type="fixed">
+        <parent link="table"/>
+        <child link="jetson_thor"/>
+        <origin xyz="0.36 0.18 0.07" rpy="0 0 0"/>
+    </joint>
+
+  </xacro:macro>
+
+</robot>

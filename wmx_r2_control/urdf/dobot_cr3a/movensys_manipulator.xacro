@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+
+<robot name="movensys_manipulator" xmlns:xacro="http://www.ros.org/wiki/xacro">
+    
+    <xacro:include filename="$(find wmx_r2_control)/urdf/dobot_cr3a/stage.xacro" />
+    <xacro:include filename="$(find wmx_r2_control)/urdf/dobot_cr3a/dobot_cr3a.xacro"/>
+    <xacro:include filename="$(find wmx_r2_control)/urdf/dobot_cr3a/gripper.xacro" />
+    
+    <link name="world_manipulator"/>
+
+    <joint name="world_manipulator_to_table" type="fixed">
+        <parent link="world_manipulator"/>
+        <child  link="table"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <xacro:stage />
+
+    <joint name="robot_joint" type="fixed">
+        <origin xyz="-0.03 0.275 0.05" rpy="0 0 -1.57"/>
+        <parent link="table"/>
+        <child link="Link0"/>
+    </joint>
+
+    <xacro:dobot_cr3a joint_vel="3.0" joint_effort="1000"/>
+
+    <joint name="bracket_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <parent link="Link6" />
+      <child link="bracket" />
+    </joint>
+
+    <link name="bracket">
+      <inertial>
+        <origin xyz="0.0585 0.037 0" rpy="0 0 3.14" />
+        <mass value="0.001" />
+        <inertia ixx="8.29484481057063E-05" ixy="-1.45209400395148E-09" ixz="-1.72340872805449E-11"
+                 iyy="8.35928339777967E-05" iyz="-1.33911019721127E-07" izz="0.000131911087085913" />
+      </inertial>
+      <visual>
+        <origin xyz="0.0585 0.037 0" rpy="0 0 3.14" />
+        <geometry>
+          <mesh filename="package://movensys_manipulator_description/urdf/dobot_cr3a/assets/bracket.STL" scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name=""><color rgba="0 0 0 1" /></material>
+      </visual>
+      <collision>
+        <origin xyz="0.0585 0.037 0" rpy="0 0 3.14" />
+        <geometry>
+          <mesh filename="package://movensys_manipulator_description/urdf/dobot_cr3a/assets/bracket.STL" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </collision>
+    </link>
+
+
+    <joint name="gripper_joint" type="fixed">
+      <origin xyz="0 0.003 0.007" rpy="1.57 0 0" />
+      <parent link="bracket" />
+      <child link="gripper" />
+    </joint>
+
+    <xacro:gripper joint_vel="3.0" joint_effort="1000" />
+
+</robot>

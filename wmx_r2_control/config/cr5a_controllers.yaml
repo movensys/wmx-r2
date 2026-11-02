@@ -4,3 +4,24 @@ controller_manager:
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
+
+    movensys_manipulator_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+movensys_manipulator_arm_controller:
+  ros__parameters:
+    joints: [joint1, joint2, joint3, joint4, joint5, joint6]
+    command_interfaces: [position]
+    state_interfaces: [position, velocity]
+    allow_partial_joints_goal: false
+    allow_nonzero_velocity_at_trajectory_end: false
+    interpolation_method: splines
+    constraints:
+      goal_time: 0.5
+      stopped_velocity_tolerance: 0.05
+      joint1: {trajectory: 0.0, goal: 0.01}
+      joint2: {trajectory: 0.0, goal: 0.01}
+      joint3: {trajectory: 0.0, goal: 0.01}
+      joint4: {trajectory: 0.0, goal: 0.01}
+      joint5: {trajectory: 0.0, goal: 0.01}
+      joint6: {trajectory: 0.0, goal: 0.01}

@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+
+<robot name="movensys_manipulator" xmlns:xacro="http://www.ros.org/wiki/xacro">
+    
+    <xacro:include filename="$(find wmx_r2_control)/urdf/dobot_cr5a/stage.xacro" />
+    <xacro:include filename="$(find wmx_r2_control)/urdf/dobot_cr5a/dobot_cr5a.xacro"/>
+    
+    <link name="world_manipulator"/>
+
+    <joint name="world_manipulator_to_table" type="fixed">
+        <parent link="world_manipulator"/>
+        <child  link="table"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <xacro:stage />
+
+    <joint name="robot_joint" type="fixed">
+        <origin xyz="0.25 0 0" rpy="0 0 1.57"/>
+        <parent link="table"/>
+        <child link="Link0"/>
+    </joint>
+
+    <xacro:dobot_cr5a joint_vel="3.0" joint_effort="1000"/>
+
+</robot>

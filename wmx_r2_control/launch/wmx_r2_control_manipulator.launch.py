@@ -2,8 +2,9 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
@@ -63,24 +64,18 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
-    start_joint_trajectory_controller = LifecycleNode(
-        package='wmx_r2_package',
-        executable='joint_trajectory_controller',
-        name='joint_trajectory_controller',
-        namespace='',
-        parameters=[config_file, {'use_sim_time': use_sim_time}],
-        output='screen',
-        emulate_tty=True,
-    )
-
-    start_joint_position_controller = LifecycleNode(
-        package='wmx_r2_package',
-        executable='joint_position_controller',
-        name='joint_position_controller',
-        namespace='',
-        parameters=[config_file, {'use_sim_time': use_sim_time}],
-        output='screen',
-        emulate_tty=True,
+    start_arm_controller_spawner = RegisterEventHandler(
+        OnProcessExit(
+            target_action=start_joint_state_broadcaster_spawner,
+            on_exit=[Node(
+                package='controller_manager',
+                executable='spawner',
+                arguments=['movensys_manipulator_arm_controller',
+                           '--controller-manager', '/controller_manager'],
+                output='screen',
+                emulate_tty=True,
+            )],
+        )
     )
 
     start_gripper_controller = LifecycleNode(
@@ -138,8 +133,7 @@ def generate_launch_description():
         start_robot_state_publisher,
         start_controller_manager,
         start_joint_state_broadcaster_spawner,
-        start_joint_trajectory_controller,
-        start_joint_position_controller,
+        start_arm_controller_spawner,
         start_gripper_controller,
         start_isaacsim_joint_command_relay,
     ])

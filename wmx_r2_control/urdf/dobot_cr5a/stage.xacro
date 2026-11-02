@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="stage">
+
+    <link name="table">
+        <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+            <mass value="0.653" />
+            <inertia ixx="0.00075137" ixy="-3.0366E-08" ixz="1.2825E-06"
+                    iyy="0.00080094" iyz="2.5423E-09" izz="0.0010902" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="1.0 0.7 0.01"/>
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="1.0 0.7 0.05"/>
+            </geometry>
+        </collision>
+    </link>
+
+  </xacro:macro>
+
+</robot>

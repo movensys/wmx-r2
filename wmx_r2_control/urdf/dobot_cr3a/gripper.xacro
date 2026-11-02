@@ -1,0 +1,99 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="gripper" params="joint_vel joint_effort">
+
+    <link name="gripper">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <mass value="1.0" />
+        <inertia ixx="8.29484481057063E-05" ixy="-1.45209400395148E-09" ixz="-1.72340872805449E-11"
+                 iyy="8.35928339777967E-05" iyz="-1.33911019721127E-07" izz="0.000131911087085913" />
+      </inertial>
+      <visual>
+        <origin xyz="-0.052 0.0 -0.09" rpy="0 0 0" />
+        <geometry>
+          <mesh filename="package://movensys_manipulator_description/urdf/dobot_cr3a/assets/gripper.STL" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </visual>
+      <collision>
+        <origin xyz="-0.052 0.0 -0.09" rpy="0 0 0" />
+        <geometry>
+          <mesh filename="package://movensys_manipulator_description/urdf/dobot_cr3a/assets/gripper.STL" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="picker_1_joint" type="prismatic">
+      <origin xyz="0.05 0.175 0.004" rpy="0 0 0" />
+      <parent link="gripper" />
+      <child link="picker_1" />
+      <axis xyz="-1 0 0"/>
+      <limit effort="${joint_effort}" lower="0.0" upper="0.045" velocity="${joint_vel}" />
+      <dynamics damping="5.0" friction="0.5"/>
+    </joint>
+
+    <gazebo reference="picker_1_joint">
+      <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+
+    <link name="picker_1">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <mass value="0.1" />
+        <inertia ixx="8.29484481057063E-05" ixy="-1.45209400395148E-09" ixz="-1.72340872805449E-11"
+                 iyy="8.35928339777967E-05" iyz="-1.33911019721127E-07" izz="0.000131911087085913" />
+      </inertial>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+          <geometry>
+            <box size="0.005 0.04 0.02"></box>
+          </geometry>
+        <material name=""><color rgba="1 1 1 1" /></material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+          <geometry>
+            <box size="0.005 0.04 0.02"></box>
+          </geometry>
+      </collision>
+    </link>
+
+    <joint name="picker_2_joint" type="prismatic">
+      <origin xyz="-0.05 0.175 0.004" rpy="0 0 0" />
+      <parent link="gripper" />
+      <child link="picker_2" />
+      <axis xyz="1 0 0" />
+      <limit effort="${joint_effort}" lower="0.0" upper="0.045" velocity="${joint_vel}" />
+      <dynamics damping="5.0" friction="0.5"/>
+    </joint>
+
+    <gazebo reference="picker_2_joint">
+      <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+
+    <link name="picker_2">
+      <inertial>
+        <origin xyz="1 0 0" rpy="0 0 0" />
+        <mass value="0.1" />
+        <inertia ixx="8.29484481057063E-05" ixy="-1.45209400395148E-09" ixz="-1.72340872805449E-11"
+                 iyy="8.35928339777967E-05" iyz="-1.33911019721127E-07" izz="0.000131911087085913" />
+      </inertial>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <geometry>
+          <box size="0.005 0.04 0.02"></box>
+        </geometry>
+        <material name=""><color rgba="1 1 1 1" /></material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <geometry>
+          <box size="0.005 0.04 0.02"></box>
+        </geometry>
+      </collision>
+    </link>
+
+  </xacro:macro>
+
+</robot>

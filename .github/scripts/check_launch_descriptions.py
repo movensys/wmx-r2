@@ -100,11 +100,13 @@ def cases():
              differential(), 5),
 
         Case('wmx_r2_control_manipulator.launch.py', 'cr3a',
-             with_control(manipulator('cr3a', gripper=True),
-                          'cr3a', 'cr3a_controllers.yaml'), 6),
+             dict(with_control(manipulator('cr3a', gripper=True),
+                               'cr3a', 'cr3a_controllers.yaml'),
+                  config_file=example('cr3a_control_manipulator_config.yaml')), 4),
         Case('wmx_r2_control_manipulator.launch.py', 'cr5a',
-             with_control(manipulator('cr5a', gripper=False),
-                          'cr5a', 'cr5a_controllers.yaml'), 5),
+             dict(with_control(manipulator('cr5a', gripper=False),
+                               'cr5a', 'cr5a_controllers.yaml'),
+                  config_file=example('cr5a_control_manipulator_config.yaml')), 3),
         Case('wmx_r2_control_differential.launch.py', 'diffbot',
              with_control(differential(), 'diffbot', 'diffbot_controllers.yaml'), 3),
     ]
