@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 # Packages we build. Every other package gets a COLCON_IGNORE file so colcon skips it.
 declare -A KEEP=(
   [ros2_control]="hardware_interface controller_interface controller_manager controller_manager_msgs joint_limits ros2_control_test_assets transmission_interface"
-  [ros2_controllers]="joint_state_broadcaster joint_trajectory_controller diff_drive_controller"
+  [ros2_controllers]="joint_state_broadcaster joint_trajectory_controller diff_drive_controller gripper_controllers"
   [ros2_control_cmake]="ros2_control_cmake"
 )
 
@@ -34,7 +34,12 @@ grep -E '^ +upstream/' upstream.repos | while IFS= read -r line; do
   # Mark packages we do not need, so colcon does not build them
   for pkg in $(find "$dir" -name package.xml -not -path '*/.git/*'); do
     pkg_dir=$(dirname "$pkg")
-    [[ " ${KEEP[$name]} " == *" $(basename "$pkg_dir") "* ]] || touch "$pkg_dir/COLCON_IGNORE"
+    # rm keeps an older run's marker from hiding a package newly added to KEEP
+    if [[ " ${KEEP[$name]} " == *" $(basename "$pkg_dir") "* ]]; then
+      rm -f "$pkg_dir/COLCON_IGNORE"
+    else
+      touch "$pkg_dir/COLCON_IGNORE"
+    fi
   done
 
   # Hide the COLCON_IGNORE files from git status inside upstream/
