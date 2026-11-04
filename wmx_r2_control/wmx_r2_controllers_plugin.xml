@@ -1,0 +1,11 @@
+<library path="passthrough_trajectory_controller">
+  <class name="wmx_r2_control/PassthroughTrajectoryController"
+         type="wmx_r2_control::PassthroughTrajectoryController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Forwards a complete FollowJointTrajectory goal point by point through the
+      trajectory_passthrough command interfaces; the WMX hardware executes it as one
+      CSpline motion (same WMX API as the native wmx_r2_package trajectory controller).
+    </description>
+  </class>
+</library>

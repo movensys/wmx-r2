@@ -39,6 +39,40 @@ ament_target_dependencies(wmx_system_hardware
 # Export the hardware plugin to pluginlib
 pluginlib_export_plugin_description_file(hardware_interface wmx_r2_control_plugin.xml)
 
+# Passthrough trajectory controller (forwards whole FollowJointTrajectory goals to the hardware)
+find_package(control_msgs REQUIRED)
+find_package(controller_interface REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(realtime_tools REQUIRED)
+find_package(trajectory_msgs REQUIRED)
+
+add_library(passthrough_trajectory_controller SHARED
+  src/passthrough_trajectory_controller.cpp
+)
+target_include_directories(passthrough_trajectory_controller PRIVATE include)
+ament_target_dependencies(passthrough_trajectory_controller
+  control_msgs
+  controller_interface
+  hardware_interface
+  pluginlib
+  rclcpp
+  rclcpp_action
+  rclcpp_lifecycle
+  realtime_tools
+  trajectory_msgs
+)
+pluginlib_export_plugin_description_file(controller_interface wmx_r2_controllers_plugin.xml)
+
+install(TARGETS passthrough_trajectory_controller
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(FILES wmx_r2_controllers_plugin.xml
+  DESTINATION share/${PROJECT_NAME}
+)
+
 install(TARGETS wmx_system_hardware
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -57,6 +91,7 @@ install(FILES wmx_r2_control_plugin.xml
   DESTINATION share/${PROJECT_NAME}
 )
 
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # WMX3 SDK headers are not available on lint runners; rely on CI ament_cpplint.
@@ -66,5 +101,5 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(wmx_system_hardware)
+ament_export_libraries(wmx_system_hardware passthrough_trajectory_controller)
 ament_package()
