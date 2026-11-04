@@ -38,8 +38,10 @@ own the engine, not the motion these controllers command.
 | `gripper_controller` | Gripper open/close over a WMX IO output bit | only with `use_gripper:=true` |
 
 "Started" is for `wmx_r2_manipulator.launch.py`.
-`wmx_r2_control_manipulator.launch.py` starts only the gripper node (with
-`use_gripper:=true`), **not** this `joint_state_broadcaster`, `joint_trajectory_controller`
+`wmx_r2_control_manipulator.launch.py` does **not** start this `gripper_controller`
+(with `use_gripper:=true` it spawns the official `position_controllers/GripperActionController`
+as `movensys_manipulator_gripper_controller` instead, see the ros2_control path below), nor
+`joint_state_broadcaster`, `joint_trajectory_controller`
 or `joint_position_controller`: feedback there comes from `ros2_control_node` with
 `WmxSystemHardware` plus a spawned `joint_state_broadcaster/JointStateBroadcaster` of
 the same name, `FollowJointTrajectory` is served by the official `ros2_controllers`
@@ -65,7 +67,7 @@ clock (it sleeps until the next `/clock` message), so its 100 Hz loop only reach
 | `use_sim_time` | `false` | Use simulation clock |
 | `config_file` | **required** | YAML with the manipulator node parameters, e.g. `example/cr3a_manipulator_config.yaml` |
 | `wmx_param_file` | `""` | WMX3 parameter XML imported at engine start, e.g. `example/cr3a_wmx_parameters.xml`; empty imports nothing |
-| `use_gripper` | `false` | Start `gripper_controller` |
+| `use_gripper` | `false` | Start `gripper_controller` (native launch). In `wmx_r2_control_manipulator.launch.py`: add `picker_1_joint` to the ros2_control xacro and spawn `movensys_manipulator_gripper_controller` |
 
 `wmx_r2_control_manipulator.launch.py` takes the same four, with two additions
 and one tightening:
@@ -431,6 +433,26 @@ ros2 launch wmx_r2_control wmx_r2_control_manipulator.launch.py \
     'urdf_file:=$(ros2 pkg prefix --share wmx_r2_control)/urdf/cr3a.wmx.urdf.xacro' \
     'controllers_file:=$(ros2 pkg prefix --share wmx_r2_control)/config/cr3a_controllers.yaml'
 ```
+
+**Passthrough arm controller (CR3A).** The official JTC remains the default.
+`config/cr3a_passthrough_controllers.yaml` loads `wmx_r2_control/PassthroughTrajectoryController`
+under the same name; it writes the gpio `trajectory_passthrough` command interfaces
+(`setpoint_positions_0`..`5`, `time_from_start`, `transfer_state`, `abort`, `trajectory_size`).
+Handshake: one point per 100 Hz cycle, so N points take N×10 ms to upload before `StartCSplinePos`
+(a measured cost of the ros2_control path). One `StartCSplinePos` per goal; done on `inPos` of
+all arm axes; cancel → `Stop`, then `inPos`. No path or goal tolerance (same as native);
+`constraints.goal_time` (default 0 = off) aborts a goal that overruns its last `time_from_start`
+by more than that; cancel reports after the axes have stopped.
+
+**Gripper (ros2_control path).** With `use_gripper:=true` the xacro adds `picker_1_joint`
+(position command, IO bit from `io_byte`/`io_bit`, power-up `power_byte`/`power_value`,
+`close_threshold` 0.0225 m; 0.0 open, 0.045 closed) to `WmxSystemHardware`, and the launch
+spawns `movensys_manipulator_gripper_controller`
+(`position_controllers/GripperActionController`, from `gripper_controllers`) after the arm
+controller. Action: `/movensys_manipulator_gripper_controller/gripper_cmd`
+(`control_msgs/action/GripperCommand`). The standalone `gripper_controller` node is not
+started there and is not in `managed_nodes`. `use_sim_time` defaults to `false` and is
+passed to every node, spawners included.
 
 **Not yet in the ros2_control path:**
 

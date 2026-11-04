@@ -22,6 +22,19 @@ wros ros2 launch wmx_r2_control wmx_r2_control_manipulator.launch.py \
     use_gripper:=true
 ```
 
+Passthrough arm controller (one WMX CSpline per goal, like native): same command with
+```
+    'controllers_file:=$(ros2 pkg prefix --share wmx_r2_control)/config/cr3a_passthrough_controllers.yaml' \
+```
+
+Which ros2_control controller for which comparison:
+
+| Comparison | `controllers_file` |
+|---|---|
+| trajectory_test, official JTC (streams `StartLinearIntplPos` at 100 Hz) | `cr3a_controllers.yaml` |
+| trajectory_test, same WMX API as native (`StartCSplinePos`) | `cr3a_passthrough_controllers.yaml` |
+| JPC-style stream input (Servo / `stream_cmd`) | `cr3a_controllers.yaml`: official JTC topic `/movensys_manipulator_arm_controller/joint_trajectory` (same topic and message as native `joint_position_controller`) |
+
 ## Example: Dobot CR5A
 ```
 wros ros2 launch wmx_r2_package wmx_r2_manipulator.launch.py \
