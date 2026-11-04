@@ -7,7 +7,7 @@ from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
-from launch_ros.actions import LifecycleNode, Node
+from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 WMX_SHARE = get_package_share_directory('wmx_r2_package')
@@ -19,10 +19,12 @@ def generate_launch_description():
     wmx_param_file = LaunchConfiguration('wmx_param_file')
     urdf_file = LaunchConfiguration('urdf_file')
     controllers_file = LaunchConfiguration('controllers_file')
+    use_gripper = LaunchConfiguration('use_gripper')
 
     robot_description = {
         'robot_description': ParameterValue(
-            Command(['xacro ', urdf_file, ' wmx_param_file:=', wmx_param_file]),
+            Command(['xacro ', urdf_file, ' wmx_param_file:=', wmx_param_file,
+                     ' use_gripper:=', use_gripper]),
             value_type=str,
         )
     }
@@ -51,6 +53,10 @@ def generate_launch_description():
         executable='ros2_control_node',
         parameters=[robot_description, controllers_file,
                     {'use_sim_time': use_sim_time}],
+        # The WMX3 SDK (libimdll.so) runs a helper thread with a 16 KB stack. Lazy PLT
+        # resolution on that thread overflows it and kills ros2_control_node at random
+        # during CreateDevice. Bind every symbol at load time instead.
+        additional_env={'LD_BIND_NOW': '1'},
         output='screen',
         emulate_tty=True,
     )
@@ -60,6 +66,17 @@ def generate_launch_description():
         executable='spawner',
         arguments=['joint_state_broadcaster',
                    '--controller-manager', '/controller_manager'],
+        parameters=[{'use_sim_time': use_sim_time}],
+        output='screen',
+        emulate_tty=True,
+    )
+
+    start_arm_controller_spawner_node = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['movensys_manipulator_arm_controller',
+                   '--controller-manager', '/controller_manager'],
+        parameters=[{'use_sim_time': use_sim_time}],
         output='screen',
         emulate_tty=True,
     )
@@ -67,26 +84,24 @@ def generate_launch_description():
     start_arm_controller_spawner = RegisterEventHandler(
         OnProcessExit(
             target_action=start_joint_state_broadcaster_spawner,
-            on_exit=[Node(
-                package='controller_manager',
-                executable='spawner',
-                arguments=['movensys_manipulator_arm_controller',
-                           '--controller-manager', '/controller_manager'],
-                output='screen',
-                emulate_tty=True,
-            )],
+            on_exit=[start_arm_controller_spawner_node],
         )
     )
 
-    start_gripper_controller = LifecycleNode(
-        package='wmx_r2_package',
-        executable='gripper_controller',
-        name='gripper_controller',
-        namespace='',
-        parameters=[config_file, {'use_sim_time': use_sim_time}],
-        condition=IfCondition(LaunchConfiguration('use_gripper')),
-        output='screen',
-        emulate_tty=True,
+    start_gripper_controller_spawner = RegisterEventHandler(
+        OnProcessExit(
+            target_action=start_arm_controller_spawner_node,
+            on_exit=[Node(
+                package='controller_manager',
+                executable='spawner',
+                arguments=['movensys_manipulator_gripper_controller',
+                           '--controller-manager', '/controller_manager'],
+                parameters=[{'use_sim_time': use_sim_time}],
+                output='screen',
+                emulate_tty=True,
+            )],
+        ),
+        condition=IfCondition(use_gripper),
     )
 
     start_isaacsim_joint_command_relay = Node(
@@ -126,7 +141,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_gripper',
             default_value='false',
-            description='Start gripper_controller'
+            description='Spawn movensys_manipulator_gripper_controller and add the '
+                        'picker_1_joint gripper to ros2_control'
         ),
 
         start_wmx_r2_general_nodes,
@@ -134,6 +150,6 @@ def generate_launch_description():
         start_controller_manager,
         start_joint_state_broadcaster_spawner,
         start_arm_controller_spawner,
-        start_gripper_controller,
+        start_gripper_controller_spawner,
         start_isaacsim_joint_command_relay,
     ])

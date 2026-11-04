@@ -1,9 +1,3 @@
-gripper_controller:
-  ros__parameters:
-    wmx_gripper_topic: /wmx/set_gripper
-    gripper_address: [0, 0]
-    pre_setup_io: true
-
 wmx_engine_node:
   ros__parameters:
     core: -1           
@@ -25,5 +19,4 @@ wmx_lifecycle_manager_node:
       - wmx_core_motion_node
       - wmx_io_node
       - wmx_ethercat_node
-      - gripper_controller
     discovery_period: 1.0
