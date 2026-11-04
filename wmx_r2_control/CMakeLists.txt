@@ -28,7 +28,7 @@ target_include_directories(wmx_system_hardware PRIVATE
 )
 target_compile_definitions(wmx_system_hardware PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 target_link_directories(wmx_system_hardware PRIVATE ${WMX3_SDK_PATH}/lib)
-target_link_libraries(wmx_system_hardware coremotionapi wmx3api imdll)
+target_link_libraries(wmx_system_hardware coremotionapi advancedmotionapi ioapi wmx3api imdll)
 ament_target_dependencies(wmx_system_hardware
   hardware_interface
   pluginlib

@@ -3,7 +3,8 @@
 
   <xacro:macro name="movensys_manipulator_arm_wmx_r2_control"
                params="name:=WmxManipulatorArmSystem
-                       wmx_param_file">
+                       wmx_param_file
+                       use_gripper:=false">
 
     <ros2_control name="${name}" type="system">
       <hardware>
@@ -27,6 +28,42 @@
       <xacro:arm_joint joint="joint4" axis="3"/>
       <xacro:arm_joint joint="joint5" axis="4"/>
       <xacro:arm_joint joint="joint6" axis="5"/>
+
+      <xacro:if value="${use_gripper}">
+        <joint name="picker_1_joint">
+          <param name="io_byte">0</param>
+          <param name="io_bit">0</param>
+          <param name="close_threshold">0.0225</param>
+          <param name="power_byte">28</param>
+          <param name="power_value">113</param>
+          <command_interface name="position"/>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+        <!-- Second finger: no WMX IO of its own, mirrors picker_1_joint's state so
+             /joint_states (and the Isaac Sim relay) carries both fingers, like the native stack. -->
+        <joint name="picker_2_joint">
+          <param name="mimic">picker_1_joint</param>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:if>
+
+      <!-- Passthrough trajectory handshake (ros2 passthrough-trajectory controller format) for
+           wmx_r2_control/PassthroughTrajectoryController: one StartCSplinePos per goal.
+           Unused (and harmless) while the official JointTrajectoryController drives the arm. -->
+      <gpio name="trajectory_passthrough">
+        <command_interface name="setpoint_positions_0"/>
+        <command_interface name="setpoint_positions_1"/>
+        <command_interface name="setpoint_positions_2"/>
+        <command_interface name="setpoint_positions_3"/>
+        <command_interface name="setpoint_positions_4"/>
+        <command_interface name="setpoint_positions_5"/>
+        <command_interface name="time_from_start"/>
+        <command_interface name="transfer_state"/>
+        <command_interface name="abort"/>
+        <command_interface name="trajectory_size"/>
+      </gpio>
     </ros2_control>
 
   </xacro:macro>

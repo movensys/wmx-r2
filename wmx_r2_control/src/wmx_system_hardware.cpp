@@ -3,6 +3,7 @@
 
 #include "wmx_r2_control/wmx_system_hardware.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -33,6 +34,8 @@ using wmx3Api::Velocity;
 namespace
 {
 constexpr double kCmdEpsilon = 1e-9;
+constexpr const char * kPassthroughPrefix = "trajectory_passthrough/";
+constexpr const char * kSetpointPositionsPrefix = "setpoint_positions_";
 
 std::string errorToString(int err)
 {
@@ -44,7 +47,7 @@ std::string errorToString(int err)
 
 WmxSystemHardwareApi::WmxSystemHardwareApi(
   const rclcpp::Logger & logger, const Config & config)
-: logger_(logger), config_(config), cm_(&wmx3Lib_)
+: logger_(logger), config_(config), cm_(&wmx3Lib_), io_(&wmx3Lib_), am_(&wmx3Lib_)
 {
 }
 
@@ -94,6 +97,8 @@ int WmxSystemHardwareApi::createDevice(std::string & message)
   }
 
   cm_ = CoreMotion(&wmx3Lib_);
+  io_ = wmx3Api::IO(&wmx3Lib_);
+  am_ = wmx3Api::AdvancedMotion(&wmx3Lib_);
 
   message = "Attached to WMX3 device as '" + config_.deviceName + "'";
   RCLCPP_INFO(logger_, "%s", message.c_str());
@@ -103,6 +108,11 @@ int WmxSystemHardwareApi::createDevice(std::string & message)
 void WmxSystemHardwareApi::closeDevice()
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (splineBufferCreated_) {
+    am_.advMotion->FreeSplineBuffer(kSplineChannel);
+    splineBufferCreated_ = false;
+  }
 
   const int err = wmx3Lib_.CloseDevice();
   if (err != ErrorCode::None) {
@@ -155,7 +165,8 @@ int WmxSystemHardwareApi::getStatus(
       return ErrorCode::ArgumentOutOfRange;
     }
     const CoreMotionAxisStatus & raw = status.axesStatus[axis];
-    feedback.push_back({raw.actualPos, raw.actualVelocity, raw.servoOn, raw.ampAlarm, raw.posCmd});
+    feedback.push_back(
+      {raw.actualPos, raw.actualVelocity, raw.servoOn, raw.ampAlarm, raw.posCmd, raw.inPos});
   }
 
   communicating = status.engineState == EngineState::T::Communicating;
@@ -279,6 +290,121 @@ int WmxSystemHardwareApi::startLinearIntplPos(
   return ErrorCode::None;
 }
 
+int WmxSystemHardwareApi::setOutBit(int addr, int bit, bool on)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+  return io_.SetOutBit(addr, bit, on ? 1 : 0);
+}
+
+int WmxSystemHardwareApi::setOutByte(int addr, int data)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+  return io_.SetOutByte(addr, static_cast<unsigned char>(data));
+}
+
+int WmxSystemHardwareApi::createSplineBuffer(std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (splineBufferCreated_) {
+    return ErrorCode::None;
+  }
+
+  const int err = am_.advMotion->CreateSplineBuffer(kSplineChannel, kMaxTrajectoryPoints);
+  if (err != ErrorCode::None) {
+    message = "Failed to create the spline buffer on channel " +
+      std::to_string(kSplineChannel) + ". Error=" + std::to_string(err) +
+      " (" + errorToString(err) + ")";
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+    return err;
+  }
+
+  splinePoints_.resize(kMaxTrajectoryPoints);
+  splineTimesMs_.resize(kMaxTrajectoryPoints);
+  splineBufferCreated_ = true;
+  return ErrorCode::None;
+}
+
+void WmxSystemHardwareApi::freeSplineBuffer()
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (!splineBufferCreated_) {
+    return;
+  }
+  const int err = am_.advMotion->FreeSplineBuffer(kSplineChannel);
+  if (err != ErrorCode::None) {
+    RCLCPP_ERROR(
+      logger_, "Failed to free the spline buffer. Error=%d (%s)", err, errorToString(err).c_str());
+  }
+  splineBufferCreated_ = false;
+}
+
+int WmxSystemHardwareApi::startCSplinePos(
+  const std::vector<int> & axes, const std::vector<double> & positions,
+  const std::vector<double> & timesMs, unsigned int pointCount, std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (!splineBufferCreated_) {
+    message = "Cannot start the trajectory. The spline buffer was not created.";
+    return ErrorCode::ArgumentOutOfRange;
+  }
+
+  if (pointCount == 0 || pointCount > kMaxTrajectoryPoints ||
+    positions.size() < static_cast<size_t>(pointCount) * axes.size() ||
+    timesMs.size() < pointCount)
+  {
+    message = "Invalid trajectory point count " + std::to_string(pointCount) +
+      ": must be in [1, " + std::to_string(kMaxTrajectoryPoints) + "].";
+    return ErrorCode::ArgumentOutOfRange;
+  }
+
+  const size_t axisCount = axes.size();
+  splineCommand_.dimensionCount = static_cast<unsigned int>(axisCount);
+  for (size_t j = 0; j < axisCount; ++j) {
+    splineCommand_.axis[j] = axes[j];
+  }
+  for (size_t i = 0; i < pointCount; ++i) {
+    for (size_t j = 0; j < axisCount; ++j) {
+      splinePoints_[i].pos[j] = positions[i * axisCount + j];
+    }
+    splineTimesMs_[i] = timesMs[i];
+  }
+
+  const int err = am_.advMotion->StartCSplinePos(
+    kSplineChannel, &splineCommand_, pointCount, splinePoints_.data(), splineTimesMs_.data());
+  if (err != ErrorCode::None) {
+    message = "StartCSplinePos failed. Error=" + std::to_string(err) +
+      " (" + errorToString(err) + ")";
+    return err;
+  }
+  return ErrorCode::None;
+}
+
+int WmxSystemHardwareApi::stopAxes(const std::vector<int> & axes, std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  if (axes.empty() || axes.size() > static_cast<size_t>(wmx3Api::constants::maxAxes)) {
+    message = "Invalid axis count " + std::to_string(axes.size());
+    return ErrorCode::ArgumentOutOfRange;
+  }
+
+  wmx3Api::AxisSelection axisSel;
+  axisSel.axisCount = static_cast<int>(axes.size());
+  for (size_t i = 0; i < axes.size(); ++i) {
+    axisSel.axis[i] = axes[i];
+  }
+
+  const int err = cm_.motion->Stop(&axisSel);
+  if (err != ErrorCode::None) {
+    message = "Stop failed. Error=" + std::to_string(err) + " (" + errorToString(err) + ")";
+    return err;
+  }
+  return ErrorCode::None;
+}
+
 int WmxSystemHardwareApi::clearAmpAlarm(int axis, std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
@@ -352,6 +478,7 @@ hardware_interface::CallbackReturn WmxSystemHardware::initImpl()
   api_ = std::make_unique<WmxSystemHardwareApi>(logger_, config);
 
   joints_.clear();
+  grippers_.clear();
   joints_.reserve(info_.joints.size());
   axes_.clear();
   axes_.reserve(info_.joints.size());
@@ -362,6 +489,55 @@ hardware_interface::CallbackReturn WmxSystemHardware::initImpl()
   maxAcc_.reserve(info_.joints.size());
 
   for (const auto & j : info_.joints) {
+    const auto mimic_it = j.parameters.find("mimic");
+    if (mimic_it != j.parameters.end()) {
+      auto target = std::find_if(
+        grippers_.begin(), grippers_.end(),
+        [&](const WmxGripper & g) {return g.name == mimic_it->second;});
+      if (target == grippers_.end()) {
+        RCLCPP_FATAL(
+          logger_, "Joint '%s' mimics '%s', which is not a gripper declared before it",
+          j.name.c_str(), mimic_it->second.c_str());
+        return hardware_interface::CallbackReturn::ERROR;
+      }
+      if (!j.command_interfaces.empty()) {
+        RCLCPP_FATAL(
+          logger_, "Mimic joint '%s' must not declare command interfaces", j.name.c_str());
+        return hardware_interface::CallbackReturn::ERROR;
+      }
+      target->mimicJoints.push_back(j.name);
+      continue;
+    }
+
+    const auto io_byte_it = j.parameters.find("io_byte");
+    if (j.parameters.find("axis") == j.parameters.end() && io_byte_it != j.parameters.end()) {
+      WmxGripper gripper;
+      gripper.name = j.name;
+      gripper.ioByte = std::stoi(io_byte_it->second);
+      gripper.ioBit = std::stoi(j.parameters.at("io_bit"));
+      gripper.closeThreshold = std::stod(j.parameters.at("close_threshold"));
+      const auto power_byte_it = j.parameters.find("power_byte");
+      const auto power_value_it = j.parameters.find("power_value");
+      if (power_byte_it != j.parameters.end() && power_value_it != j.parameters.end()) {
+        gripper.hasPower = true;
+        gripper.powerByte = std::stoi(power_byte_it->second);
+        gripper.powerValue = std::stoi(power_value_it->second);
+      }
+      if (j.command_interfaces.size() != 1 ||
+        j.command_interfaces[0].name != hardware_interface::HW_IF_POSITION)
+      {
+        RCLCPP_FATAL(
+          logger_, "Gripper '%s' must declare a single 'position' command_interface",
+          j.name.c_str());
+        return hardware_interface::CallbackReturn::ERROR;
+      }
+      RCLCPP_INFO(
+        logger_, "Gripper '%s' -> WMX out byte %d bit %d, closed at position >= %f",
+        gripper.name.c_str(), gripper.ioByte, gripper.ioBit, gripper.closeThreshold);
+      grippers_.push_back(gripper);
+      continue;
+    }
+
     WmxJoint joint;
     joint.name = j.name;
 
@@ -403,6 +579,54 @@ hardware_interface::CallbackReturn WmxSystemHardware::initImpl()
 
     axes_.push_back(joint.axis);
     joints_.push_back(joint);
+  }
+
+  ptAxes_.clear();
+  ptJoints_.clear();
+  armPositionInterfaces_.clear();
+  for (size_t i = 0; i < joints_.size(); ++i) {
+    if (joints_[i].mode == JointMode::Position) {
+      ptAxes_.push_back(joints_[i].axis);
+      ptJoints_.push_back(i);
+      armPositionInterfaces_.push_back(joints_[i].name + "/" + hardware_interface::HW_IF_POSITION);
+    }
+  }
+  ptSetpointPositions_.assign(ptAxes_.size(), std::numeric_limits<double>::quiet_NaN());
+
+  hasPassthroughGpio_ = false;
+  for (const auto & gpio : info_.gpios) {
+    if (gpio.name != kPassthroughGpio) {
+      continue;
+    }
+    std::vector<std::string> expected;
+    for (size_t k = 0; k < ptAxes_.size(); ++k) {
+      expected.push_back(kSetpointPositionsPrefix + std::to_string(k));
+    }
+    expected.insert(
+      expected.end(), {"time_from_start", "transfer_state", "abort", "trajectory_size"});
+    for (const auto & name : expected) {
+      bool found = false;
+      for (const auto & ci : gpio.command_interfaces) {
+        found |= ci.name == name;
+      }
+      if (!found) {
+        RCLCPP_FATAL(
+          logger_, "GPIO '%s' is missing command_interface '%s'", kPassthroughGpio, name.c_str());
+        return hardware_interface::CallbackReturn::ERROR;
+      }
+    }
+    if (ptAxes_.empty() ||
+      ptAxes_.size() > static_cast<size_t>(wmx3Api::constants::maxSplineDimensions))
+    {
+      RCLCPP_FATAL(
+        logger_, "GPIO '%s' needs 1..%d position joints, got %zu", kPassthroughGpio,
+        wmx3Api::constants::maxSplineDimensions, ptAxes_.size());
+      return hardware_interface::CallbackReturn::ERROR;
+    }
+    hasPassthroughGpio_ = true;
+    RCLCPP_INFO(
+      logger_, "GPIO '%s' enabled for %zu position joints (CSpline channel %d)",
+      kPassthroughGpio, ptAxes_.size(), WmxSystemHardwareApi::kSplineChannel);
   }
 
   RCLCPP_INFO(
@@ -501,6 +725,39 @@ hardware_interface::CallbackReturn WmxSystemHardware::on_activate(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
+  std::string message;
+  for (WmxGripper & gripper : grippers_) {
+    // Report open; the controller's first hold command (0.0) writes the open bit.
+    gripper.cmd = gripper.posState;
+    gripper.lastClosed = -1;
+    if (gripper.hasPower) {
+      const int err = api_->setOutByte(gripper.powerByte, gripper.powerValue);
+      if (err != ErrorCode::None) {
+        RCLCPP_ERROR(
+          logger_, "Gripper '%s': SetOutByte(%d, %d) failed. Error=%d (%s)",
+          gripper.name.c_str(), gripper.powerByte, gripper.powerValue, err,
+          errorToString(err).c_str());
+      }
+    }
+  }
+
+  armMode_ = ArmCommandMode::Position;
+  ptClaimed_ = 0;
+  posClaimed_ = 0;
+  ptTransferState_ = passthrough_state::kIdle;
+  ptAbort_ = 0.0;
+  ptStopping_ = false;
+  if (hasPassthroughGpio_) {
+    // Reserve the whole trajectory now so write() never allocates.
+    const size_t maxPoints = WmxSystemHardwareApi::kMaxTrajectoryPoints;
+    ptPositions_.assign(maxPoints * ptAxes_.size(), 0.0);
+    ptTimesMs_.assign(maxPoints, 0.0);
+    if (api_->createSplineBuffer(message) != ErrorCode::None) {
+      RCLCPP_ERROR(
+        logger_, "trajectory_passthrough unavailable: %s", message.c_str());
+    }
+  }
+
   RCLCPP_INFO(logger_, "WmxSystemHardware activated");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -542,6 +799,9 @@ hardware_interface::CallbackReturn WmxSystemHardware::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   stopAllAxes();
+  if (api_) {
+    api_->freeSplineBuffer();
+  }
 
   RCLCPP_INFO(logger_, "WmxSystemHardware deactivated");
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -585,6 +845,18 @@ std::vector<hardware_interface::StateInterface> WmxSystemHardware::export_state_
     state_interfaces.emplace_back(
       joint.name, hardware_interface::HW_IF_VELOCITY, &joint.velState);
   }
+  for (auto & gripper : grippers_) {
+    state_interfaces.emplace_back(
+      gripper.name, hardware_interface::HW_IF_POSITION, &gripper.posState);
+    state_interfaces.emplace_back(
+      gripper.name, hardware_interface::HW_IF_VELOCITY, &gripper.velState);
+    for (const std::string & mimic : gripper.mimicJoints) {
+      state_interfaces.emplace_back(
+        mimic, hardware_interface::HW_IF_POSITION, &gripper.posState);
+      state_interfaces.emplace_back(
+        mimic, hardware_interface::HW_IF_VELOCITY, &gripper.velState);
+    }
+  }
   return state_interfaces;
 }
 
@@ -600,12 +872,126 @@ std::vector<hardware_interface::CommandInterface> WmxSystemHardware::export_comm
         joint.name, hardware_interface::HW_IF_POSITION, &joint.cmd);
     }
   }
+  for (auto & gripper : grippers_) {
+    command_interfaces.emplace_back(
+      gripper.name, hardware_interface::HW_IF_POSITION, &gripper.cmd);
+  }
+  if (hasPassthroughGpio_) {
+    for (size_t k = 0; k < ptSetpointPositions_.size(); ++k) {
+      command_interfaces.emplace_back(
+        kPassthroughGpio, kSetpointPositionsPrefix + std::to_string(k), &ptSetpointPositions_[k]);
+    }
+    command_interfaces.emplace_back(kPassthroughGpio, "time_from_start", &ptTimeFromStart_);
+    command_interfaces.emplace_back(kPassthroughGpio, "transfer_state", &ptTransferState_);
+    command_interfaces.emplace_back(kPassthroughGpio, "abort", &ptAbort_);
+    command_interfaces.emplace_back(kPassthroughGpio, "trajectory_size", &ptTrajectorySize_);
+  }
   return command_interfaces;
 }
 
-hardware_interface::return_type WmxSystemHardware::read(
-  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+bool WmxSystemHardware::isPassthroughInterface(const std::string & name) const
 {
+  return hasPassthroughGpio_ && name.rfind(kPassthroughPrefix, 0) == 0;
+}
+
+bool WmxSystemHardware::isArmPositionInterface(const std::string & name) const
+{
+  for (const std::string & armIf : armPositionInterfaces_) {
+    if (name == armIf) {
+      return true;
+    }
+  }
+  return false;
+}
+
+hardware_interface::return_type WmxSystemHardware::prepare_command_mode_switch(
+  const std::vector<std::string> & start_interfaces,
+  const std::vector<std::string> & stop_interfaces)
+{
+  int ptAfter = ptClaimed_;
+  int posAfter = posClaimed_;
+  for (const std::string & name : stop_interfaces) {
+    ptAfter -= isPassthroughInterface(name) ? 1 : 0;
+    posAfter -= isArmPositionInterface(name) ? 1 : 0;
+  }
+  bool startsPassthrough = false;
+  for (const std::string & name : start_interfaces) {
+    if (isPassthroughInterface(name)) {
+      startsPassthrough = true;
+      ++ptAfter;
+    }
+    posAfter += isArmPositionInterface(name) ? 1 : 0;
+  }
+
+  if (ptAfter > 0 && posAfter > 0) {
+    RCLCPP_ERROR(
+      logger_, "Refusing the switch: the arm position interfaces and %s cannot be claimed together",
+      kPassthroughGpio);
+    return hardware_interface::return_type::ERROR;
+  }
+  if (startsPassthrough && !api_->splineBufferCreated()) {
+    RCLCPP_ERROR(
+      logger_, "Refusing the switch: %s needs the WMX spline buffer, which was not created",
+      kPassthroughGpio);
+    return hardware_interface::return_type::ERROR;
+  }
+  return hardware_interface::return_type::OK;
+}
+
+hardware_interface::return_type WmxSystemHardware::perform_command_mode_switch(
+  const std::vector<std::string> & start_interfaces,
+  const std::vector<std::string> & stop_interfaces)
+{
+  for (const std::string & name : stop_interfaces) {
+    ptClaimed_ -= isPassthroughInterface(name) ? 1 : 0;
+    posClaimed_ -= isArmPositionInterface(name) ? 1 : 0;
+  }
+  for (const std::string & name : start_interfaces) {
+    ptClaimed_ += isPassthroughInterface(name) ? 1 : 0;
+    posClaimed_ += isArmPositionInterface(name) ? 1 : 0;
+  }
+
+  const ArmCommandMode newMode =
+    ptClaimed_ > 0 ? ArmCommandMode::Passthrough : ArmCommandMode::Position;
+  if (newMode == armMode_) {
+    return hardware_interface::return_type::OK;
+  }
+
+  if (newMode == ArmCommandMode::Passthrough) {
+    ptTransferState_ = passthrough_state::kIdle;
+    ptAbort_ = 0.0;
+    ptStopping_ = false;
+    ptExpected_ = 0;
+    ptReceived_ = 0;
+    RCLCPP_INFO(logger_, "Arm command mode: PASSTHROUGH (StartCSplinePos)");
+  } else {
+    // Controller left mid-trajectory: do not let the spline run on unattended. Stop only (no
+    // Wait in the RT loop); the axes are still decelerating when POSITION takes over, so a mode
+    // switch mid-motion is not supported for comparison runs.
+    if (ptTransferState_ == passthrough_state::kInMotion) {
+      stopPassthroughAxes();
+    }
+    resyncPositionCommands();
+    ptTransferState_ = passthrough_state::kIdle;
+    ptAbort_ = 0.0;
+    ptStopping_ = false;
+    RCLCPP_INFO(logger_, "Arm command mode: POSITION (StartLinearIntplPos)");
+  }
+  armMode_ = newMode;
+  return hardware_interface::return_type::OK;
+}
+
+hardware_interface::return_type WmxSystemHardware::read(
+  const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
+{
+  // No feedback sensor: mirror the last commanded position.
+  for (WmxGripper & gripper : grippers_) {
+    if (std::isfinite(gripper.cmd)) {
+      gripper.posState = gripper.cmd;
+    }
+    gripper.velState = 0.0;
+  }
+
   std::string message;
   if (api_->getStatus(axes_, feedback_, communicating_, message) != ErrorCode::None) {
     RCLCPP_ERROR_THROTTLE(logger_, clock_, 1000, "%s", message.c_str());
@@ -622,6 +1008,38 @@ hardware_interface::return_type WmxSystemHardware::read(
     joints_[i].posState = feedback_[i].actualPos;
     joints_[i].velState = feedback_[i].actualVelocity;
   }
+
+  if (armMode_ == ArmCommandMode::Passthrough &&
+    ptTransferState_ == passthrough_state::kInMotion)
+  {
+    ptElapsed_ += period.seconds();
+    bool allInPos = true;
+    bool faulted = false;
+    for (const size_t i : ptJoints_) {
+      if (i >= feedback_.size()) {
+        continue;
+      }
+      allInPos &= feedback_[i].inPos;
+      faulted |= !feedback_[i].servoOn || feedback_[i].ampAlarm;
+    }
+    if (faulted) {
+      // Servo off / amp alarm: no inPos will come, report DONE right away.
+      RCLCPP_ERROR(logger_, "Axis fault during the passthrough trajectory; stopping");
+      stopPassthroughAxes();
+      finishPassthrough(true);
+    } else if (ptStopping_) {
+      // Skip the first samples after Stop: inPos may still be stale from before the spline started.
+      if (allInPos && ++ptStopCycles_ > kStopSettleCycles) {
+        // Deceleration after the abort Stop has finished.
+        finishPassthrough(true);
+      }
+    } else if (!allInPos) {
+      ptSawMotion_ = true;
+    } else if (ptSawMotion_ || ptElapsed_ >= ptDurationS_) {
+      // Same completion flag the native controller polls (CoreMotionAxisStatus::inPos).
+      finishPassthrough(false);
+    }
+  }
   return hardware_interface::return_type::OK;
 }
 
@@ -632,6 +1050,12 @@ hardware_interface::return_type WmxSystemHardware::write(
     RCLCPP_WARN_THROTTLE(
       logger_, clock_, 1000, "WMX engine not Communicating; skipping write()");
     return hardware_interface::return_type::OK;
+  }
+
+  writeGrippers();
+
+  if (armMode_ == ArmCommandMode::Passthrough) {
+    writePassthrough();
   }
 
   positionAxes_.clear();
@@ -680,10 +1104,147 @@ hardware_interface::return_type WmxSystemHardware::write(
   }
 
   // The position joints move as one group: if any of them is unusable, none moves.
-  if (positionsReady) {
+  // In PASSTHROUGH mode the spline owns the arm: never stream StartLinearIntplPos.
+  if (positionsReady && armMode_ == ArmCommandMode::Position) {
     writePositions();
   }
   return hardware_interface::return_type::OK;
+}
+
+void WmxSystemHardware::resyncPositionCommands()
+{
+  for (const size_t i : ptJoints_) {
+    if (i < feedback_.size()) {
+      joints_[i].cmd = feedback_[i].posCmd;
+    }
+    joints_[i].lastCmd = std::numeric_limits<double>::quiet_NaN();
+  }
+}
+
+// Stop only: never Wait in the RT loop. Completion is detected from inPos in read().
+void WmxSystemHardware::stopPassthroughAxes()
+{
+  std::string message;
+  if (api_->stopAxes(ptAxes_, message) != ErrorCode::None) {
+    RCLCPP_ERROR(logger_, "%s", message.c_str());
+  }
+}
+
+void WmxSystemHardware::finishPassthrough(bool aborted)
+{
+  ptAbort_ = aborted ? 1.0 : 0.0;
+  ptTransferState_ = passthrough_state::kDone;
+  ptStopping_ = false;
+  resyncPositionCommands();
+}
+
+// Handshake in the ros2 passthrough-trajectory controller format, adapted to CSpline: collect
+// every point, then one StartCSplinePos.
+void WmxSystemHardware::writePassthrough()
+{
+  namespace ps = passthrough_state;
+
+  if (ptAbort_ == 1.0 && ptTransferState_ != ps::kIdle) {
+    if (ptTransferState_ == ps::kInMotion) {
+      // Stay IN_MOTION until read() sees every spline axis inPos, then DONE (abort stays 1).
+      if (!ptStopping_) {
+        RCLCPP_WARN(logger_, "Passthrough trajectory aborted; stopping the arm");
+        stopPassthroughAxes();
+        ptStopping_ = true;
+        ptStopCycles_ = 0;
+      }
+    } else if (ptTransferState_ != ps::kDone) {
+      // Still transferring: nothing was started on WMX.
+      finishPassthrough(true);
+    }
+    return;
+  }
+
+  if (ptTransferState_ == ps::kNewTrajectory) {
+    const double size = ptTrajectorySize_;
+    if (!(size >= 1.0) || size > WmxSystemHardwareApi::kMaxTrajectoryPoints ||
+      size != std::floor(size))
+    {
+      RCLCPP_ERROR(
+        logger_, "Invalid trajectory_size %f: must be an integer in [1, %u]",
+        size, WmxSystemHardwareApi::kMaxTrajectoryPoints);
+      finishPassthrough(true);
+      return;
+    }
+    ptExpected_ = static_cast<size_t>(size);
+    ptReceived_ = 0;
+    ptElapsed_ = 0.0;
+    ptSawMotion_ = false;
+    ptTransferState_ = ps::kWaitingForPoint;
+  } else if (ptTransferState_ == ps::kTransferring) {
+    const size_t axisCount = ptAxes_.size();
+    if (ptReceived_ >= ptExpected_) {
+      RCLCPP_ERROR(
+        logger_, "Passthrough point %zu exceeds trajectory_size %zu", ptReceived_, ptExpected_);
+      finishPassthrough(true);
+      return;
+    }
+    for (size_t j = 0; j < axisCount; ++j) {
+      ptPositions_[ptReceived_ * axisCount + j] = ptSetpointPositions_[j];
+    }
+    ptTimesMs_[ptReceived_] = ptTimeFromStart_ * 1000.0;
+    ++ptReceived_;
+    ptAbort_ = 0.0;
+    ptTransferState_ = ps::kWaitingForPoint;
+  } else if (ptTransferState_ == ps::kTransferDone) {
+    ptAbort_ = 0.0;
+    if (ptReceived_ == 0 || ptReceived_ != ptExpected_) {
+      RCLCPP_ERROR(
+        logger_, "Passthrough transfer incomplete: %zu of %zu points", ptReceived_, ptExpected_);
+      finishPassthrough(true);
+      return;
+    }
+
+    // Same as native buildSplineInput: drop a last point < 1 ms after the previous one,
+    // absolute times in ms, first time forced to 0.
+    size_t pointCount = ptReceived_;
+    if (pointCount > 1 && ptTimesMs_[pointCount - 1] - ptTimesMs_[pointCount - 2] < 1.0) {
+      pointCount -= 1;
+    }
+    ptTimesMs_[0] = 0.0;
+
+    std::string message;
+    if (api_->startCSplinePos(
+        ptAxes_, ptPositions_, ptTimesMs_, static_cast<unsigned int>(pointCount),
+        message) != ErrorCode::None)
+    {
+      RCLCPP_ERROR(logger_, "%s", message.c_str());
+      finishPassthrough(true);
+      return;
+    }
+    ptDurationS_ = ptTimesMs_[pointCount - 1] / 1000.0;
+    ptElapsed_ = 0.0;
+    ptSawMotion_ = false;
+    ptStopping_ = false;
+    ptTransferState_ = ps::kInMotion;
+  }
+}
+
+void WmxSystemHardware::writeGrippers()
+{
+  for (WmxGripper & gripper : grippers_) {
+    if (std::isnan(gripper.cmd)) {
+      continue;
+    }
+    const int closed = gripper.cmd >= gripper.closeThreshold ? 1 : 0;
+    if (closed == gripper.lastClosed) {
+      continue;
+    }
+    const int err = api_->setOutBit(gripper.ioByte, gripper.ioBit, closed != 0);
+    if (err != ErrorCode::None) {
+      RCLCPP_ERROR_THROTTLE(
+        logger_, clock_, 1000, "Gripper '%s': SetOutBit(%d, %d, %d) failed. Error=%d (%s)",
+        gripper.name.c_str(), gripper.ioByte, gripper.ioBit, closed, err,
+        errorToString(err).c_str());
+      continue;
+    }
+    gripper.lastClosed = closed;
+  }
 }
 
 void WmxSystemHardware::writePositions()

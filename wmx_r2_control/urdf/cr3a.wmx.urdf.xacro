@@ -4,11 +4,14 @@
   <xacro:arg name="wmx_param_file"
              default="$(find wmx_r2_package)/example/cr3a_wmx_parameters.xml"/>
 
+  <xacro:arg name="use_gripper" default="false"/>
+
   <xacro:include filename="$(find wmx_r2_control)/urdf/dobot_cr3a/movensys_manipulator.xacro"/>
   <xacro:include filename="$(find wmx_r2_control)/urdf/cr3a.wmx.ros2_control.xacro"/>
 
   <xacro:movensys_manipulator_arm_wmx_r2_control
       name="WmxManipulatorArmSystem"
-      wmx_param_file="$(arg wmx_param_file)"/>
+      wmx_param_file="$(arg wmx_param_file)"
+      use_gripper="$(arg use_gripper)"/>
 
 </robot>
