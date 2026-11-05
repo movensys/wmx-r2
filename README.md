@@ -37,18 +37,63 @@ The host is an ordinary **x86-64 or arm64** PC running Ubuntu with a
 **PREEMPT_RT** kernel. The EtherCAT master is software and runs on a standard network port, 
 so you do not need motion-control card.
 
+## Demo
+
+### Physical AI powered by WMX R2 on Intel Core Ultra Series 3
+
+[![Physical AI powered by WMX R2 on Intel Core Ultra Series 3](https://img.youtube.com/vi/2JlqxwyMN_E/maxresdefault.jpg)](https://www.youtube.com/watch?v=2JlqxwyMN_E)
+
+### Physical AI powered by WMX R2 on NVIDIA Jetson Thor
+
+[![Physical AI powered by WMX R2 on NVIDIA Jetson Thor](https://img.youtube.com/vi/h-G9vtAGAIU/maxresdefault.jpg)](https://www.youtube.com/watch?v=h-G9vtAGAIU)
+
+## License
+
+The ROS2 interface in this repository is [MIT](LICENSE.txt). It builds against
+and runs on the proprietary WMX3 motion engine, which is free to develop with in
+6-hour sessions renewed by restarting the engine; production use needs a
+commercial licence. **"WMX R2" as a whole is therefore not MIT.** See the
+[licensing boundary](https://movensys.github.io/wmx-r2-doc/licensing.html).
+
 ## Why WMX R2
 
 | | |
 |---|---|
 | **ROS 2 and AI on the industrial machine** | MoveIt2, MoveIt Servo and Nav2 command EtherCAT servos directly through standard ROS 2 interfaces |
 | **Production-grade, not bench-grade** | Deterministic cycle timing and servo-level error handling keep path accuracy over long runs without drift |
-| **One IPC, 85% less tracking error** | Removing the external controller and its TCP/IP link cut mean tracking error by 85% ([benchmark](https://movensys.github.io/wmx-r2-doc/)) |
 | **Any EtherCAT machine** | No robot is baked into the launch files. Each machine differs only by its WMX parameter and wmx-r2 configuration |
 | **Down to the register** | Axis, IO, EtherCAT master and engine control are all ROS 2 services, so commissioning needs no extra tools |
 | **Proven engine** | WMX3 has 25+ years of development, 40+ patents, 40,000+ licences and 500+ customers in semiconductor and industrial automation |
 | **Two distros, CI-tested** | ROS 2 Humble and Jazzy on x86-64 and arm64 |
 | **Free to develop with** | The motion engine runs free in **6-hour sessions**. Restart it to begin a new session. A commercial licence removes the limit for production |
+
+## Documentation
+
+| Doc | Description |
+|-----|-------------|
+| [doc/first_setup.md](doc/first_setup.md) | Environment setup, Docker setup, dependencies, build |
+| [doc/launch_general_nodes.md](doc/launch_general_nodes.md) | Launch the WMX general nodes |
+| [doc/launch_manipulator.md](doc/launch_manipulator.md) | Launch a manipulator |
+| [doc/launch_differential.md](doc/launch_differential.md) | Launch the differential-drive base |
+| [doc/reference_general_nodes.md](doc/reference_general_nodes.md) | Every service and topic of the general nodes, with the startup sequence |
+| [doc/reference_manipulator.md](doc/reference_manipulator.md) | Manipulator node reference: parameters, arbitration, lifecycle |
+| [doc/reference_differential.md](doc/reference_differential.md) | Differential node reference: parameters, kinematics, odometry |
+
+Full documentation, application examples and integration scenarios:
+**[movensys.github.io/wmx-r2-doc](https://movensys.github.io/wmx-r2-doc/)**
+
+## What's included
+
+- [x] Engine, lifecycle, axis, IO, and EtherCAT master control nodes
+- [x] Lifecycle manager that follows the engine state and drives every controller
+- [x] Manipulator stack: joint state feedback, trajectory action, streamed position, gripper
+- [x] Differential-drive stack: velocity command, wheel feedback, dead-reckoned odometry
+- [x] MoveIt2 integration: `FollowJointTrajectory` action plus a MoveIt Servo streaming path
+- [x] `ros2_control` hardware interface (`wmx_system_hardware`) for both stacks
+- [x] Hardware-agnostic launch files: config, WMX parameters, URDF and controllers are all arguments
+- [x] Digital-twin mirror topics for Isaac Sim and Gazebo
+- [x] Containerised setup for x86-64 and arm64
+- [x] CI on ROS2 Humble and Jazzy: lint, message build/test, launch-description checks
 
 ## Requirements
 
@@ -84,6 +129,56 @@ wros ros2 service call /wmx/axes/start_pos wmx_r2_message/srv/StartAxesPose \
 
 Full startup sequence and the complete service/topic catalog:
 [doc/reference_general_nodes.md](doc/reference_general_nodes.md).
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| [wmx_r2_message](wmx_r2_message/) | Custom messages and services for axis, IO, EtherCAT, and engine control |
+| [wmx_r2_package](wmx_r2_package/) | Main nodes, launch files, and robot configurations |
+| [wmx_r2_control](wmx_r2_control/) | `ros2_control` hardware interface, URDF xacros, and controller configs |
+
+This repository is the **execution layer**. It implements the interfaces the
+planners drive, but ships no planner configuration of its own. The planning and
+perception stacks live in companion repositories:
+
+| Repository | Provides |
+|------------|----------|
+| [movensys-manipulator](https://github.com/movensys/movensys-manipulator) | MoveIt2 and Isaac cuMotion planning, Nvblox / YOLO / AprilTag perception |
+| [movensys-navigation](https://github.com/movensys/movensys-navigation) | Nav2 configuration, EKF odometry and SLAM for a differential-drive base |
+| [movensys-intelligence](https://github.com/movensys/movensys-intelligence) | VLM / LLM voice layer built on the manipulator stack |
+| [movensys-simulation](https://github.com/movensys/movensys-simulation) | Isaac Sim scenes for the manipulator and navigation scenarios |
+
+## Nodes
+
+| Node | Role |
+|------|------|
+| `wmx_engine_node` | Owns the WMX3 engine: device creation, EtherCAT communication, parameter import, engine status |
+| `wmx_lifecycle_manager_node` | Drives every lifecycle node below, following the engine's status |
+| `wmx_core_motion_node` | Per-axis servo, alarm, gear-ratio, homing, point-to-point, velocity and jog services plus `wmx/axes/status` (lifecycle) |
+| `wmx_io_node` | IO control for input/output bits and bytes (lifecycle) |
+| `wmx_ethercat_node` | EtherCAT master operations, network scan and slave management (lifecycle) |
+| `joint_trajectory_controller` | Receives `FollowJointTrajectory` goals and executes them via WMX3 C-spline (lifecycle) |
+| `joint_position_controller` | Follows MoveIt Servo's streamed `JointTrajectory` via WMX3 linear interpolation, so every axis arrives at the same instant (lifecycle) |
+| `differential_drive_controller` | Differential-drive command and dead-reckoned odometry loop (lifecycle) |
+| `joint_state_broadcaster` | Publishes encoder feedback to `/joint_states`; clears alarms and switches the servos on when activated (lifecycle) |
+| `gripper_controller` | Gripper open/close over a WMX IO output bit (lifecycle) |
+
+## Launch files
+
+| Launch file | Purpose | Nodes started |
+|-------------|---------|---------------|
+| [wmx_r2_general_nodes.launch.py](wmx_r2_package/launch/wmx_r2_general_nodes.launch.py) | Low-level axis / IO / EtherCAT control | `wmx_engine_node`, `wmx_lifecycle_manager_node`, `wmx_core_motion_node`, `wmx_io_node`, `wmx_ethercat_node` |
+| [wmx_r2_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_manipulator.launch.py) | Manipulator trajectory control | general nodes + `joint_state_broadcaster`, `joint_trajectory_controller`, `joint_position_controller`, and `gripper_controller` when `use_gripper:=true` |
+| [wmx_r2_differential.launch.py](wmx_r2_package/launch/wmx_r2_differential.launch.py) | Differential-drive base control | general nodes + `joint_state_broadcaster`, `differential_drive_controller` |
+| [wmx_r2_control_manipulator.launch.py](wmx_r2_control/launch/wmx_r2_control_manipulator.launch.py) | Manipulator through `ros2_control` | general nodes + `joint_trajectory_controller`, `joint_position_controller`, `robot_state_publisher`, `ros2_control_node` (`WmxSystemHardware`), a `joint_state_broadcaster` spawner and an Isaac Sim relay |
+| [wmx_r2_control_differential.launch.py](wmx_r2_control/launch/wmx_r2_control_differential.launch.py) | Differential base through `ros2_control` | general nodes + `robot_state_publisher`, `ros2_control_node` (`WmxSystemHardware`), `joint_state_broadcaster` and `diff_drive_controller` spawners, and an Isaac Sim relay |
+
+No robot is baked into any launch file. Each takes its paths as launch
+arguments (`config_file` and `wmx_param_file`, plus `urdf_file` and
+`controllers_file` on the `ros2_control` ones), so one launch file serves every
+robot of that kind. The per-robot examples live in
+[wmx_r2_package/example/](wmx_r2_package/example/).
 
 ## Architecture
 
@@ -207,56 +302,6 @@ the encoder velocities back into an odometry pose. A stale command stops the
 wheels within `cmd_vel_timeout`. See
 [doc/reference_differential.md](doc/reference_differential.md).
 
-## Packages
-
-| Package | Description |
-|---------|-------------|
-| [wmx_r2_message](wmx_r2_message/) | Custom messages and services for axis, IO, EtherCAT, and engine control |
-| [wmx_r2_package](wmx_r2_package/) | Main nodes, launch files, and robot configurations |
-| [wmx_r2_control](wmx_r2_control/) | `ros2_control` hardware interface, URDF xacros, and controller configs |
-
-This repository is the **execution layer**. It implements the interfaces the
-planners drive, but ships no planner configuration of its own. The planning and
-perception stacks live in companion repositories:
-
-| Repository | Provides |
-|------------|----------|
-| [movensys-manipulator](https://github.com/movensys/movensys-manipulator) | MoveIt2 and Isaac cuMotion planning, Nvblox / YOLO / AprilTag perception |
-| [movensys-navigation](https://github.com/movensys/movensys-navigation) | Nav2 configuration, EKF odometry and SLAM for a differential-drive base |
-| [movensys-intelligence](https://github.com/movensys/movensys-intelligence) | VLM / LLM voice layer built on the manipulator stack |
-| [movensys-simulation](https://github.com/movensys/movensys-simulation) | Isaac Sim scenes for the manipulator and navigation scenarios |
-
-## Nodes
-
-| Node | Role |
-|------|------|
-| `wmx_engine_node` | Owns the WMX3 engine: device creation, EtherCAT communication, parameter import, engine status |
-| `wmx_lifecycle_manager_node` | Drives every lifecycle node below, following the engine's status |
-| `wmx_core_motion_node` | Per-axis servo, alarm, gear-ratio, homing, point-to-point, velocity and jog services plus `wmx/axes/status` (lifecycle) |
-| `wmx_io_node` | IO control for input/output bits and bytes (lifecycle) |
-| `wmx_ethercat_node` | EtherCAT master operations, network scan and slave management (lifecycle) |
-| `joint_trajectory_controller` | Receives `FollowJointTrajectory` goals and executes them via WMX3 C-spline (lifecycle) |
-| `joint_position_controller` | Follows MoveIt Servo's streamed `JointTrajectory` via WMX3 linear interpolation, so every axis arrives at the same instant (lifecycle) |
-| `differential_drive_controller` | Differential-drive command and dead-reckoned odometry loop (lifecycle) |
-| `joint_state_broadcaster` | Publishes encoder feedback to `/joint_states`; clears alarms and switches the servos on when activated (lifecycle) |
-| `gripper_controller` | Gripper open/close over a WMX IO output bit (lifecycle) |
-
-## Launch files
-
-| Launch file | Purpose | Nodes started |
-|-------------|---------|---------------|
-| [wmx_r2_general_nodes.launch.py](wmx_r2_package/launch/wmx_r2_general_nodes.launch.py) | Low-level axis / IO / EtherCAT control | `wmx_engine_node`, `wmx_lifecycle_manager_node`, `wmx_core_motion_node`, `wmx_io_node`, `wmx_ethercat_node` |
-| [wmx_r2_manipulator.launch.py](wmx_r2_package/launch/wmx_r2_manipulator.launch.py) | Manipulator trajectory control | general nodes + `joint_state_broadcaster`, `joint_trajectory_controller`, `joint_position_controller`, and `gripper_controller` when `use_gripper:=true` |
-| [wmx_r2_differential.launch.py](wmx_r2_package/launch/wmx_r2_differential.launch.py) | Differential-drive base control | general nodes + `joint_state_broadcaster`, `differential_drive_controller` |
-| [wmx_r2_control_manipulator.launch.py](wmx_r2_control/launch/wmx_r2_control_manipulator.launch.py) | Manipulator through `ros2_control` | general nodes + `joint_trajectory_controller`, `joint_position_controller`, `robot_state_publisher`, `ros2_control_node` (`WmxSystemHardware`), a `joint_state_broadcaster` spawner and an Isaac Sim relay |
-| [wmx_r2_control_differential.launch.py](wmx_r2_control/launch/wmx_r2_control_differential.launch.py) | Differential base through `ros2_control` | general nodes + `robot_state_publisher`, `ros2_control_node` (`WmxSystemHardware`), `joint_state_broadcaster` and `diff_drive_controller` spawners, and an Isaac Sim relay |
-
-No robot is baked into any launch file. Each takes its paths as launch
-arguments (`config_file` and `wmx_param_file`, plus `urdf_file` and
-`controllers_file` on the `ros2_control` ones), so one launch file serves every
-robot of that kind. The per-robot examples live in
-[wmx_r2_package/example/](wmx_r2_package/example/).
-
 ## MoveIt2 integration
 
 `joint_trajectory_controller` serves a `FollowJointTrajectory` action, and
@@ -297,49 +342,3 @@ this node. See [doc/reference_differential.md](doc/reference_differential.md).
 
 Both integrations are plain parameters, so no topic remapping is needed on either
 side.
-
-## Documentation
-
-| Doc | Description |
-|-----|-------------|
-| [doc/first_setup.md](doc/first_setup.md) | Environment setup, Docker setup, dependencies, build |
-| [doc/launch_general_nodes.md](doc/launch_general_nodes.md) | Launch the WMX general nodes |
-| [doc/launch_manipulator.md](doc/launch_manipulator.md) | Launch a manipulator |
-| [doc/launch_differential.md](doc/launch_differential.md) | Launch the differential-drive base |
-| [doc/reference_general_nodes.md](doc/reference_general_nodes.md) | Every service and topic of the general nodes, with the startup sequence |
-| [doc/reference_manipulator.md](doc/reference_manipulator.md) | Manipulator node reference: parameters, arbitration, lifecycle |
-| [doc/reference_differential.md](doc/reference_differential.md) | Differential node reference: parameters, kinematics, odometry |
-
-Full documentation, application examples and integration scenarios:
-**[movensys.github.io/wmx-r2-doc](https://movensys.github.io/wmx-r2-doc/)**
-
-## What's included
-
-- [x] Engine, lifecycle, axis, IO, and EtherCAT master control nodes
-- [x] Lifecycle manager that follows the engine state and drives every controller
-- [x] Manipulator stack: joint state feedback, trajectory action, streamed position, gripper
-- [x] Differential-drive stack: velocity command, wheel feedback, dead-reckoned odometry
-- [x] MoveIt2 integration: `FollowJointTrajectory` action plus a MoveIt Servo streaming path
-- [x] `ros2_control` hardware interface (`wmx_system_hardware`) for both stacks
-- [x] Hardware-agnostic launch files: config, WMX parameters, URDF and controllers are all arguments
-- [x] Digital-twin mirror topics for Isaac Sim and Gazebo
-- [x] Containerised setup for x86-64 and arm64
-- [x] CI on ROS2 Humble and Jazzy: lint, message build/test, launch-description checks
-
-## Demo
-
-### Physical AI powered by WMX R2 on Intel Core Ultra Series 3
-
-[![Physical AI powered by WMX R2 on Intel Core Ultra Series 3](https://img.youtube.com/vi/2JlqxwyMN_E/maxresdefault.jpg)](https://www.youtube.com/watch?v=2JlqxwyMN_E)
-
-### Physical AI powered by WMX R2 on NVIDIA Jetson Thor
-
-[![Physical AI powered by WMX R2 on NVIDIA Jetson Thor](https://img.youtube.com/vi/h-G9vtAGAIU/maxresdefault.jpg)](https://www.youtube.com/watch?v=h-G9vtAGAIU)
-
-## License
-
-The ROS2 interface in this repository is [MIT](LICENSE.txt). It builds against
-and runs on the proprietary WMX3 motion engine, which is free to develop with in
-6-hour sessions renewed by restarting the engine; production use needs a
-commercial licence. **"WMX R2" as a whole is therefore not MIT.** See the
-[licensing boundary](https://movensys.github.io/wmx-r2-doc/licensing.html).
