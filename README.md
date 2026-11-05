@@ -1,4 +1,4 @@
-# WMX R2: ROS2 robotics on industrial-grade motion
+# WMX R2: One-Chip Physical AI
 
 [![CI](https://github.com/movensys/wmx-r2/actions/workflows/ci.yml/badge.svg)](https://github.com/movensys/wmx-r2/actions/workflows/ci.yml)
 [![ROS 2](https://img.shields.io/badge/ROS%202-Humble%20%7C%20Jazzy-22314E?logo=ros&logoColor=white)](https://docs.ros.org)
@@ -8,49 +8,47 @@
 ![WMX R2: One-Chip Physical AI](images/one_chip_physical_ai.png)
 
 > **New to WMX R2? Start at the [documentation site](https://movensys.github.io/wmx-r2-doc/).**
-> It takes you from a bare PC to a machine in motion:
+> It guides you from a bare PC to a machine in motion.
 >
-> - **Getting Started:** set up the computer, install the WMX runtime and the WMX R2 packages
-> - **Example Applications:** pick-and-place with AprilTag, YOLO and Nvblox obstacle avoidance; SLAM mapping and autonomous navigation
-> - **Try Your Robot:** configure and validate axis parameters, run the first motion on hardware, safety functions
-> - **Integration Scenarios:** MoveIt2, Isaac cuMotion, Nav2, custom planners, VLM/LLM control
-> - **API Reference and Troubleshooting:** every service, topic and action, plus fixes for EtherCAT, servo alarm and build errors
+> - **Getting Started:** prepare the computer and install the WMX runtime and the WMX R2 packages
+> - **Example Applications:** pick-and-place with perception and obstacle avoidance, plus SLAM mapping and autonomous navigation
+> - **Try Your Robot:** configure your axis parameters and run the first motion on real hardware
+> - **Integration Scenarios:** connect MoveIt2, Isaac cuMotion, Nav2, your own planner or a VLM/LLM
+> - **API Reference and Troubleshooting:** every service, topic and action, with fixes for common errors
 
-WMX R2 is a ROS 2 interface to [WMX3](https://www.movensys.com/en/products/software_motion_control/wmx_en),
-Movensys' software real-time EtherCAT motion engine. It turns planner output,
-such as MoveIt2 and Nav2 trajectories, into precisely timed servo commands on a
-fixed cycle over EtherCAT. Perception, planning and deterministic motion all run
-on **one edge device**: no external motion controller, and no TCP/IP hop between
-the planner and the drives. In the See-Think-Act loop of Physical AI, this is the
-*Act* layer.
+WMX R2 is **real-time robotics execution for ROS 2**. It is built on the
+[WMX3](https://www.movensys.com/en/products/software_motion_control/wmx_en)
+motion engine. It runs the robot kinematics, the real-time motion control loop
+and the EtherCAT master. It also speaks ROS 2 natively, so MoveIt2 and Nav2
+command it through standard actions, topics and services.
 
-**WMX R2 drives any EtherCAT machine, regardless of the brand.** It commands the
-servo drives directly with CoE (CANopen over EtherCAT) and controls **axes**, not
-a robot model, so a six-axis arm on an assembly line, a mobile base moving
-material through a plant and a custom multi-axis machine are all driven the same
-way. Moving between them changes three files: the axis parameter XML, the URDF
-and the planning config.
+WMX R2 runs on **the same SoC** as perception, reasoning and planning. One chip
+handles the whole See-Think-Act loop of Physical AI, and WMX R2 is the
+industrial-grade *Act* layer. You need no external motion controller and no
+TCP/IP link between the AI stack and the drives.
 
-The host is an ordinary PC: **x86-64 or arm64**, from an industrial PC to an
-NVIDIA Jetson Thor, running Ubuntu with a **PREEMPT_RT** kernel. Motion is
-software, so the EtherCAT master runs on a standard network port and no
-motion-control card is needed.
+**WMX R2 drives any EtherCAT machine from any brand.** It controls **axes** over
+EtherCAT instead of a fixed robot model. A six-axis arm, a mobile base and a
+custom multi-axis machine are all driven the same way. To switch between them
+you change only three files: the axis parameter XML, the URDF and the planning
+config.
+
+The host is an ordinary **x86-64 or arm64** PC running Ubuntu with a
+**PREEMPT_RT** kernel. The EtherCAT master is software and runs on a standard network port, 
+so you do not need motion-control card.
 
 ## Why WMX R2
 
 | | |
 |---|---|
-| **ROS 2 and AI on the industrial machine** | MoveIt2, MoveIt Servo and Nav2 command EtherCAT servos through standard ROS 2 actions and topics, with no external motion controller |
-| **Production-grade, not bench-grade** | Deterministic cycle timing, servo-level error handling and direct drive access, for machines that must hold path accuracy and run for long periods without drift |
-| **One IPC, 85% less tracking error** | Removing the external controller's TCP/IP hop and its redundant control stage cut mean absolute tracking error by 85% versus a conventional setup ([benchmark](https://movensys.github.io/wmx-r2-doc/)) |
-| **Any EtherCAT machine** | Nothing is baked into the launch files. A manipulator, a mobile base or a 50-axis machine differ only by the config, URDF and WMX parameter XML you pass in |
-| **Down to the register** | Axis, IO, EtherCAT master and engine control are all exposed as services, so industrial commissioning and diagnostics need no extra tooling |
-| **Proven engine** | WMX3: 25+ years of development, 40+ patents, 40,000+ licences, 500+ customers in semiconductor and industrial automation |
-| **Two distros, CI-tested** | ROS 2 Humble and Jazzy, x86-64 and arm64 |
-| **Free to develop with** | Nothing to buy to start. The motion engine runs free in **6-hour sessions**, renewed by restarting it; a commercial licence lifts the session limit for production |
-
-Full explanation, application examples and integration scenarios:
-**[movensys.github.io/wmx-r2-doc](https://movensys.github.io/wmx-r2-doc/)**
+| **ROS 2 and AI on the industrial machine** | MoveIt2, MoveIt Servo and Nav2 command EtherCAT servos directly through standard ROS 2 interfaces |
+| **Production-grade, not bench-grade** | Deterministic cycle timing and servo-level error handling keep path accuracy over long runs without drift |
+| **One IPC, 85% less tracking error** | Removing the external controller and its TCP/IP link cut mean tracking error by 85% ([benchmark](https://movensys.github.io/wmx-r2-doc/)) |
+| **Any EtherCAT machine** | No robot is baked into the launch files. Each machine differs only by its WMX parameter and wmx-r2 configuration |
+| **Down to the register** | Axis, IO, EtherCAT master and engine control are all ROS 2 services, so commissioning needs no extra tools |
+| **Proven engine** | WMX3 has 25+ years of development, 40+ patents, 40,000+ licences and 500+ customers in semiconductor and industrial automation |
+| **Two distros, CI-tested** | ROS 2 Humble and Jazzy on x86-64 and arm64 |
+| **Free to develop with** | The motion engine runs free in **6-hour sessions**. Restart it to begin a new session. A commercial licence removes the limit for production |
 
 ## Requirements
 
@@ -330,9 +328,13 @@ Full documentation, application examples and integration scenarios:
 
 ## Demo
 
-### Physical AI powered by WMX ROS2 on NVIDIA Jetson Thor
+### Physical AI powered by WMX R2 on Intel Core Ultra Series 3
 
-[!["WMX Next" with NVIDIA Isaac](images/wmx_gtc_presentation.png)](https://www.youtube.com/watch?v=h-G9vtAGAIU)
+[![Physical AI powered by WMX R2 on Intel Core Ultra Series 3](https://img.youtube.com/vi/2JlqxwyMN_E/maxresdefault.jpg)](https://www.youtube.com/watch?v=2JlqxwyMN_E)
+
+### Physical AI powered by WMX R2 on NVIDIA Jetson Thor
+
+[![Physical AI powered by WMX R2 on NVIDIA Jetson Thor](https://img.youtube.com/vi/h-G9vtAGAIU/maxresdefault.jpg)](https://www.youtube.com/watch?v=h-G9vtAGAIU)
 
 ## License
 
