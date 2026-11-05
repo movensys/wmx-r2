@@ -5,6 +5,17 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 [![Docs](https://img.shields.io/badge/docs-wmx--r2-brightgreen)](https://movensys.github.io/wmx-r2-doc/)
 
+![WMX R2: One-Chip Physical AI](images/one_chip_physical_ai.png)
+
+> **New to WMX R2? Start at the [documentation site](https://movensys.github.io/wmx-r2-doc/).**
+> It takes you from a bare PC to a machine in motion:
+>
+> - **Getting Started:** set up the computer, install the WMX runtime and the WMX R2 packages
+> - **Example Applications:** pick-and-place with AprilTag, YOLO and Nvblox obstacle avoidance; SLAM mapping and autonomous navigation
+> - **Try Your Robot:** configure and validate axis parameters, run the first motion on hardware, safety functions
+> - **Integration Scenarios:** MoveIt2, Isaac cuMotion, Nav2, custom planners, VLM/LLM control
+> - **API Reference and Troubleshooting:** every service, topic and action, plus fixes for EtherCAT, servo alarm and build errors
+
 WMX R2 is a ROS 2 interface to [WMX3](https://www.movensys.com/en/products/software_motion_control/wmx_en),
 Movensys' software real-time EtherCAT motion engine. It turns planner output,
 such as MoveIt2 and Nav2 trajectories, into precisely timed servo commands on a
@@ -35,7 +46,7 @@ motion-control card is needed.
 | **Any EtherCAT machine** | Nothing is baked into the launch files. A manipulator, a mobile base or a 50-axis machine differ only by the config, URDF and WMX parameter XML you pass in |
 | **Down to the register** | Axis, IO, EtherCAT master and engine control are all exposed as services, so industrial commissioning and diagnostics need no extra tooling |
 | **Proven engine** | WMX3: 25+ years of development, 40+ patents, 40,000+ licences, 500+ customers in semiconductor and industrial automation |
-| **Two distros, CI-tested** | ROS 2 Humble and Jazzy, amd64 and arm64 |
+| **Two distros, CI-tested** | ROS 2 Humble and Jazzy, x86-64 and arm64 |
 | **Free to develop with** | Nothing to buy to start. The motion engine runs free in **6-hour sessions**, renewed by restarting it; a commercial licence lifts the session limit for production |
 
 Full explanation, application examples and integration scenarios:
@@ -314,7 +325,7 @@ Full documentation, application examples and integration scenarios:
 - [x] `ros2_control` hardware interface (`wmx_system_hardware`) for both stacks
 - [x] Hardware-agnostic launch files: config, WMX parameters, URDF and controllers are all arguments
 - [x] Digital-twin mirror topics for Isaac Sim and Gazebo
-- [x] Containerised setup for amd64 and arm64
+- [x] Containerised setup for x86-64 and arm64
 - [x] CI on ROS2 Humble and Jazzy: lint, message build/test, launch-description checks
 
 ## Demo
