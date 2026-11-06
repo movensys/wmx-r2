@@ -2,13 +2,17 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 WMX_SHARE = get_package_share_directory('wmx_r2_package')
+
+# <ros2_control name="..."> in urdf/diffbot.wmx.ros2_control.xacro (the xacro default).
+HW_COMPONENT = 'WmxDiffbotSystem'
 
 
 def generate_launch_description():
@@ -44,11 +48,15 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
+    # The hardware component starts unconfigured: its on_configure (CreateDevice) runs
+    # only when wmx_hardware_bringup has seen the engine Communicating, like the native
+    # nodes behind wmx_lifecycle_manager_node.
     start_controller_manager = Node(
         package='controller_manager',
         executable='ros2_control_node',
         parameters=[robot_description, controllers_file,
-                    {'use_sim_time': use_sim_time}],
+                    {'use_sim_time': use_sim_time,
+                     'hardware_components_initial_state.unconfigured': [HW_COMPONENT]}],
         remappings=[
             ('/differential_drive_controller/cmd_vel', '/cmd_vel_safe'),
             ('/differential_drive_controller/odom', '/odom_enc'),
@@ -57,22 +65,37 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
-    start_joint_state_broadcaster_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['joint_state_broadcaster',
-                   '--controller-manager', '/controller_manager'],
+    start_hardware_bringup = Node(
+        package='wmx_r2_control',
+        executable='wmx_hardware_bringup',
+        arguments=[HW_COMPONENT, '--controller-manager', '/controller_manager'],
         output='screen',
         emulate_tty=True,
     )
 
-    start_differential_drive_controller_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['differential_drive_controller',
-                   '--controller-manager', '/controller_manager'],
-        output='screen',
-        emulate_tty=True,
+    # Controllers can only claim interfaces once the hardware component is active.
+    start_controller_spawners = RegisterEventHandler(
+        OnProcessExit(
+            target_action=start_hardware_bringup,
+            on_exit=[
+                Node(
+                    package='controller_manager',
+                    executable='spawner',
+                    arguments=['joint_state_broadcaster',
+                               '--controller-manager', '/controller_manager'],
+                    output='screen',
+                    emulate_tty=True,
+                ),
+                Node(
+                    package='controller_manager',
+                    executable='spawner',
+                    arguments=['differential_drive_controller',
+                               '--controller-manager', '/controller_manager'],
+                    output='screen',
+                    emulate_tty=True,
+                ),
+            ],
+        )
     )
 
     # Mirror the actual wheel joint states to Isaac Sim's joint-command topic so
@@ -115,7 +138,7 @@ def generate_launch_description():
         start_wmx_r2_general_nodes,
         start_robot_state_publisher,
         start_controller_manager,
-        start_joint_state_broadcaster_spawner,
-        start_differential_drive_controller_spawner,
+        start_hardware_bringup,
+        start_controller_spawners,
         start_isaacsim_joint_command_relay,
     ])

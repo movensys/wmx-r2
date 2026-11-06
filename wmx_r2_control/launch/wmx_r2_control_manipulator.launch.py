@@ -12,6 +12,9 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 WMX_SHARE = get_package_share_directory('wmx_r2_package')
 
+# <ros2_control name="..."> in urdf/*.wmx.ros2_control.xacro (the xacro default).
+HW_COMPONENT = 'WmxManipulatorArmSystem'
+
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
@@ -48,11 +51,15 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
+    # The hardware component starts unconfigured: its on_configure (CreateDevice) runs
+    # only when wmx_hardware_bringup has seen the engine Communicating, like the native
+    # nodes behind wmx_lifecycle_manager_node.
     start_controller_manager = Node(
         package='controller_manager',
         executable='ros2_control_node',
         parameters=[robot_description, controllers_file,
-                    {'use_sim_time': use_sim_time}],
+                    {'use_sim_time': use_sim_time,
+                     'hardware_components_initial_state.unconfigured': [HW_COMPONENT]}],
         # The WMX3 SDK (libimdll.so) runs a helper thread with a 16 KB stack. Lazy PLT
         # resolution on that thread overflows it and kills ros2_control_node at random
         # during CreateDevice. Bind every symbol at load time instead.
@@ -61,7 +68,15 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
-    start_joint_state_broadcaster_spawner = Node(
+    start_hardware_bringup = Node(
+        package='wmx_r2_control',
+        executable='wmx_hardware_bringup',
+        arguments=[HW_COMPONENT, '--controller-manager', '/controller_manager'],
+        output='screen',
+        emulate_tty=True,
+    )
+
+    start_joint_state_broadcaster_spawner_node = Node(
         package='controller_manager',
         executable='spawner',
         arguments=['joint_state_broadcaster',
@@ -69,6 +84,14 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time}],
         output='screen',
         emulate_tty=True,
+    )
+
+    # Controllers can only claim interfaces once the hardware component is active.
+    start_joint_state_broadcaster_spawner = RegisterEventHandler(
+        OnProcessExit(
+            target_action=start_hardware_bringup,
+            on_exit=[start_joint_state_broadcaster_spawner_node],
+        )
     )
 
     start_arm_controller_spawner_node = Node(
@@ -83,7 +106,7 @@ def generate_launch_description():
 
     start_arm_controller_spawner = RegisterEventHandler(
         OnProcessExit(
-            target_action=start_joint_state_broadcaster_spawner,
+            target_action=start_joint_state_broadcaster_spawner_node,
             on_exit=[start_arm_controller_spawner_node],
         )
     )
@@ -148,6 +171,7 @@ def generate_launch_description():
         start_wmx_r2_general_nodes,
         start_robot_state_publisher,
         start_controller_manager,
+        start_hardware_bringup,
         start_joint_state_broadcaster_spawner,
         start_arm_controller_spawner,
         start_gripper_controller_spawner,

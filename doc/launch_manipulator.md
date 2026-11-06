@@ -27,6 +27,12 @@ Passthrough arm controller (one WMX CSpline per goal, like native): same command
     'controllers_file:=$(ros2 pkg prefix --share wmx_r2_control)/config/cr3a_passthrough_controllers.yaml' \
 ```
 
+Startup order, like the native lifecycle gate: `ros2_control_node` starts `WmxSystemHardware`
+unconfigured (`hardware_components_initial_state.unconfigured`), `wmx_hardware_bringup` polls
+`wmx/engine/get_engine_status` every 2 s until it answers `Communicating`, then calls
+`/controller_manager/set_hardware_component_state` to `inactive` (CreateDevice) and `active`
+(SetServoOn, CreateSplineBuffer) and exits; the controller spawners run after that exit.
+
 Which ros2_control controller for which comparison:
 
 | Comparison | `controllers_file` |

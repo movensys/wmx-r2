@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+# Copyright 2025 MOVENSYS Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Bring up one ros2_control hardware component once the WMX engine is Communicating.
+
+The ros2_control counterpart of the engine gate in wmx_lifecycle_manager_node.
+ros2_control_node starts the component unconfigured (controller_manager parameter
+hardware_components_initial_state.unconfigured), so its on_configure (CreateDevice)
+never races wmx_engine_node's CreateDevice. This process polls
+wmx/engine/get_engine_status every discovery_period like the native manager, then
+drives the component to inactive (on_configure) and active (on_activate) through
+<controller_manager>/set_hardware_component_state, and exits 0. The controller
+spawners are chained on that exit in the launch file.
+"""
+
+import argparse
+import sys
+import time
+
+from controller_manager_msgs.srv import SetHardwareComponentState
+from lifecycle_msgs.msg import State
+import rclpy
+from rclpy.node import Node
+from std_srvs.srv import Trigger
+
+ENGINE_STATUS_SERVICE = 'wmx/engine/get_engine_status'
+SERVICE_CALL_TIMEOUT_S = 5.0
+
+
+def call(node, client, request):
+    future = client.call_async(request)
+    rclpy.spin_until_future_complete(node, future, timeout_sec=SERVICE_CALL_TIMEOUT_S)
+    if not future.done():
+        client.remove_pending_request(future)
+        return None
+    return future.result()
+
+
+def wait_for_engine(node, period):
+    client = node.create_client(Trigger, ENGINE_STATUS_SERVICE)
+    while rclpy.ok():
+        if client.wait_for_service(timeout_sec=1.0):
+            result = call(node, client, Trigger.Request())
+            if result is not None and result.success and result.message == 'Communicating':
+                node.get_logger().info('WMX engine is Communicating')
+                return True
+            state = result.message if result is not None else 'no answer'
+            node.get_logger().info(
+                f'WMX engine is not Communicating ({state}); retrying in {period:g} s')
+        else:
+            node.get_logger().info(f'{ENGINE_STATUS_SERVICE} not available; waiting')
+        time.sleep(period)
+    return False
+
+
+def set_component_state(node, client, component, state_id, label):
+    request = SetHardwareComponentState.Request()
+    request.name = component
+    request.target_state = State(id=state_id, label=label)
+    result = call(node, client, request)
+    if result is None:
+        node.get_logger().error(f'set_hardware_component_state({component}, {label}) timed out')
+        return False
+    if not result.ok:
+        node.get_logger().error(
+            f'{component} refused the transition to {label}; it is {result.state.label}')
+        return False
+    node.get_logger().info(f'{component} is {result.state.label}')
+    return True
+
+
+def main(argv=sys.argv):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument('component', help='ros2_control hardware component name (URDF <ros2_control name>)')
+    parser.add_argument('--controller-manager', default='/controller_manager')
+    parser.add_argument(
+        '--discovery-period', type=float, default=2.0,
+        help='seconds between engine status polls, like the native discovery_period')
+    args, ros_args = parser.parse_known_args(argv[1:])
+
+    rclpy.init(args=ros_args)
+    node = Node('wmx_hardware_bringup')
+    ok = False
+    try:
+        if not wait_for_engine(node, args.discovery_period):
+            return 1
+        service = args.controller_manager + '/set_hardware_component_state'
+        client = node.create_client(SetHardwareComponentState, service)
+        while rclpy.ok() and not client.wait_for_service(timeout_sec=1.0):
+            node.get_logger().info(f'{service} not available; waiting')
+        ok = (
+            set_component_state(
+                node, client, args.component, State.PRIMARY_STATE_INACTIVE, 'inactive') and
+            set_component_state(
+                node, client, args.component, State.PRIMARY_STATE_ACTIVE, 'active'))
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+    return 0 if ok else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

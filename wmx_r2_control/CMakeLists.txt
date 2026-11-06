@@ -87,6 +87,10 @@ install(DIRECTORY config launch urdf
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS scripts/wmx_hardware_bringup
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 install(FILES wmx_r2_control_plugin.xml
   DESTINATION share/${PROJECT_NAME}
 )
