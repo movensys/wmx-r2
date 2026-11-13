@@ -40,10 +40,19 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/EcatScanNetwork.srv"
   "srv/EcatStartHotconnect.srv"
 
+  "srv/RobotSetRobotParam.srv"
+  "srv/RobotId.srv"
+  "srv/RobotStartMotion.srv"
+  "srv/RobotOverrideVelocityByRatio.srv"
+  "srv/RobotSetCoordinate.srv"
+  "srv/RobotGetCoordinate.srv"
+
   "srv/ImportAndSetAll.srv"
   "srv/GetAxisParam.srv"
 
   "msg/AxesStatus.msg"
+  "msg/RobotCartesianPose.msg"
+  "msg/RobotStatus.msg"
   DEPENDENCIES std_msgs
 )
 
