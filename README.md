@@ -27,6 +27,8 @@ handles the whole See-Think-Act loop of Physical AI, and WMX R2 is the
 industrial-grade *Act* layer. You need no external motion controller and no
 TCP/IP link between the AI stack and the drives.
 
+![WMX R2: Pipeline](images/WMX_R2_Physical_AI_Pipeline.png)
+
 **WMX R2 drives any EtherCAT machine from any brand.** It controls **axes** over
 EtherCAT instead of a fixed robot model. A six-axis arm, a mobile base and a
 custom multi-axis machine are all driven the same way. To switch between them
