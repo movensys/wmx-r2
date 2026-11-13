@@ -173,7 +173,7 @@ authoritative for the no-EKF fallback where this odometry feeds Nav2 directly.
   user unit is 1/60 of a turn, an axis velocity of `1.0` is **1 rpm** and an axis
   position of `60.0` is one revolution. Pair it with
   `example/diffbot_differential_config_rpm.yaml`, which sets
-  `wheel_velocity_unit: "rpm"` here and `rpm_axes: [0, 1]` on the broadcaster.
+  `wheel_velocity_unit: "rpm"` here and `rpm_to_radian_axes: [0, 1]` on the broadcaster.
   **Every ROS topic stays in rad/s either way** — the conversion lives at the WMX
   boundary, in `DifferentialDriveControllerApi::startVel` on the way out and in
   `getStatus` on the way back.

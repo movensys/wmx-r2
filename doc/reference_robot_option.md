@@ -64,7 +64,7 @@ ROS controller wants radians.
 
 That leaves `/joint_states` in degrees, which RViz, MoveIt, Isaac Sim and Gazebo
 would all read wrong, so `example/cr3a_robot_option_config.yaml` sets
-`degree_axes: [0, 1, 2, 3, 4, 5]` on `joint_state_broadcaster`. It converts
+`degree_to_radian_axes: [0, 1, 2, 3, 4, 5]` on `joint_state_broadcaster`. It converts
 position and velocity back to rad and rad/s before publishing. See
 [reference_manipulator.md](reference_manipulator.md) for that parameter.
 
@@ -75,7 +75,7 @@ position and velocity back to rad and rad/s before publishing. See
 | Parameter | Default | Meaning |
 |---|---|---|
 | `robot_param_file` | `""` | Absolute path to the robot parameter file, read once at `on_configure`. A `.urdf` suffix (case-insensitive) selects `ImportParamURDF`, anything else `ImportParamXML`. Empty logs a warning and configures anyway |
-| `robot_status_rate` | `1` | `wmx/robot/status` rate in Hz. Values `<= 0` fall back to 10 |
+| `robot_status_rate` | `10` | `wmx/robot/status` rate in Hz. Values `<= 0` fall back to 10 |
 
 An XML takes its robot id from its own `<Robot ID="...">`. A URDF has no id to
 take, so the one registered at configure is hardcoded to `0`; the `robot_id`

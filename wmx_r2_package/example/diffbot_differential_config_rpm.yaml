@@ -24,7 +24,7 @@ joint_state_broadcaster:
   ros__parameters:
     joint_feedback_rate: 100
     joint_axes: [0, 1]
-    rpm_axes: [0, 1]
+    rpm_to_radian_axes: [0, 1]
     joint_name: ["drivewheel_left_joint", "drivewheel_right_joint"]
     encoder_joint_topic: /joint_states
     isaacsim_joint_topic: /isaacsim/joint_command

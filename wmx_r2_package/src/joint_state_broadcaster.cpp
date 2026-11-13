@@ -190,9 +190,10 @@ void JointStateBroadcaster::setRosParameter()
 {
   jointAxes_ = this->declare_parameter<std::vector<int64_t>>("joint_axes", std::vector<int64_t>{});
   jointFeedbackRate_ = this->declare_parameter<int>("joint_feedback_rate", 0);
-  rpmAxes_ = this->declare_parameter<std::vector<int64_t>>("rpm_axes", std::vector<int64_t>{});
-  degreeAxes_ = this->declare_parameter<std::vector<int64_t>>(
-    "degree_axes", std::vector<int64_t>{});
+  rpmToRadianAxes_ = this->declare_parameter<std::vector<int64_t>>(
+    "rpm_to_radian_axes", std::vector<int64_t>{});
+  degreeToRadianAxes_ = this->declare_parameter<std::vector<int64_t>>(
+    "degree_to_radian_axes", std::vector<int64_t>{});
   gripperOpenValue_ = this->declare_parameter<float>("gripper_open_value", 0);
   gripperCloseValue_ = this->declare_parameter<float>("gripper_close_value", 0);
   jointNames_ = this->declare_parameter<std::vector<std::string>>(
@@ -231,15 +232,18 @@ void JointStateBroadcaster::setRosParameter()
 
   jointScaleUnitToRadian_.assign(jointAxes_.size(), 1.0);
   for (size_t i = 0; i < jointAxes_.size(); ++i) {
-    const bool isDegree =
-      std::find(degreeAxes_.begin(), degreeAxes_.end(), jointAxes_[i]) != degreeAxes_.end();
-    const bool isRpm =
-      std::find(rpmAxes_.begin(), rpmAxes_.end(), jointAxes_[i]) != rpmAxes_.end();
+    const bool isDegree = std::find(
+      degreeToRadianAxes_.begin(), degreeToRadianAxes_.end(), jointAxes_[i]) !=
+      degreeToRadianAxes_.end();
+    const bool isRpm = std::find(
+      rpmToRadianAxes_.begin(), rpmToRadianAxes_.end(), jointAxes_[i]) !=
+      rpmToRadianAxes_.end();
 
     if (isDegree && isRpm) {
       RCLCPP_WARN(
         this->get_logger(),
-        "axis %ld is in both degree_axes and rpm_axes; treating it as degrees.",
+        "axis %ld is in both degree_to_radian_axes and rpm_to_radian_axes; "
+        "treating it as degrees.",
         static_cast<long>(jointAxes_[i]));
     }
 
