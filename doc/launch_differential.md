@@ -7,6 +7,14 @@ wros ros2 launch wmx_r2_package wmx_r2_differential.launch.py \
     'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/diffbot_wmx_parameters.xml'
 ```
 
+## Example: Diffbot with rpm-scaled axes
+```
+wros ros2 launch wmx_r2_package wmx_r2_differential.launch.py \
+    use_sim_time:=false \
+    'config_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/diffbot_differential_config_rpm.yaml' \
+    'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/diffbot_wmx_parameters_rpm.xml'
+```
+
 ## Example: Diffbot with ROS2 Control
 ```
 wros ros2 launch wmx_r2_control wmx_r2_control_differential.launch.py \

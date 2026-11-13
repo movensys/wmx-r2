@@ -34,6 +34,24 @@ std::string errorToString(int err)
   CoreMotion::ErrorToString(err, errString, sizeof(errString));
   return errString;
 }
+
+bool parseWheelVelocityUnit(const std::string & unit, double & scaleRadPerSecToAxisUnit)
+{
+  constexpr double kAxisUnitPerRadian = 1.0;
+  constexpr double kRpmPerRadPerSec = 60.0 / (2.0 * M_PI);
+
+  if (unit == "rad/s" || unit == "rad_s" || unit == "rad") {
+    scaleRadPerSecToAxisUnit = kAxisUnitPerRadian;
+    return true;
+  }
+
+  if (unit == "rpm" || unit == "RPM" || unit == "rev/min") {
+    scaleRadPerSecToAxisUnit = kRpmPerRadPerSec;
+    return true;
+  }
+
+  return false;
+}
 }  // namespace
 
 DifferentialDriveControllerApi::DifferentialDriveControllerApi(
@@ -120,8 +138,9 @@ int DifferentialDriveControllerApi::getStatus(
   const CoreMotionAxisStatus & rawLeft = status.axesStatus[leftAxis];
   const CoreMotionAxisStatus & rawRight = status.axesStatus[rightAxis];
 
-  left = {rawLeft.actualVelocity, rawLeft.servoOn, rawLeft.ampAlarm};
-  right = {rawRight.actualVelocity, rawRight.servoOn, rawRight.ampAlarm};
+  const double scaleAxisUnitToRadPerSec = 1.0 / config_.wheelScaleRadPerSecToAxisUnit;
+  left = {rawLeft.actualVelocity * scaleAxisUnitToRadPerSec, rawLeft.servoOn, rawLeft.ampAlarm};
+  right = {rawRight.actualVelocity * scaleAxisUnitToRadPerSec, rawRight.servoOn, rawRight.ampAlarm};
   communicating = status.engineState == EngineState::T::Communicating;
 
   return ErrorCode::None;
@@ -133,7 +152,7 @@ int DifferentialDriveControllerApi::startVel(int axis, double omega, std::string
 
   Velocity::VelCommand velCommand;
   velCommand.axis = axis;
-  velCommand.profile.velocity = omega;
+  velCommand.profile.velocity = omega * config_.wheelScaleRadPerSecToAxisUnit;
   velCommand.profile.type = ProfileType::T::TimeAccTrapezoidal;
   velCommand.profile.accTimeMilliseconds = config_.accTimeMilliseconds;
   velCommand.profile.decTimeMilliseconds = config_.decTimeMilliseconds;
@@ -160,8 +179,9 @@ DifferentialDriveController::DifferentialDriveController()
   controlCbGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
   DifferentialDriveControllerApi::Config config;
-  config.accTimeMilliseconds = accTime_;
-  config.decTimeMilliseconds = decTime_;
+  config.accTimeMilliseconds = accTime_ * 1000.0;
+  config.decTimeMilliseconds = decTime_ * 1000.0;
+  config.wheelScaleRadPerSecToAxisUnit = wheelScaleRadPerSecToAxisUnit_;
   api_ = std::make_unique<DifferentialDriveControllerApi>(this->get_logger(), config);
 
   RCLCPP_INFO(
@@ -567,6 +587,16 @@ void DifferentialDriveController::setRosParameter()
   rate_ = this->declare_parameter<int>("rate", 100);
   accTime_ = this->declare_parameter<double>("acc_time", 1.0);
   decTime_ = this->declare_parameter<double>("dec_time", 1.0);
+
+  wheelVelocityUnit_ = this->declare_parameter<std::string>("wheel_velocity_unit", "rad/s");
+  if (!parseWheelVelocityUnit(wheelVelocityUnit_, wheelScaleRadPerSecToAxisUnit_)) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "wheel_velocity_unit must be 'rad/s' or 'rpm', got '%s'. Falling back to rad/s.",
+      wheelVelocityUnit_.c_str());
+    wheelVelocityUnit_ = "rad/s";
+    wheelScaleRadPerSecToAxisUnit_ = 1.0;
+  }
   wheelRadius_ = this->declare_parameter<double>("wheel_radius", 0.095);
   wheelToWheel_ = this->declare_parameter<double>("wheel_to_wheel", 0.55);
 
@@ -586,7 +616,11 @@ void DifferentialDriveController::setRosParameter()
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
   RCLCPP_INFO(this->get_logger(), "left_axis: %d, right_axis: %d", leftAxis_, rightAxis_);
   RCLCPP_INFO(this->get_logger(), "rate: %d", rate_);
-  RCLCPP_INFO(this->get_logger(), "acc_time: %f, dec_time: %f", accTime_, decTime_);
+  RCLCPP_INFO(
+    this->get_logger(), "acc_time: %f s, dec_time: %f s", accTime_, decTime_);
+  RCLCPP_INFO(
+    this->get_logger(), "wheel_velocity_unit: %s (%f axis units per rad/s)",
+    wheelVelocityUnit_.c_str(), wheelScaleRadPerSecToAxisUnit_);
   RCLCPP_INFO(this->get_logger(), "wheel_radius: %f", wheelRadius_);
   RCLCPP_INFO(this->get_logger(), "wheel_to_wheel: %f", wheelToWheel_);
   RCLCPP_INFO(this->get_logger(), "cmd_vel_timeout: %f", cmdVelTimeout_);

@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cinttypes>
+#include <cmath>
 #include <thread>
 
 #include "wmx_qos_compat.hpp"
@@ -189,6 +191,10 @@ void JointStateBroadcaster::setRosParameter()
 {
   jointAxes_ = this->declare_parameter<std::vector<int64_t>>("joint_axes", std::vector<int64_t>{});
   jointFeedbackRate_ = this->declare_parameter<int>("joint_feedback_rate", 0);
+  rpmToRadianAxes_ = this->declare_parameter<std::vector<int64_t>>(
+    "rpm_to_radian_axes", std::vector<int64_t>{});
+  degreeToRadianAxes_ = this->declare_parameter<std::vector<int64_t>>(
+    "degree_to_radian_axes", std::vector<int64_t>{});
   gripperOpenValue_ = this->declare_parameter<float>("gripper_open_value", 0);
   gripperCloseValue_ = this->declare_parameter<float>("gripper_close_value", 0);
   jointNames_ = this->declare_parameter<std::vector<std::string>>(
@@ -225,8 +231,42 @@ void JointStateBroadcaster::setRosParameter()
     jointAxes_.resize(jointNames_.size());
   }
 
+  jointScaleUnitToRadian_.assign(jointAxes_.size(), 1.0);
+  for (size_t i = 0; i < jointAxes_.size(); ++i) {
+    const bool isDegree = std::find(
+      degreeToRadianAxes_.begin(), degreeToRadianAxes_.end(), jointAxes_[i]) !=
+      degreeToRadianAxes_.end();
+    const bool isRpm = std::find(
+      rpmToRadianAxes_.begin(), rpmToRadianAxes_.end(), jointAxes_[i]) !=
+      rpmToRadianAxes_.end();
+
+    if (isDegree && isRpm) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "axis %" PRId64 " is in both degree_to_radian_axes and rpm_to_radian_axes; "
+        "treating it as degrees.",
+        jointAxes_[i]);
+    }
+
+    constexpr double kRadianPerDegree = M_PI / 180.0;
+    constexpr double kRadianPerRpmUnit = 2.0 * M_PI / 60.0;
+
+    if (isDegree) {
+      jointScaleUnitToRadian_[i] = kRadianPerDegree;
+    } else if (isRpm) {
+      jointScaleUnitToRadian_[i] = kRadianPerRpmUnit;
+    }
+  }
+
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
   RCLCPP_INFO(this->get_logger(), "joint_feedback_rate: %d", jointFeedbackRate_);
+  for (size_t i = 0; i < jointScaleUnitToRadian_.size(); ++i) {
+    if (jointScaleUnitToRadian_[i] != 1.0) {
+      RCLCPP_INFO(
+        this->get_logger(), "axis %" PRId64 " published as radians, scaled by %f",
+        jointAxes_[i], jointScaleUnitToRadian_[i]);
+    }
+  }
 
   std::string jointNamesText;
   for (size_t i = 0; i < jointNames_.size(); ++i) {
@@ -477,6 +517,11 @@ void JointStateBroadcaster::publishJointState()
       this->get_logger(), *this->get_clock(), 1000,
       "Joint state not published: %s", message.c_str());
     return;
+  }
+
+  for (size_t i = 0; i < feedback.size() && i < jointScaleUnitToRadian_.size(); ++i) {
+    feedback[i].actualPos *= jointScaleUnitToRadian_[i];
+    feedback[i].actualVelocity *= jointScaleUnitToRadian_[i];
   }
 
   sensor_msgs::msg::JointState encoderJointMsg;

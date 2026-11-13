@@ -1,0 +1,5 @@
+int32 robot_id
+RobotCartesianPose pose
+---
+bool success
+string message

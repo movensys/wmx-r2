@@ -27,6 +27,8 @@ handles the whole See-Think-Act loop of Physical AI, and WMX R2 is the
 industrial-grade *Act* layer. You need no external motion controller and no
 TCP/IP link between the AI stack and the drives.
 
+![WMX R2: Pipeline](images/WMX_R2_Physical_AI_Pipeline.png)
+
 **WMX R2 drives any EtherCAT machine from any brand.** It controls **axes** over
 EtherCAT instead of a fixed robot model. A six-axis arm, a mobile base and a
 custom multi-axis machine are all driven the same way. To switch between them
@@ -102,13 +104,17 @@ Full documentation, application examples and integration scenarios:
 - **WMX Linux** (real-time patched) with the WMX3 SDK installed. See [WMX installation](https://movensys.github.io/wmx-r2-doc/getting_started/index.html).
 - EtherCAT servo drives / IO reachable from the WMX3 master.
 - ROS2 **Humble** or **Jazzy**, with `rmw_cyclonedds` as the RMW.
-- Root for real-time scheduling: `sudo --preserve-env` on the host, or `wros` in the container.
+- Root for real-time scheduling: `wros` execs into the container as root.
 
 ## Quickstart
 
 Set up `~/.bashrc`, clone and start the container first: see
 [doc/first_setup.md](doc/first_setup.md). `wros` runs a command inside the
-container as root with ROS and the workspace sourced.
+container as root with ROS and the workspace sourced. It passes the command on
+as one string, so the container's shell parses it a second time: a YAML payload
+needs its double quotes to survive that pass, hence the `'"{...}"'` spelling in
+every service call below. A payload run from a shell already inside the
+container takes plain `"{...}"`.
 
 ```bash
 # 1. Build (messages first, then the rest)
@@ -122,10 +128,18 @@ wros ros2 launch wmx_r2_package wmx_r2_general_nodes.launch.py \
     'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/config/wmx_parameters.xml'
 
 # 3. Bring axes online and command a move
-wros ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{axis: [0,1], data: [1,1]}"
+wros ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes '"{axis: [0,1], data: [1,1]}"'
 wros ros2 service call /wmx/axes/start_pos wmx_r2_message/srv/StartAxesPose \
-    "{axis: [0,1], target: [8388608, 10000], velocity: [1000000, 5000], acc: [100000, 1000], dec: [100000, 1000]}"
+    '"{axis: [0,1], target: [8388608, 10000], velocity: [1000000, 5000], acc: [100000, 1000], dec: [100000, 1000]}"'
 ```
+
+`target`, `velocity`, `acc` and `dec` are in the **axis user unit**, set by the
+gear ratio in the axis parameter XML. `config/wmx_parameters.xml` leaves it at
+1:1, so these numbers are raw encoder counts and counts per second, which is why
+they look so large — they are not degrees. The robot files
+(`example/cr3a_wmx_parameters.xml` and friends) use 2*pi instead, which makes the
+same fields **radians** and **rad/s**. See
+[doc/reference_general_nodes.md](doc/reference_general_nodes.md#units-and-conventions).
 
 Full startup sequence and the complete service/topic catalog:
 [doc/reference_general_nodes.md](doc/reference_general_nodes.md).
