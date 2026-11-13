@@ -135,8 +135,9 @@ CartesianPose applyWorkFrameDisplacement(
     displacement.rotation.v != 0.0 ||
     displacement.rotation.w != 0.0;
   if (hasRotation) {
-    setEulerFromRotationMatrix(result, multiplyRotations(
-        rotationMatrixOf(displacement), rotationMatrixOf(current)));
+    const auto rotation = multiplyRotations(
+      rotationMatrixOf(displacement), rotationMatrixOf(current));
+    setEulerFromRotationMatrix(result, rotation);
   }
 
   return result;
