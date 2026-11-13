@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cinttypes>
 #include <cmath>
 #include <thread>
 
@@ -242,9 +243,9 @@ void JointStateBroadcaster::setRosParameter()
     if (isDegree && isRpm) {
       RCLCPP_WARN(
         this->get_logger(),
-        "axis %ld is in both degree_to_radian_axes and rpm_to_radian_axes; "
+        "axis %" PRId64 " is in both degree_to_radian_axes and rpm_to_radian_axes; "
         "treating it as degrees.",
-        static_cast<long>(jointAxes_[i]));
+        jointAxes_[i]);
     }
 
     constexpr double kRadianPerDegree = M_PI / 180.0;
@@ -262,8 +263,8 @@ void JointStateBroadcaster::setRosParameter()
   for (size_t i = 0; i < jointScaleUnitToRadian_.size(); ++i) {
     if (jointScaleUnitToRadian_[i] != 1.0) {
       RCLCPP_INFO(
-        this->get_logger(), "axis %ld published as radians, scaled by %f",
-        static_cast<long>(jointAxes_[i]), jointScaleUnitToRadian_[i]);
+        this->get_logger(), "axis %" PRId64 " published as radians, scaled by %f",
+        jointAxes_[i], jointScaleUnitToRadian_[i]);
     }
   }
 
