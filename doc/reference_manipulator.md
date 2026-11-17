@@ -96,6 +96,8 @@ wrong. Every deployment supplies a YAML.
 | `gazebo_velocity_joint_topic` | string | `""` | – | Joint **velocities** as `Float64MultiArray`, for a Gazebo velocity controller. Sending positions here would command a continuous joint its own accumulated angle. |
 | `gazebo_velocity_joint_axes` | int[] | `[]` | – | As above, for the velocity topic. A mobile manipulator sets all four: wheel axes on the velocity topic, arm axes on the position topic. |
 | `gripper_joint_name` | string[] | `[]` | – | Extra joint names appended to the feedback message so the gripper shows up in RViz/MoveIt. Empty = no gripper. |
+| `degree_to_radian_axes` | int[] | `[]` | – | Axes, by WMX axis number as listed in `joint_axes`, whose user unit is the **degree** (`AxisGearRatioDenominator` 360). Position and velocity for these axes are multiplied by pi/180 before anything is published, so `/joint_states`, `/isaacsim/joint_command` and both Gazebo topics stay in rad and rad/s. Needed by the robot option stack, which the WMX3 SDK requires to run on degree/mm axes — see [reference_robot_option.md](reference_robot_option.md). Listing an axis in both `degree_to_radian_axes` and `rpm_to_radian_axes` warns and treats it as degrees. |
+| `rpm_to_radian_axes` | int[] | `[]` | – | Axes, by WMX axis number as listed in `joint_axes`, whose user unit is the rpm convention: `AxisGearRatioDenominator` 60, so 60 user units make one revolution and an axis velocity of `1.0` is 1 rpm. Position and velocity for these axes are multiplied by 2*pi/60 before anything is published, so `/joint_states`, `/isaacsim/joint_command` and both Gazebo topics stay in rad and rad/s. Empty (the default) converts nothing, which is right for the 2*pi-scaled arm files. An axis not in `joint_axes` is ignored. |
 | `gripper_address` | int[2] | `[0, 0]` | – | `[byte, bit]` of the WMX **output** bit read back for gripper state. |
 | `gripper_open_value` | double | `0.0` | m or rad | Joint value reported for every `gripper_joint_name` while the output bit is 0. |
 | `gripper_close_value` | double | `0.0` | m or rad | Joint value reported while the bit is 1, e.g. `0.045`. |
@@ -166,8 +168,28 @@ manager discovers each node under its fully-qualified name, and
   ratio) must be configured WMX-side — via the axis parameter XML — so that one
   axis user unit = 1 rad at the joint, matching the URDF. There is no gear-ratio
   or offset parameter in any of these nodes.
-- Velocity feedback is the servo's `actualVelocity` (same user unit per second),
-  not a numerical derivative of position.
+- The shipped arm files do exactly that: `example/cr3a_wmx_parameters.xml` and
+  `cr5a_wmx_parameters.xml` set `AxisGearRatioDenominator` to
+  `6.283185307179586` (2*pi), so **one user unit is one radian** and everything
+  below is already in ROS units — no conversion anywhere in the chain:
+
+  | Field | Unit |
+  |---|---|
+  | `JointState.position`, arm joints (`/joint_states`, `/isaacsim/joint_command`) | **rad** |
+  | `JointState.velocity`, arm joints | **rad/s** |
+  | `JointState.effort` | never filled, always empty |
+  | `JointState.position`, gripper joints | **m** — `picker_*_joint` is prismatic, `gripper_open_value` 0.0 to `gripper_close_value` 0.045 |
+  | `FollowJointTrajectory` / `JointTrajectory` `positions` | **rad** (arm), **m** (gripper) |
+  | `time_from_start` | ROS duration, converted to **ms** for WMX |
+  | `Float64MultiArray.data` on the Gazebo position topic | **rad**, then the gripper values in **m** |
+  | `Float64MultiArray.data` on the Gazebo velocity topic | **rad/s**, no gripper entries |
+  | `joint_feedback_rate` | Hz |
+  | `accel_ratio`, `default_velocity`, `min_step` (`joint_position_controller`) | ratio, user unit / s, user unit |
+
+  This is why MoveIt, RViz, Isaac Sim and Gazebo all read correctly without a
+  conversion step: they expect radians and metres, and the axes deliver them.
+- Velocity feedback is the servo's `actualVelocity` (same user unit per second,
+  so rad/s here), not a numerical derivative of position.
 - `joint_trajectory_controller` is **time-based**: it consumes `positions` and
   `time_from_start` only. `velocities` and `accelerations` in the goal are logged
   and discarded — the WMX C-spline derives the profile from the position/time
@@ -437,9 +459,9 @@ At **runtime** the dynamic linker must be able to find the SDK's shared librarie
 installer's default) or `LD_LIBRARY_PATH=/opt/wmx3/lib` — relevant when running in
 containers that only mount the SDK.
 
-The manipulator launches need **root** for real-time scheduling; start them with
-`sudo --preserve-env` as shown in
-[launch_manipulator.md](launch_manipulator.md).
+The manipulator launches need **root** for real-time scheduling. `wros`
+(`docker/wros.bash`) already execs into the container as root, which is how
+[launch_manipulator.md](launch_manipulator.md) starts them.
 
 `joint_position_controller` has a launch test
 (`test/test_joint_position_controller.py`, no hardware required) exercised by

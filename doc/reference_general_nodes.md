@@ -85,6 +85,11 @@ ros2 lifecycle set /wmx_io_node activate
 
 ## Axes — `wmx_core_motion_node`
 
+Every position, velocity and acceleration below is in the **axis user unit**, not
+in degrees, radians or metres by itself. See
+[Units and conventions](#units-and-conventions) for what the shipped files make
+that unit.
+
 **`wmx/axes/set_servo_on`** — Servo on (`1`) or off (`0`) per axis.
 ```bash
 ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{axis: [0,1], data: [1,1]}"
@@ -162,7 +167,7 @@ done
 | `jog_timeout_ms` | `200.0` | Axis stops this long after jog refreshes stop arriving |
 | `jog_run_time_ms` | `2000.0` | Maximum duration of one jog, enforced engine-side |
 | `jog_jerk_ratio` | `0.75` | Jerk ratio of the jog profile |
-| `motion_controllers` | `joint_trajectory_controller`, `differential_drive_controller`, `joint_position_controller` | While one of them is active it owns the axes and `start_pos`, `start_mov`, `start_vel`, `start_jog` and `start_home` answer `success: false`. `stop` and the servo/config services stay open |
+| `motion_controllers` | `joint_trajectory_controller`, `differential_drive_controller`, `joint_position_controller` | Any lifecycle node name, not just these three: `wmx_r2_robot_option_config.yaml` lists `wmx_robot_option_node` here. While one of them is active it owns the axes and `start_pos`, `start_mov`, `start_vel`, `start_jog` and `start_home` answer `success: false`. `stop` and the servo/config services stay open. A listed name that never appears on the graph is treated as active and blocks motion |
 | `controller_resync_period` | `0.2` | Seconds between re-queries of each controller's state |
 
 ---
@@ -283,6 +288,30 @@ ros2 service call /wmx/axes/set_servo_on wmx_r2_message/srv/SetAxes "{axis: [0,1
 # 5. Home all axes
 ros2 service call /wmx/axes/start_home wmx_r2_message/srv/SetAxes "{axis: [0,1], data: [0,0]}"
 ```
+
+---
+
+## Units and conventions
+
+Nothing on `wmx/axes/*` carries a fixed physical unit. Position, velocity and
+acceleration are all in the **axis user unit**, which the axis parameter XML sets
+per axis as `AxisGearRatioNumerator` encoder counts per
+`AxisGearRatioDenominator` user units. Change that ratio and every number on
+these services changes meaning.
+
+| Field | Unit |
+|---|---|
+| `target` on `start_pos`, `start_mov` | user unit |
+| `velocity` on `start_pos`, `start_mov`, `start_vel`, `start_jog` | user unit / s |
+| `acc`, `dec` | user unit / s² |
+| `pos_cmd`, `actual_pos` on `wmx/axes/status` | user unit |
+| `velocity_cmd`, `actual_velocity` | user unit / s |
+| `actual_torque` | **%** of rated torque |
+| `axes_status_rate` | Hz |
+| `jog_timeout_ms`, `jog_run_time_ms` | ms |
+| `controller_resync_period` | s |
+| `jog_jerk_ratio` | ratio, 0 to 1 |
+| everything on `wmx/io/*` | raw bits and bytes, no unit |
 
 ---
 

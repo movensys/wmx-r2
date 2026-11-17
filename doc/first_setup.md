@@ -6,7 +6,7 @@
 ```
 export ROS_DOMAIN_ID=70                         #use any number
 export ROS_DISTRO=jazzy                         #tested {jazzy, humble}
-export CPU_ARCH=amd64                           #tested {amd64, arm64}
+export CPU_ARCH=x86-64                          #tested {x86-64, arm64}
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 source ~/workspaces/movensys_ws/src/wmx-r2/docker/wros.bash
