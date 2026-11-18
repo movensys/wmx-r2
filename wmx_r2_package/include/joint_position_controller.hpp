@@ -102,8 +102,9 @@ private:
   double leadTime_ = 0.0;
   double streamTimeout_ = 0.0;
   double stopDeceleration_ = 0.0;
+  std::vector<double> maxAcceleration_;
   std::string interpolationName_;
-  Interpolation interpolation_ = Interpolation::QUINTIC;
+  Interpolation interpolation_ = Interpolation::CUBIC;
 
   std::vector<int> axes_;
   std::map<std::string, size_t> indexByName_;
@@ -114,8 +115,9 @@ private:
   bool streaming_ = false;
   bool draining_ = false;
   JointSample last_;
-  double lastStamp_ = 0.0;
-  double segmentPeriod_ = 0.0;
+  std::vector<double> refLast_;
+  std::vector<double> outPos_;
+  std::vector<double> outVel_;
   std::chrono::steady_clock::time_point lastReceived_;
 
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr execActiveSub_;
@@ -127,6 +129,9 @@ private:
   bool startStream();
   void stopStream(const char * reason);
   bool queueSegment(const JointSample & target, double duration);
+  void limitAcceleration(std::vector<std::vector<double>> & samples);
+  bool settled() const;
+  void queueSettle();
   void queueStop();
 
   bool readPoint(

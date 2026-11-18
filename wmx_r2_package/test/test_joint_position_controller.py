@@ -72,9 +72,9 @@ def generate_test_description():
             'joint_axes': [0, 1, 2, 3, 4, 5],
             'joint_name': JOINT_NAMES,
             'joint_trajectory_topic': TRAJECTORY_TOPIC,
-            'lead_time': 0.05,
+            'lead_time': 0.025,
             'stream_timeout': 0.1,
-            'interpolation': 'quintic',
+            'interpolation': 'cubic',
         }],
         output='screen',
     )
@@ -129,9 +129,9 @@ class TestJointPositionController(unittest.TestCase):
         result = future.result()
         self.assertIsNotNone(result, 'Parameter service call returned no result')
         self.assertEqual(len(result.values), 4, 'Not every parameter was declared')
-        self.assertAlmostEqual(result.values[0].double_value, 0.05)
+        self.assertAlmostEqual(result.values[0].double_value, 0.025)
         self.assertAlmostEqual(result.values[1].double_value, 0.1)
-        self.assertEqual(result.values[2].string_value, 'quintic')
+        self.assertEqual(result.values[2].string_value, 'cubic')
         self.assertEqual(result.values[3].string_value, TRAJECTORY_TOPIC)
 
     def test_subscribes_to_trajectory_topic(self):

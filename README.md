@@ -278,7 +278,7 @@ Four nodes, each attaching to the WMX3 device itself:
 - `joint_trajectory_controller` takes planned goals from MoveIt2 as a
   `FollowJointTrajectory` action and runs them as a WMX3 time-based C-spline.
 - `joint_position_controller` takes MoveIt Servo's streamed `JointTrajectory` and
-  feeds it to a WMX3 CyclicBuffer, one quintic segment per Servo point.
+  feeds it to a WMX3 CyclicBuffer, one cubic segment per Servo point.
 - `gripper_controller` drives one WMX IO output bit from a `std_srvs/SetBool`
   service. Started only with `use_gripper:=true`.
 - `joint_state_broadcaster` publishes encoder feedback to `/joint_states`. It also

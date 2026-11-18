@@ -18,7 +18,7 @@ own the engine, not the motion these controllers command.
                                   ▼
  MoveIt Servo ──────────────▶┌───────────────────────────────┐
   (JointTrajectory stream)   │ joint_position_controller     │──▶ WMX3 CyclicBuffer
-                             │  (lifecycle) quintic stream   │    AbsolutePos per cycle
+                             │  (lifecycle) cubic stream     │    AbsolutePos per cycle
                              └───────────────────────────────┘
                              ┌───────────────────────────────┐
  configure / activate ──────▶│ joint_state_broadcaster       │──▶ /joint_states  (JointState)
@@ -124,11 +124,12 @@ sizes the WMX spline buffer allocated at `configure` (channel `kSplineChannel` =
 | `buffer_cycles` | int | `2048` | commands | `OpenCyclicBuffer` capacity. |
 | `cycle_time` | double | `0.001` | s | Engine cycle. Used only when the engine does not report one; a mismatch with the engine warns and the engine's value wins. |
 | `sample_cycles` | int | `1` | engine cycles | `intervalCycles` of each queued command. |
-| `publish_period` | double | `0.025` | s | Servo `publish_period`. Length of the first segment. Later segments follow the point spacing, accepted within 0.5x to 2x of this. |
-| `lead_time` | double | `0.05` | s | Hold queued at stream start and the buffer depth the stream is steered to. |
+| `publish_period` | double | `0.025` | s | Servo `publish_period`. Wall-clock length of each segment. |
+| `lead_time` | double | `0.025` | s | Hold queued at stream start and the buffer depth the stream is steered to. |
 | `stream_timeout` | double | `0.1` | s | No new point for this long ends the stream with a stop segment. |
 | `stop_deceleration` | double | `2.0` | rad/s² | Sets the stop segment length, `T = max(0.05, 2·|v|/stop_deceleration)`. |
-| `interpolation` | string | `quintic` | – | `quintic` (position, velocity, acceleration), `cubic` (position, velocity) or `linear`. |
+| `interpolation` | string | `cubic` | – | `cubic` (position, velocity), `quintic` (adds acceleration; needs a Servo smoother that publishes it) or `linear`. |
+| `max_acceleration` | double[] | `[2.0]` | rad/s² | Per-joint limit on the streamed command, in `joint_name` order; one value applies to all joints, `0` disables. Within the limit Servo's motion passes unchanged; beyond it the command lags and catches up without overshoot. |
 
 ### D. `gripper_controller`
 
@@ -201,12 +202,15 @@ manager discovers each node under its fully-qualified name, and
   sequence. `time_from_start` is converted to milliseconds; the first point is
   forced to `t = 0`, and a final point less than 1 ms after its predecessor is
   dropped (planners routinely emit such a duplicate endpoint).
-- `joint_position_controller` is **cycle-based**: each new Servo point (absolute
-  time `header.stamp + time_from_start`, one per `publish_period`, 25 ms)
-  becomes one segment from the last queued point, sampled every `sample_cycles`
-  engine cycles with a quintic Hermite that matches `positions`, `velocities` and
-  `accelerations` at both ends. Segment length is nudged ±20 % to hold the buffer
-  at `lead_time`. A stream starts from the **commanded** position (`posCmd`).
+- `joint_position_controller` is **cycle-based**: each Servo message adds its
+  newest point as one `publish_period` segment from the last queued point,
+  sampled every `sample_cycles` engine cycles with a cubic Hermite that matches
+  `positions` and `velocities` at both ends. Point stamps are
+  ignored: Servo publishes on a wall-clock timer but stamps in sim time under
+  `use_sim_time`. Segment length is nudged up to ±50 % to hold the buffer at
+  `lead_time`. Each command then passes a per-joint `max_acceleration` limit. A
+  stream starts from the **commanded** position (`posCmd`) and closes only after the
+  limited command has settled on the final point.
 - Gripper state is a single IO **bit**, so feedback is two-valued: the broadcaster
   reports `gripper_close_value` or `gripper_open_value`, never anything between.
 
@@ -388,10 +392,11 @@ joint_position_controller:
     cycle_time: 0.001
     sample_cycles: 1
     publish_period: 0.025
-    lead_time: 0.05
+    lead_time: 0.01
     stream_timeout: 0.1
     stop_deceleration: 2.0
-    interpolation: quintic
+    interpolation: cubic
+    max_acceleration: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
 
 gripper_controller:                   # only when there is a gripper
   ros__parameters:

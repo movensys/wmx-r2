@@ -55,15 +55,6 @@ const char * stateToString(CyclicBufferState::T state)
   return "Unknown";
 }
 
-double stampToSeconds(const builtin_interfaces::msg::Time & t)
-{
-  return static_cast<double>(t.sec) + static_cast<double>(t.nanosec) * 1e-9;
-}
-
-double durationToSeconds(const builtin_interfaces::msg::Duration & d)
-{
-  return static_cast<double>(d.sec) + static_cast<double>(d.nanosec) * 1e-9;
-}
 }  // namespace
 
 JointPositionControllerApi::JointPositionControllerApi(const rclcpp::Logger & logger)
@@ -346,10 +337,12 @@ void JointPositionController::setRosParameter()
   cycleTime_ = this->declare_parameter<double>("cycle_time", 0.001);
   sampleCycles_ = this->declare_parameter<int>("sample_cycles", 1);
   publishPeriod_ = this->declare_parameter<double>("publish_period", 0.025);
-  leadTime_ = this->declare_parameter<double>("lead_time", 0.05);
+  leadTime_ = this->declare_parameter<double>("lead_time", 0.025);
   streamTimeout_ = this->declare_parameter<double>("stream_timeout", 0.1);
   stopDeceleration_ = this->declare_parameter<double>("stop_deceleration", 2.0);
-  interpolationName_ = this->declare_parameter<std::string>("interpolation", "quintic");
+  interpolationName_ = this->declare_parameter<std::string>("interpolation", "cubic");
+  maxAcceleration_ = this->declare_parameter<std::vector<double>>(
+    "max_acceleration", std::vector<double>{2.0});
 
   if (bufferCycles_ < 64) {
     RCLCPP_WARN(this->get_logger(), "buffer_cycles %d too small, using 2048", bufferCycles_);
@@ -367,10 +360,9 @@ void JointPositionController::setRosParameter()
     RCLCPP_WARN(this->get_logger(), "publish_period %f invalid, using 0.025", publishPeriod_);
     publishPeriod_ = 0.025;
   }
-  segmentPeriod_ = publishPeriod_;
   if (!std::isfinite(leadTime_) || leadTime_ < 0.0) {
-    RCLCPP_WARN(this->get_logger(), "lead_time %f invalid, using 0.05", leadTime_);
-    leadTime_ = 0.05;
+    RCLCPP_WARN(this->get_logger(), "lead_time %f invalid, using 0.025", leadTime_);
+    leadTime_ = 0.025;
   }
   if (!std::isfinite(streamTimeout_) || streamTimeout_ <= 0.0) {
     RCLCPP_WARN(this->get_logger(), "stream_timeout %f invalid, using 0.1", streamTimeout_);
@@ -384,16 +376,26 @@ void JointPositionController::setRosParameter()
 
   if (interpolationName_ == "linear") {
     interpolation_ = Interpolation::LINEAR;
-  } else if (interpolationName_ == "cubic") {
-    interpolation_ = Interpolation::CUBIC;
+  } else if (interpolationName_ == "quintic") {
+    interpolation_ = Interpolation::QUINTIC;
   } else {
-    if (interpolationName_ != "quintic") {
+    if (interpolationName_ != "cubic") {
       RCLCPP_WARN(
-        this->get_logger(), "interpolation '%s' unknown, using quintic",
+        this->get_logger(), "interpolation '%s' unknown, using cubic",
         interpolationName_.c_str());
     }
-    interpolationName_ = "quintic";
-    interpolation_ = Interpolation::QUINTIC;
+    interpolationName_ = "cubic";
+    interpolation_ = Interpolation::CUBIC;
+  }
+
+  if (maxAcceleration_.size() == 1) {
+    maxAcceleration_.assign(jointAxes_.size(), maxAcceleration_.front());
+  }
+  if (maxAcceleration_.size() != jointAxes_.size()) {
+    RCLCPP_WARN(
+      this->get_logger(), "max_acceleration has %zu values for %zu axes, disabling the limit",
+      maxAcceleration_.size(), jointAxes_.size());
+    maxAcceleration_.assign(jointAxes_.size(), 0.0);
   }
 
   axes_.clear();
@@ -421,6 +423,12 @@ void JointPositionController::setRosParameter()
   RCLCPP_INFO(this->get_logger(), "stream_timeout: %f", streamTimeout_);
   RCLCPP_INFO(this->get_logger(), "stop_deceleration: %f", stopDeceleration_);
   RCLCPP_INFO(this->get_logger(), "interpolation: %s", interpolationName_.c_str());
+  std::string accText;
+  for (size_t i = 0; i < maxAcceleration_.size(); ++i) {
+    if (i > 0) {accText += ", ";}
+    accText += std::to_string(maxAcceleration_[i]);
+  }
+  RCLCPP_INFO(this->get_logger(), "max_acceleration: [%s]", accText.c_str());
   RCLCPP_INFO(this->get_logger(), "===========================");
 }
 
@@ -560,6 +568,9 @@ bool JointPositionController::startStream()
   last_.position = posCmd;
   last_.velocity.assign(axes_.size(), 0.0);
   last_.acceleration.assign(axes_.size(), 0.0);
+  refLast_ = posCmd;
+  outPos_ = posCmd;
+  outVel_.assign(axes_.size(), 0.0);
 
   const auto holdCount = static_cast<size_t>(
     std::ceil(leadTime_ / (cycleTime_ * sampleCycles_)));
@@ -621,10 +632,20 @@ bool JointPositionController::queueSegment(const JointSample & target, double du
 
   const double depth = static_cast<double>(remainCount) * sampleCycles_ * cycleTime_;
   const double corrected = std::clamp(
-    duration - 0.2 * (depth - leadTime_), 0.8 * duration, 1.2 * duration);
+    duration - 0.5 * (depth - leadTime_), 0.5 * duration, 1.5 * duration);
 
   const double sampleTime = cycleTime_ * sampleCycles_;
   const auto count = static_cast<size_t>(std::max(1.0, std::round(corrected / sampleTime)));
+
+  if (streaming_ && remainCount == 0) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "Cyclic buffer ran empty, the axes held until this segment");
+  }
+  RCLCPP_DEBUG_THROTTLE(
+    this->get_logger(), *this->get_clock(), 500,
+    "buffer depth %.1f ms, segment %.1f ms (%zu commands)",
+    depth * 1e3, static_cast<double>(count) * sampleTime * 1e3, count);
 
   if (count > availableCount) {
     RCLCPP_WARN_THROTTLE(
@@ -671,15 +692,74 @@ bool JointPositionController::queueSegment(const JointSample & target, double du
     }
   }
 
+  const auto refLast = refLast_;
+  const auto outPos = outPos_;
+  const auto outVel = outVel_;
+  limitAcceleration(samples);
+
   if (api_->addCommand(axes_, samples, static_cast<unsigned int>(sampleCycles_), message) !=
     ErrorCode::None)
   {
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "%s", message.c_str());
+    refLast_ = refLast;
+    outPos_ = outPos;
+    outVel_ = outVel;
     return false;
   }
 
   last_ = target;
   return true;
+}
+
+void JointPositionController::limitAcceleration(std::vector<std::vector<double>> & samples)
+{
+  const double h = cycleTime_ * sampleCycles_;
+  const double tau = 5.0 * h;
+  for (auto & sample : samples) {
+    for (size_t i = 0; i < sample.size(); ++i) {
+      const double ref = sample[i];
+      const double vRef = (ref - refLast_[i]) / h;
+      const double e = refLast_[i] - outPos_[i];
+      refLast_[i] = ref;
+      const double a = maxAcceleration_[i];
+      if (a <= 0.0) {
+        outPos_[i] = ref;
+        outVel_[i] = vRef;
+        continue;
+      }
+      const double corr = std::copysign(
+        std::min(std::fabs(e) / tau, std::sqrt(2.0 * a * std::fabs(e))), e);
+      const double bound = std::sqrt(vRef * vRef + 2.0 * a * std::fabs(e));
+      const double dv = std::clamp(
+        std::clamp(vRef + corr, -bound, bound) - outVel_[i], -a * h, a * h);
+      outVel_[i] += dv;
+      outPos_[i] += outVel_[i] * h;
+      sample[i] = outPos_[i];
+    }
+  }
+}
+
+bool JointPositionController::settled() const
+{
+  for (size_t i = 0; i < outPos_.size(); ++i) {
+    if (std::fabs(refLast_[i] - outPos_[i]) > 1e-6 || std::fabs(outVel_[i]) > 1e-5) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// After the stop segment, holds the reference until the limited output has caught up.
+void JointPositionController::queueSettle()
+{
+  std::vector<std::vector<double>> samples(50, refLast_);
+  limitAcceleration(samples);
+  std::string message;
+  if (api_->addCommand(axes_, samples, static_cast<unsigned int>(sampleCycles_), message) !=
+    ErrorCode::None)
+  {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "%s", message.c_str());
+  }
 }
 
 void JointPositionController::queueStop()
@@ -757,45 +837,18 @@ void JointPositionController::jointTrajectoryCallback(
     return;
   }
 
-  const double base = stampToSeconds(msg->header.stamp);
-  auto stampOf = [&](size_t i) {
-      return base + durationToSeconds(msg->points[i].time_from_start);
-    };
-
-  const size_t n = msg->points.size();
-  if (n >= 2) {
-    const double spacing = stampOf(n - 1) - stampOf(n - 2);
-    if (spacing > 0.5 * publishPeriod_ && spacing < 2.0 * publishPeriod_) {
-      segmentPeriod_ = spacing;
-    }
+  JointSample sample;
+  if (!readPoint(*msg, msg->points.size() - 1, sample)) {
+    return;
   }
 
   lastReceived_ = std::chrono::steady_clock::now();
 
-  if (!streaming_) {
-    if (!startStream()) {
-      return;
-    }
-    lastStamp_ = stampOf(n - 1) - segmentPeriod_;
+  if (!streaming_ && !startStream()) {
+    return;
   }
 
-  for (size_t i = 0; i < n; ++i) {
-    const double t = stampOf(i);
-    if (t <= lastStamp_ + 1e-6) {
-      continue;
-    }
-
-    JointSample sample;
-    if (!readPoint(*msg, i, sample)) {
-      return;
-    }
-
-    const double duration = std::min(t - lastStamp_, 4.0 * segmentPeriod_);
-    if (!queueSegment(sample, duration)) {
-      return;
-    }
-    lastStamp_ = t;
-  }
+  queueSegment(sample, publishPeriod_);
 }
 
 void JointPositionController::watchdogCallback()
@@ -821,6 +874,13 @@ void JointPositionController::watchdogCallback()
     ErrorCode::None)
   {
     stopStream(message.c_str());
+    return;
+  }
+
+  if (!settled()) {
+    if (remainCount < 100) {
+      queueSettle();
+    }
     return;
   }
 

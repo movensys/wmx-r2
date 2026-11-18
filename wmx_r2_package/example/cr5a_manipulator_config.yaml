@@ -23,10 +23,11 @@ joint_position_controller:
     cycle_time: 0.001
     sample_cycles: 1
     publish_period: 0.025
-    lead_time: 0.05
+    lead_time: 0.01
     stream_timeout: 0.1
     stop_deceleration: 1.0
-    interpolation: quintic
+    interpolation: cubic
+    max_acceleration: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
 wmx_engine_node:
   ros__parameters:
