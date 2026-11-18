@@ -60,7 +60,7 @@ add_executable(joint_position_controller src/joint_position_controller.cpp)
 ament_target_dependencies(joint_position_controller
   rclcpp rclcpp_lifecycle std_msgs trajectory_msgs)
 target_include_directories(joint_position_controller PRIVATE include ${WMX3_SDK_PATH}/include ${WMX3_SDK_PATH}/sample/Header)
-target_link_libraries(joint_position_controller coremotionapi wmx3api imdll)
+target_link_libraries(joint_position_controller cyclicbufferapi coremotionapi wmx3api imdll)
 target_link_directories(joint_position_controller PRIVATE ${WMX3_SDK_PATH}/lib)
 target_compile_definitions(joint_position_controller PRIVATE WMX3_SDK_PATH="${WMX3_SDK_PATH}/")
 

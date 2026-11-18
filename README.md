@@ -173,7 +173,7 @@ perception stacks live in companion repositories:
 | `wmx_io_node` | IO control for input/output bits and bytes (lifecycle) |
 | `wmx_ethercat_node` | EtherCAT master operations, network scan and slave management (lifecycle) |
 | `joint_trajectory_controller` | Receives `FollowJointTrajectory` goals and executes them via WMX3 C-spline (lifecycle) |
-| `joint_position_controller` | Follows MoveIt Servo's streamed `JointTrajectory` via WMX3 linear interpolation, so every axis arrives at the same instant (lifecycle) |
+| `joint_position_controller` | Streams MoveIt Servo's `JointTrajectory` (position, velocity, acceleration) into a WMX3 CyclicBuffer (lifecycle) |
 | `differential_drive_controller` | Differential-drive command and dead-reckoned odometry loop (lifecycle) |
 | `joint_state_broadcaster` | Publishes encoder feedback to `/joint_states`; clears alarms and switches the servos on when activated (lifecycle) |
 | `gripper_controller` | Gripper open/close over a WMX IO output bit (lifecycle) |
@@ -278,7 +278,7 @@ Four nodes, each attaching to the WMX3 device itself:
 - `joint_trajectory_controller` takes planned goals from MoveIt2 as a
   `FollowJointTrajectory` action and runs them as a WMX3 time-based C-spline.
 - `joint_position_controller` takes MoveIt Servo's streamed `JointTrajectory` and
-  runs it as WMX3 linear interpolation, so every axis arrives at the same instant.
+  feeds it to a WMX3 CyclicBuffer, one quintic segment per Servo point.
 - `gripper_controller` drives one WMX IO output bit from a `std_srvs/SetBool`
   service. Started only with `use_gripper:=true`.
 - `joint_state_broadcaster` publishes encoder feedback to `/joint_states`. It also
@@ -286,8 +286,8 @@ Four nodes, each attaching to the WMX3 device itself:
 
 The two motion controllers interlock over
 `/moveit2_trajectory/execution_active`. While a planned goal runs,
-`joint_position_controller` drops every streamed trajectory, so a servo command
-cannot fight a running trajectory. See
+`joint_position_controller` aborts its stream and drops every streamed
+trajectory, so a servo command cannot fight a running trajectory. See
 [doc/reference_manipulator.md](doc/reference_manipulator.md).
 
 ### Differential-drive control ([wmx_r2_differential.launch.py](wmx_r2_package/launch/wmx_r2_differential.launch.py))

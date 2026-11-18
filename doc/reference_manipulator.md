@@ -17,8 +17,8 @@ own the engine, not the motion these controllers command.
                                   │ /moveit2_trajectory/execution_active (Bool, latched)
                                   ▼
  MoveIt Servo ──────────────▶┌───────────────────────────────┐
-  (JointTrajectory stream)   │ joint_position_controller     │──▶ WMX3 CoreMotion
-                             │  (lifecycle) linear interp    │    StartLinearIntplPos
+  (JointTrajectory stream)   │ joint_position_controller     │──▶ WMX3 CyclicBuffer
+                             │  (lifecycle) quintic stream   │    AbsolutePos per cycle
                              └───────────────────────────────┘
                              ┌───────────────────────────────┐
  configure / activate ──────▶│ joint_state_broadcaster       │──▶ /joint_states  (JointState)
@@ -34,7 +34,7 @@ own the engine, not the motion these controllers command.
 |---|---|---|
 | `joint_state_broadcaster` | Encoder feedback → `/joint_states`; clears amp alarms and switches servos on at activate | always |
 | `joint_trajectory_controller` | `FollowJointTrajectory` action → WMX3 time-based C-spline | always |
-| `joint_position_controller` | MoveIt Servo's streamed `JointTrajectory` → WMX3 linear interpolation | always |
+| `joint_position_controller` | MoveIt Servo's streamed `JointTrajectory` → WMX3 CyclicBuffer | always |
 | `gripper_controller` | Gripper open/close over a WMX IO output bit | only with `use_gripper:=true` |
 
 "Started" is for `wmx_r2_manipulator.launch.py`.
@@ -119,11 +119,16 @@ sizes the WMX spline buffer allocated at `configure` (channel `kSplineChannel` =
 | Parameter | Type | Default | Unit | Description |
 |---|---|---|---|---|
 | `joint_axes` | int[] | `[]` | – | WMX3 axis index per joint. |
-| `joint_name` | string[] | `[j1..j6]` | – | Name→axis map used when the incoming `JointTrajectory` carries `joint_names`; pairs positionally with `joint_axes`. An unknown name drops the message (throttled warn). With empty `joint_names` the message is taken positionally. |
+| `joint_name` | string[] | `[j1..j6]` | – | Name→axis map for the incoming `joint_names`; pairs positionally with `joint_axes`. An unknown name or a joint count mismatch drops the message (throttled warn). |
 | `joint_trajectory_topic` | string | `/joint_trajectory_topic/no_param` | – | Streamed trajectory input from MoveIt Servo (e.g. `/movensys_manipulator_arm_controller/joint_trajectory`). |
-| `default_velocity` | double | `0.1` | user-unit/s | Per-axis velocity used when the point's `time_from_start` is 0 (no time base to derive a velocity from). Deployments use `0.5`. |
-| `accel_ratio` | double | `0.5` | – | Fraction of the step time spent accelerating: `acc = velocity / (accel_ratio · dt)`. Lower = harder ramp. Deployments use `0.3`. A non-finite or non-positive value falls back to `0.5` with a warning. |
-| `min_step` | double | `0.1` | user-unit | Deadband. A message whose largest per-axis move from the current *command* position is below this is dropped, so servo jitter does not restart an interpolation every cycle. Deployments use `0.001`; the default is deliberately coarse. A message is also dropped while the previous interpolation is still starting, or when every axis resolves to zero velocity. |
+| `buffer_cycles` | int | `2048` | commands | `OpenCyclicBuffer` capacity. |
+| `cycle_time` | double | `0.001` | s | Engine cycle. Used only when the engine does not report one; a mismatch with the engine warns and the engine's value wins. |
+| `sample_cycles` | int | `1` | engine cycles | `intervalCycles` of each queued command. |
+| `publish_period` | double | `0.025` | s | Servo `publish_period`. Length of the first segment. Later segments follow the point spacing, accepted within 0.5x to 2x of this. |
+| `lead_time` | double | `0.05` | s | Hold queued at stream start and the buffer depth the stream is steered to. |
+| `stream_timeout` | double | `0.1` | s | No new point for this long ends the stream with a stop segment. |
+| `stop_deceleration` | double | `2.0` | rad/s² | Sets the stop segment length, `T = max(0.05, 2·|v|/stop_deceleration)`. |
+| `interpolation` | string | `quintic` | – | `quintic` (position, velocity, acceleration), `cubic` (position, velocity) or `linear`. |
 
 ### D. `gripper_controller`
 
@@ -184,7 +189,7 @@ manager discovers each node under its fully-qualified name, and
   | `Float64MultiArray.data` on the Gazebo position topic | **rad**, then the gripper values in **m** |
   | `Float64MultiArray.data` on the Gazebo velocity topic | **rad/s**, no gripper entries |
   | `joint_feedback_rate` | Hz |
-  | `accel_ratio`, `default_velocity`, `min_step` (`joint_position_controller`) | ratio, user unit / s, user unit |
+  | `lead_time`, `stream_timeout`, `stop_deceleration` (`joint_position_controller`) | s, s, rad/s² |
 
   This is why MoveIt, RViz, Isaac Sim and Gazebo all read correctly without a
   conversion step: they expect radians and metres, and the axes deliver them.
@@ -196,12 +201,12 @@ manager discovers each node under its fully-qualified name, and
   sequence. `time_from_start` is converted to milliseconds; the first point is
   forced to `t = 0`, and a final point less than 1 ms after its predecessor is
   dropped (planners routinely emit such a duplicate endpoint).
-- `joint_position_controller` is **step-based**: per axis, `velocity = |target −
-  posCmd| / dt` and `acc = dec = velocity / (accel_ratio · dt)`, where `dt` is the
-  point's `time_from_start`. Because every axis gets its own velocity for a shared
-  `dt`, `StartLinearIntplPos` makes them all arrive at the same instant. The step
-  is measured against the **commanded** position (`posCmd`), not the encoder, so
-  following error does not feed back into the next command.
+- `joint_position_controller` is **cycle-based**: each new Servo point (absolute
+  time `header.stamp + time_from_start`, one per `publish_period`, 25 ms)
+  becomes one segment from the last queued point, sampled every `sample_cycles`
+  engine cycles with a quintic Hermite that matches `positions`, `velocities` and
+  `accelerations` at both ends. Segment length is nudged ±20 % to hold the buffer
+  at `lead_time`. A stream starts from the **commanded** position (`posCmd`).
 - Gripper state is a single IO **bit**, so feedback is two-valued: the broadcaster
   reports `gripper_close_value` or `gripper_open_value`, never anything between.
 
@@ -247,9 +252,8 @@ Per-node activation:
   `false` and destroys the action server, so no new goal can arrive; a goal already
   running on its detached thread sees the deactivation, stops the axes and aborts,
   and `on_deactivate` waits for it (warning if it outlasts the stop timeout).
-- **`joint_position_controller`** — `on_activate` just arms the callback.
-  `on_deactivate` issues `Stop` + `Wait` on all `joint_axes`, so the streaming path
-  never leaves an interpolation running behind it.
+- **`joint_position_controller`**: the buffer opens on the first streamed point and
+  closes once the stop segment drains. `on_deactivate` aborts and closes it.
 - **`gripper_controller`** — `on_activate`/`on_deactivate` only flip the gate that
   the service checks; the output bit is left as-is.
 
@@ -270,14 +274,12 @@ the broadcaster needs `set_servo_on` to activate. See `reference_general_nodes.m
 axes, so they interlock over `/moveit2_trajectory/execution_active`:
 
 1. A `FollowJointTrajectory` goal publishes `true` on entry.
-2. `joint_position_controller` latches that and drops every incoming streamed
-   trajectory while it holds.
+2. `joint_position_controller` aborts and closes an open stream, then drops every
+   incoming streamed trajectory while it holds.
 3. On exit (success, abort, or cancel) the trajectory controller publishes `false`
    and sends a zero `JointJog` to `/servo_node/delta_joint_cmds`.
 
-The latch is one-directional: a servo motion already in flight is not preempted
-when a planned goal starts. Keep MoveIt Servo paused (or accept that the first
-planned goal wins the race) if both can be commanded at once.
+A servo stream in flight is aborted, not decelerated, when a planned goal starts.
 
 **Goal execution** (`joint_trajectory_controller`, on a detached thread per goal):
 
@@ -382,9 +384,14 @@ joint_position_controller:
     joint_axes: [0, 1, 2, 3, 4, 5]
     joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
     joint_trajectory_topic: /movensys_manipulator_arm_controller/joint_trajectory
-    accel_ratio: 0.3
-    default_velocity: 0.5
-    min_step: 0.001
+    buffer_cycles: 2048
+    cycle_time: 0.001
+    sample_cycles: 1
+    publish_period: 0.025
+    lead_time: 0.05
+    stream_timeout: 0.1
+    stop_deceleration: 2.0
+    interpolation: quintic
 
 gripper_controller:                   # only when there is a gripper
   ros__parameters:
@@ -436,7 +443,7 @@ What the Toolkit needs to template per robot / per deployment:
   `use_gripper` at its `false` default.
 - **Per planning stack:** `joint_trajectory_action` and `joint_trajectory_topic`,
   which must match the MoveIt2 controller configuration and the Servo output topic.
-- **Usually defaults:** `accel_ratio`, `default_velocity`, `min_step`, and the
+- **Usually defaults:** `buffer_cycles`, `sample_cycles`, `lead_time`, `stream_timeout`, `interpolation`, and the
   simulator mirror topics (leave them at the shipped values unless Isaac/Gazebo is
   in the loop).
 - **Not parameterized (by design):** the lifecycle gate
