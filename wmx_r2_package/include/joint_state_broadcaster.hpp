@@ -89,6 +89,7 @@ private:
   std::vector<std::string> jointNames_;
   std::vector<std::string> gripperJointNames_;
   std::vector<int64_t> gripperAddress_;
+  bool gripperClosed_ = false;
   std::string encoderJointTopic_;
   std::string isaacsimJointTopic_;
   std::string gazeboPositionTopic_;
