@@ -299,7 +299,7 @@ void JointStateBroadcaster::setRosParameter()
       RCLCPP_WARN(
         this->get_logger(),
         "gripper_address needs [byte, bit], got %zu entries; the gripper joints "
-        "will not be published.", gripperAddress_.size());
+        "are published as open (gripper_open_value).", gripperAddress_.size());
     }
   } else {
     RCLCPP_INFO(this->get_logger(), "gripper_joint_name: [] (no gripper)");
@@ -531,23 +531,27 @@ void JointStateBroadcaster::publishJointState()
     encoderJointMsg.velocity.push_back(feedback[i].actualVelocity);
   }
 
+  // The picker joints are always published: MoveIt and Servo wait for every
+  // joint in the URDF, so dropping them on a failed IO read stalls both.
   if (gripperAddress_.size() >= 2) {
     uint8_t gripperData = 0;
-    const bool gripperRead = api_->getOutBit(
-      static_cast<int32_t>(gripperAddress_[0]), static_cast<int32_t>(gripperAddress_[1]),
-      gripperData, message) == ErrorCode::None;
-
-    if (!gripperRead) {
+    if (api_->getOutBit(
+        static_cast<int32_t>(gripperAddress_[0]), static_cast<int32_t>(gripperAddress_[1]),
+        gripperData, message) == ErrorCode::None)
+    {
+      gripperClosed_ = gripperData != 0;
+    } else {
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 1000,
-        "Gripper joints not published: %s", message.c_str());
-    } else {
-      for (const std::string & name : gripperJointNames_) {
-        encoderJointMsg.name.push_back(name);
-        encoderJointMsg.position.push_back(gripperData ? gripperCloseValue_ : gripperOpenValue_);
-        encoderJointMsg.velocity.push_back(0.000);
-      }
+        "Gripper IO read failed, publishing last known gripper state (%s): %s",
+        gripperClosed_ ? "closed" : "open", message.c_str());
     }
+  }
+
+  for (const std::string & name : gripperJointNames_) {
+    encoderJointMsg.name.push_back(name);
+    encoderJointMsg.position.push_back(gripperClosed_ ? gripperCloseValue_ : gripperOpenValue_);
+    encoderJointMsg.velocity.push_back(0.000);
   }
 
   isaacsimJointPub_->publish(encoderJointMsg);
