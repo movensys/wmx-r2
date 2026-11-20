@@ -45,6 +45,9 @@ constexpr double kVelocityFloor = 1e-6;
 
 // Servo velocity below this counts as standing still.
 constexpr double kStillVelocity = 1e-4;
+
+// A recorded override still waiting after this long is treated as stuck.
+constexpr double kStuckTimeout = 0.3;
 }  // namespace
 
 JointPositionControllerApi::JointPositionControllerApi(const rclcpp::Logger & logger)
@@ -192,7 +195,7 @@ int JointPositionControllerApi::getStatus(
 void JointPositionControllerApi::fill(
   Motion::LinearIntplCommand & intpl, const std::vector<int> & axes,
   const std::vector<double> & targets, const std::vector<double> & maxVelocity,
-  const std::vector<double> & maxAcc)
+  const std::vector<double> & maxAcc, double endVelocityRatio)
 {
   intpl.axisCount = static_cast<unsigned int>(axes.size());
   for (size_t i = 0; i < axes.size(); ++i) {
@@ -206,6 +209,16 @@ void JointPositionControllerApi::fill(
   intpl.profile.velocity = 0.0;
   intpl.profile.acc = 0.0;
   intpl.profile.dec = 0.0;
+  if (endVelocityRatio > 0.0) {
+    // Path speed implied by the per-axis limits; stating it makes endVelocity
+    // meaningful, so the segment ends at speed instead of in a deceleration.
+    double pathSq = 0.0;
+    for (const double v : maxVelocity) {
+      pathSq += v * v;
+    }
+    intpl.profile.velocity = std::sqrt(pathSq);
+    intpl.profile.endVelocity = endVelocityRatio * intpl.profile.velocity;
+  }
 }
 
 // One API buffer channel carries the stream. The engine executes it in its own
@@ -267,6 +280,7 @@ int JointPositionControllerApi::recordOverride(
   const std::vector<double> & targets,
   const std::vector<double> & maxVelocity,
   const std::vector<double> & maxAcc,
+  double endVelocityRatio,
   std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
@@ -292,7 +306,7 @@ int JointPositionControllerApi::recordOverride(
   when.AddLeafNode(&ready, root);
 
   Motion::LinearIntplCommand intpl;
-  fill(intpl, axes, targets, maxVelocity, maxAcc);
+  fill(intpl, axes, targets, maxVelocity, maxAcc, endVelocityRatio);
 
   int err = abRec_.StartRecordBufferChannel(channel_);
   if (err != ErrorCode::None) {
@@ -409,6 +423,7 @@ void JointPositionController::setRosParameter()
   lookaheadTime_ = this->declare_parameter<double>("lookahead_time", 0.05);
   minOverrideInterval_ = this->declare_parameter<double>("min_override_interval", 0.0);
   bufferChannel_ = this->declare_parameter<int>("api_buffer_channel", 0);
+  endVelocityRatio_ = this->declare_parameter<double>("end_velocity_ratio", 0.0);
   streamTimeout_ = this->declare_parameter<double>("stream_timeout", 0.1);
   positionTolerance_ = this->declare_parameter<double>("position_tolerance", 1e-5);
   maxVelocity_ = perJoint(
@@ -463,6 +478,7 @@ void JointPositionController::setRosParameter()
   RCLCPP_INFO(this->get_logger(), "lookahead_time: %f", lookaheadTime_);
   RCLCPP_INFO(this->get_logger(), "min_override_interval: %f", minOverrideInterval_);
   RCLCPP_INFO(this->get_logger(), "api_buffer_channel: %d", bufferChannel_);
+  RCLCPP_INFO(this->get_logger(), "end_velocity_ratio: %f", endVelocityRatio_);
   RCLCPP_INFO(this->get_logger(), "stream_timeout: %f", streamTimeout_);
   RCLCPP_INFO(this->get_logger(), "position_tolerance: %f", positionTolerance_);
   RCLCPP_INFO(this->get_logger(), "max_velocity: [%s]", join(maxVelocity_).c_str());
@@ -478,6 +494,8 @@ void JointPositionController::setRosParameter()
           minOverrideInterval_ = std::max(0.0, p.as_double());
         } else if (p.get_name() == "lookahead_time") {
           lookaheadTime_ = std::max(publishPeriod_, p.as_double());
+        } else if (p.get_name() == "end_velocity_ratio") {
+          endVelocityRatio_ = std::clamp(p.as_double(), 0.0, 1.0);
         }
       }
       return result;
@@ -752,12 +770,28 @@ void JointPositionController::send()
       "API buffer reported %lld failed blocks", errors - bufferErrors_);
     bufferErrors_ = errors;
   }
+  const auto nowSend = std::chrono::steady_clock::now();
   if (remaining > 0) {
     ++retries_;
+    if (!waiting_) {
+      waiting_ = true;
+      waitingSince_ = nowSend;
+    } else if (std::chrono::duration<double>(nowSend - waitingSince_).count() > kStuckTimeout) {
+      // The recorded wait never released: the running motion can neither take an
+      // override nor finish. Clear the channel and stop the axes so the stream
+      // restarts from rest instead of freezing.
+      RCLCPP_WARN(
+        this->get_logger(), "API buffer wait stuck for %.0f ms, resetting the channel",
+        kStuckTimeout * 1e3);
+      api_->stop(2000, message);
+      waiting_ = false;
+    }
     return;
   }
+  waiting_ = false;
 
-  const int err = api_->recordOverride(axes_, target, speed, maxAcceleration_, message);
+  const int err = api_->recordOverride(
+    axes_, target, speed, maxAcceleration_, endVelocityRatio_, message);
   pending_ = false;
   if (err != ErrorCode::None) {
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "%s", message.c_str());
@@ -813,7 +847,7 @@ void JointPositionController::brake(const char * reason)
       target[i] = posCmd[i] + 0.5 * velCmd[i] * stopTime;
       speed[i] = std::max(std::fabs(velCmd[i]), kVelocityFloor);
     }
-    if (api_->recordOverride(axes_, target, speed, maxAcceleration_, message) !=
+    if (api_->recordOverride(axes_, target, speed, maxAcceleration_, 0.0, message) !=
       ErrorCode::None)
     {
       RCLCPP_WARN(this->get_logger(), "%s", message.c_str());

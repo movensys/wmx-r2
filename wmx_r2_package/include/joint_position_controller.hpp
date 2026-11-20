@@ -43,6 +43,7 @@ public:
     const std::vector<double> & targets,
     const std::vector<double> & maxVelocity,
     const std::vector<double> & maxAcc,
+    double endVelocityRatio,
     std::string & message);
   int channelStatus(int64_t & remaining, int64_t & errors, std::string & message);
 
@@ -75,7 +76,7 @@ private:
   static void fill(
     wmx3Api::Motion::LinearIntplCommand & intpl, const std::vector<int> & axes,
     const std::vector<double> & targets, const std::vector<double> & maxVelocity,
-    const std::vector<double> & maxAcc);
+    const std::vector<double> & maxAcc, double endVelocityRatio);
 };
 
 class JointPositionController : public rclcpp_lifecycle::LifecycleNode
@@ -105,6 +106,9 @@ private:
   double minOverrideInterval_ = 0.0;
   int bufferChannel_ = 0;
   int64_t bufferErrors_ = 0;
+  double endVelocityRatio_ = 0.0;
+  bool waiting_ = false;
+  std::chrono::steady_clock::time_point waitingSince_;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr paramCallback_;
   double positionTolerance_ = 0.0;
   std::vector<double> maxVelocity_;
