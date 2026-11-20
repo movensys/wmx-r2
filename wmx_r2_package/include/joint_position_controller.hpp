@@ -21,7 +21,7 @@
 
 #include "WMX3Api.h"
 #include "CoreMotionApi.h"
-#include "CyclicBufferApi.h"
+#include "ApiBufferApi.h"
 
 class JointPositionControllerApi
 {
@@ -34,19 +34,19 @@ public:
 
   int setAxisSelection(const std::vector<int64_t> & axes, std::string & message);
   int getStatus(
-    const std::vector<int> & axes, std::vector<double> & posCmd, double & cycleTimeMs,
+    const std::vector<int> & axes, std::vector<double> & posCmd, std::vector<double> & velCmd,
     std::string & message);
 
-  int openCyclicBuffer(unsigned int numOfCycles, std::string & message);
-  int execute(std::string & message);
-  int addCommand(
-    const std::vector<int> & axes, const std::vector<std::vector<double>> & samples,
-    unsigned int intervalCycles, std::string & message);
-  int getCyclicBufferStatus(
-    const std::vector<int> & axes, unsigned int & remainCount, unsigned int & availableCount,
-    wmx3Api::CyclicBufferState::T & state, std::string & message);
-  int abort(std::string & message);
-  int closeCyclicBuffer(std::string & message);
+  int openChannel(unsigned int channel, std::string & message);
+  int recordOverride(
+    const std::vector<int> & axes,
+    const std::vector<double> & targets,
+    const std::vector<double> & maxVelocity,
+    const std::vector<double> & maxAcc,
+    std::string & message);
+  int channelStatus(int64_t & remaining, int64_t & errors, std::string & message);
+
+  int stop(unsigned int waitTimeout, std::string & message);
 
 private:
   rclcpp::Logger logger_;
@@ -57,13 +57,25 @@ private:
   mutable std::mutex deviceMutex_;
 
   wmx3Api::AxisSelection axisSel_;
-  bool bufferOpen_ = false;
 
   wmx3Api::WMX3Api wmx3Lib_;
   wmx3Api::CoreMotion cm_;
-  wmx3Api::CyclicBuffer cyc_;
 
-  int closeCyclicBufferLocked(std::string & message);
+  // StartRecordBufferChannel records every call made through its device, so
+  // recording runs on a second device and status reads stay on the first.
+  wmx3Api::WMX3Api wmx3Rec_;
+  wmx3Api::CoreMotion cmRec_;
+  wmx3Api::ApiBuffer ab_;
+  wmx3Api::ApiBuffer abRec_;
+  unsigned int channel_ = 0;
+  bool channelOpen_ = false;
+  bool recAttached_ = false;
+
+  void closeChannelLocked();
+  static void fill(
+    wmx3Api::Motion::LinearIntplCommand & intpl, const std::vector<int> & axes,
+    const std::vector<double> & targets, const std::vector<double> & maxVelocity,
+    const std::vector<double> & maxAcc);
 };
 
 class JointPositionController : public rclcpp_lifecycle::LifecycleNode
@@ -82,60 +94,54 @@ public:
   CallbackReturn on_shutdown(const rclcpp_lifecycle::State & previous_state) override;
 
 private:
-  struct JointSample
-  {
-    std::vector<double> position;
-    std::vector<double> velocity;
-    std::vector<double> acceleration;
-  };
-
-  enum class Interpolation { LINEAR, CUBIC, QUINTIC };
-
   std::unique_ptr<JointPositionControllerApi> api_;
 
   std::vector<int64_t> jointAxes_;
   std::vector<std::string> jointNames_;
   std::string jointTrajectoryTopic_;
-  int bufferCycles_ = 0;
-  int sampleCycles_ = 0;
   double publishPeriod_ = 0.0;
-  double leadTime_ = 0.0;
+  double lookaheadTime_ = 0.0;
   double streamTimeout_ = 0.0;
-  double stopDeceleration_ = 0.0;
+  double minOverrideInterval_ = 0.0;
+  int bufferChannel_ = 0;
+  int64_t bufferErrors_ = 0;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr paramCallback_;
+  double positionTolerance_ = 0.0;
+  std::vector<double> maxVelocity_;
   std::vector<double> maxAcceleration_;
-  std::string interpolationName_;
-  Interpolation interpolation_ = Interpolation::CUBIC;
 
   std::vector<int> axes_;
   std::map<std::string, size_t> indexByName_;
-  double cycleTime_ = 0.0;
 
   std::atomic<bool> inExecution_{false};
 
   bool streaming_ = false;
-  bool draining_ = false;
-  JointSample last_;
-  std::vector<double> refLast_;
-  std::vector<double> outPos_;
-  std::vector<double> outVel_;
-  std::chrono::steady_clock::time_point lastReceived_;
+  bool havePrevious_ = false;
+  bool servoMoving_ = false;
+  bool pending_ = false;
+  size_t sent_ = 0;
+  size_t retries_ = 0;
+  std::vector<double> velocity_;
+  double acceptInterval_ = 0.0;
+  std::chrono::steady_clock::time_point lastAccept_;
+  std::vector<double> previous_;
+  std::chrono::steady_clock::time_point previousTime_;
 
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr execActiveSub_;
   rclcpp::Subscription<trajectory_msgs::msg::JointTrajectory>::SharedPtr jointTrajectorySub_;
   rclcpp::TimerBase::SharedPtr watchdogTimer_;
+  rclcpp::TimerBase::SharedPtr retryTimer_;
 
   void setRosParameter();
-
-  bool startStream();
-  void stopStream(const char * reason);
-  bool queueSegment(const JointSample & target, double duration);
-  void limitAcceleration(std::vector<std::vector<double>> & samples);
-  bool settled() const;
-  void queueSettle();
-  void queueStop();
+  std::vector<double> perJoint(const std::string & name, std::vector<double> values);
 
   bool readPoint(
-    const trajectory_msgs::msg::JointTrajectory & traj, size_t index, JointSample & sample);
+    const trajectory_msgs::msg::JointTrajectory & traj,
+    std::vector<double> & position, std::vector<double> & velocity);
+  void track(const std::vector<double> & position, const std::vector<double> & velocity);
+  void send();
+  void brake(const char * reason);
+  void haltAxes(const char * reason);
 
   void execActiveCallback(const std_msgs::msg::Bool::SharedPtr msg);
   void jointTrajectoryCallback(const trajectory_msgs::msg::JointTrajectory::SharedPtr msg);
