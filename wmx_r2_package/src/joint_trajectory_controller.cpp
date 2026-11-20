@@ -21,6 +21,8 @@ namespace
 {
 constexpr int kGoalStopTimeoutMs = 2000;
 constexpr int kGoalStopPollMs = 10;
+constexpr int kAxesFreeTimeoutMs = 1000;
+constexpr int kGoalHandoverMs = 200;
 
 struct ScopeExit
 {
@@ -239,6 +241,28 @@ int JointTrajectoryControllerApi::getInPos(bool & inPos, std::string & message)
   return ErrorCode::None;
 }
 
+int JointTrajectoryControllerApi::getIdle(bool & idle, std::string & message)
+{
+  std::lock_guard<std::mutex> lock(deviceMutex_);
+
+  idle = false;
+  CoreMotionStatus status;
+  const int err = cm_.GetStatus(&status);
+  if (err != ErrorCode::None) {
+    message = "GetStatus failed. Error=" + std::to_string(err) + " (" + errorToString(err) + ")";
+    return err;
+  }
+
+  for (int i = 0; i < axisSel_.axisCount; ++i) {
+    if (status.axesStatus[axisSel_.axis[i]].opState != wmx3Api::OperationState::Idle) {
+      message = "Axis " + std::to_string(axisSel_.axis[i]) + " is busy with another motion";
+      return ErrorCode::None;
+    }
+  }
+  idle = true;
+  return ErrorCode::None;
+}
+
 int JointTrajectoryControllerApi::stop(std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
@@ -288,6 +312,26 @@ void JointTrajectoryController::waitForGoalToFinish()
     RCLCPP_WARN(
       this->get_logger(), "Trajectory execution did not stop within %d ms", kGoalStopTimeoutMs);
   }
+}
+
+bool JointTrajectoryController::waitForAxesFree(std::string & message)
+{
+  for (int i = 0; i <= kAxesFreeTimeoutMs / kGoalStopPollMs; ++i) {
+    bool idle = false;
+    if (!jpcStreaming_.load() && !dtcStreaming_.load()) {
+      if (api_->getIdle(idle, message) != ErrorCode::None) {
+        return false;
+      }
+      if (idle) {
+        return true;
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(kGoalStopPollMs));
+  }
+  if (jpcStreaming_.load() || dtcStreaming_.load()) {
+    message = "joint_position_controller or dynamic_trajectory_controller still streams";
+  }
+  return false;
 }
 
 void JointTrajectoryController::setRosParameter()
@@ -375,6 +419,13 @@ JointTrajectoryController::CallbackReturn JointTrajectoryController::on_activate
   execActivePub_ = this->create_publisher<std_msgs::msg::Bool>(
     "/moveit2_trajectory/execution_active", rclcpp::QoS(1).transient_local());
 
+  jpcStreamSub_ = this->create_subscription<std_msgs::msg::Bool>(
+    "/joint_position_controller/stream_active", rclcpp::QoS(1).transient_local(),
+    [this](const std_msgs::msg::Bool::SharedPtr msg) {jpcStreaming_ = msg->data;});
+  dtcStreamSub_ = this->create_subscription<std_msgs::msg::Bool>(
+    "/dynamic_trajectory_controller/stream_active", rclcpp::QoS(1).transient_local(),
+    [this](const std_msgs::msg::Bool::SharedPtr msg) {dtcStreaming_ = msg->data;});
+
   actionServer_ = rclcpp_action::create_server<FollowJointTrajectory>(
     this,
     jointTrajectoryAction_,
@@ -406,6 +457,8 @@ JointTrajectoryController::CallbackReturn JointTrajectoryController::on_deactiva
   LifecycleNode::on_deactivate(previous_state);
 
   actionServer_.reset();
+  jpcStreamSub_.reset();
+  dtcStreamSub_.reset();
   execActivePub_.reset();
   servoNodeResetPub_.reset();
 
@@ -442,6 +495,18 @@ rclcpp_action::GoalResponse JointTrajectoryController::handleGoal(
 {
   (void)uuid;
   (void)goal;
+
+  if (!isNodeActive_.load()) {
+    RCLCPP_WARN(this->get_logger(), "Goal rejected: controller is not active");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  for (int i = 0; i < kGoalHandoverMs / kGoalStopPollMs && goalRunning_.load(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(kGoalStopPollMs));
+  }
+  if (goalRunning_.exchange(true)) {
+    RCLCPP_WARN(this->get_logger(), "Goal rejected: another goal is running");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
 
   RCLCPP_INFO(this->get_logger(), "Received goal request");
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
@@ -623,6 +688,14 @@ void JointTrajectoryController::executeGoal(std::shared_ptr<GoalHandleFJT> goalH
     RCLCPP_INFO(this->get_logger(), "Point count is zero. It is already in the targeted position");
     result->error_code = FollowJointTrajectory::Result::SUCCESSFUL;
     goalHandle->succeed(result);
+    return;
+  }
+
+  if (!waitForAxesFree(message)) {
+    RCLCPP_WARN(this->get_logger(), "%s. Aborting current goal.", message.c_str());
+    result->error_code = FollowJointTrajectory::Result::INVALID_GOAL;
+    result->error_string = message;
+    goalHandle->abort(result);
     return;
   }
 

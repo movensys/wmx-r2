@@ -57,6 +57,16 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
+    start_dynamic_trajectory_controller = LifecycleNode(
+        package='wmx_r2_package',
+        executable='dynamic_trajectory_controller',
+        name='dynamic_trajectory_controller',
+        namespace='',
+        parameters=[config_file, {'use_sim_time': use_sim_time}],
+        output='screen',
+        emulate_tty=True,
+    )
+
     start_gripper_controller = LifecycleNode(
         package='wmx_r2_package',
         executable='gripper_controller',
@@ -95,5 +105,6 @@ def generate_launch_description():
         start_joint_state_broadcaster,
         start_joint_trajectory_controller,
         start_joint_position_controller,
+        start_dynamic_trajectory_controller,
         start_gripper_controller,
     ])

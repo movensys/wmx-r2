@@ -1,9 +1,9 @@
 # Manipulator Reference
 
-The manipulator stack is four standalone rclcpp lifecycle nodes
+The manipulator stack is five standalone rclcpp lifecycle nodes
 (`wmx_r2_package/src/joint_state_broadcaster.cpp`,
 `joint_trajectory_controller.cpp`, `joint_position_controller.cpp`,
-`gripper_controller.cpp`) that sit on top of the general WMX nodes and expose the
+`dynamic_trajectory_controller.cpp`, `gripper_controller.cpp`) that sit on top of the general WMX nodes and expose the
 MoveIt2 contract: a `FollowJointTrajectory` action in, `/joint_states` out, plus a
 streaming (servo) path and a gripper service. Each attaches to the WMX3 device
 itself and talks to CoreMotion / AdvancedMotion / IO directly — the general nodes
@@ -20,6 +20,10 @@ own the engine, not the motion these controllers command.
   (JointTrajectory stream)   │ joint_position_controller     │──▶ WMX3 CyclicBuffer
                              │  (lifecycle) cubic stream     │    AbsolutePos per cycle
                              └───────────────────────────────┘
+ Replanning planner ────────▶┌───────────────────────────────┐
+  (cuRobo MPC               │ dynamic_trajectory_controller │──▶ WMX3 CyclicBuffer
+   JointTrajectory, 20 Hz)   │  slicer + shared stream       │    AbsolutePos per cycle
+                             └───────────────────────────────┘
                              ┌───────────────────────────────┐
  configure / activate ──────▶│ joint_state_broadcaster       │──▶ /joint_states  (JointState)
   from                       │  (lifecycle) @ rate (100 Hz)  │──▶ isaacsim topic (JointState)
@@ -35,6 +39,7 @@ own the engine, not the motion these controllers command.
 | `joint_state_broadcaster` | Encoder feedback → `/joint_states`; clears amp alarms and switches servos on at activate | always |
 | `joint_trajectory_controller` | `FollowJointTrajectory` action → WMX3 time-based C-spline | always |
 | `joint_position_controller` | MoveIt Servo's streamed `JointTrajectory` → WMX3 CyclicBuffer | always |
+| `dynamic_trajectory_controller` | cuRobo MPC `JointTrajectory` topic, each message replacing the running trajectory → sliced → JPC stream → WMX3 CyclicBuffer | always |
 | `gripper_controller` | Gripper open/close over a WMX IO output bit | only with `use_gripper:=true` |
 
 "Started" is for `wmx_r2_manipulator.launch.py`.
@@ -131,6 +136,38 @@ sizes the WMX spline buffer allocated at `configure` (channel `kSplineChannel` =
 | `interpolation` | string | `cubic` | – | `cubic` (position, velocity), `quintic` (adds acceleration; needs a Servo smoother that publishes it) or `linear`. |
 | `max_velocity` | double[] | `[2.0]` | rad/s | Per-joint speed cap on the streamed command, in `joint_name` order; one value applies to all joints, `0` disables. The command never runs faster than this, including while it catches up after `max_acceleration` made it lag. |
 | `max_acceleration` | double[] | `[2.0]` | rad/s² | Per-joint limit on the streamed command, in `joint_name` order; one value applies to all joints, `0` disables. Within the limit Servo's motion passes unchanged; beyond it the command lags and catches up without overshoot. |
+
+### C2. `dynamic_trajectory_controller` (DTC)
+
+`joint_position_streamer.{hpp,cpp}` holds three classes: `JointPositionStreamer` (the
+shared stream: depth regulation, per-cycle interpolation, acceleration/velocity limiter,
+CyclicBuffer, `stream_active` arbitration), and the two nodes deriving from it,
+`JointPositionController` (MoveIt Servo topic, last point) and `DynamicTrajectoryController`
+(cuRobo topic, trajectory slicer). `joint_position_controller.cpp` and
+`dynamic_trajectory_controller.cpp` contain only `main()`. In DTC the slicer calls the
+stream directly; there is no topic between the stages.
+
+- **Stage 1 (slicer).** Holds the whole trajectory. Every `slice_period` stage 2 picks the
+  next segment length from the buffer depth, and the slicer samples the trajectory at
+  that segment's end: position linear between waypoints, velocity interpolated from the
+  waypoints (or the segment slope if they carry none). Trajectory time advances by the
+  time actually queued, so the planned timing is kept.
+- **Input.** `joint_trajectory_topic` only (what the cuRobo demo publishes at 20 Hz). Each
+  message is a replan.
+- **Replacement.** A new trajectory replaces the current one at the next slice. It starts from the last **commanded** state; waypoints at
+  `time_from_start <= 1 sample` are dropped (a planner usually repeats the current state as
+  point 0). The ~`lead_time` already queued still plays first. With a non-zero
+  `header.stamp` the takeover is placed at `t = now + lead_time − stamp` on the
+  trajectory's time axis (cuRobo stamps the time of point 0); with a zero stamp it is `t = 0`.
+- **End.** After the last point the end position is held and the stream drains and closes.
+  An empty message is ignored; cuRobo stops by sending its own deceleration trajectory.
+
+Takes every JPC parameter above except `publish_period`, plus:
+
+| Parameter | Type | Default | Unit | Description |
+|---|---|---|---|---|
+| `joint_trajectory_topic` | string | `/joint_trajectory_topic/no_param` | – | cuRobo trajectory topic. Shipped configs: `/dynamic_trajectory_controller/joint_trajectory`. |
+| `slice_period` | double | `0.01` | s | Stage-1 period and nominal segment length. |
 
 ### D. `gripper_controller`
 
@@ -277,12 +314,21 @@ node in its `motion_controllers` list is ACTIVE, so a manual jog cannot fight a 
 controller. `wmx/axes/stop` is never blocked, and the servo/config services stay open —
 the broadcaster needs `set_servo_on` to activate. See `reference_general_nodes.md`.
 
-**Planned vs. streamed arbitration.** Both motion controllers can command the same
-axes, so they interlock over `/moveit2_trajectory/execution_active`:
+**Controller arbitration.** JTC (move_group), JPC (MoveIt Servo) and DTC (cuRobo) command
+the same axes; only one moves them at a time:
+
+- JPC and DTC publish a latched `<node>/stream_active` (`true` from stream open to close) and
+  each drops its input while the other's is `true`.
+- No node starts motion unless every one of its axes reports `opState == Idle` in WMX
+  (a running spline or an open cyclic buffer is not idle).
+- JTC rejects a goal while another goal runs, and before starting waits up to 1 s for both
+  `stream_active` to be `false` and the axes to be idle, else aborts the goal.
+- JTC has priority over the streams, through `/moveit2_trajectory/execution_active`:
 
 1. A `FollowJointTrajectory` goal publishes `true` on entry.
-2. `joint_position_controller` aborts and closes an open stream, then drops every
-   incoming streamed trajectory while it holds.
+2. `joint_position_controller` and `dynamic_trajectory_controller` abort and close an
+   open stream (DTC aborts its action goal), then drop every incoming trajectory while
+   it holds.
 3. On exit (success, abort, or cancel) the trajectory controller publishes `false`
    and sends a zero `JointJog` to `/servo_node/delta_joint_cmds`.
 

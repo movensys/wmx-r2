@@ -45,6 +45,7 @@ public:
 
   int setAxisSelection(const std::vector<int64_t> & axes, std::string & message);
   int getInPos(bool & inPos, std::string & message);
+  int getIdle(bool & idle, std::string & message);
   int stop(std::string & message);
 
   size_t axisCount() const {return axisCount_;}
@@ -96,6 +97,10 @@ private:
   std::vector<std::string> jointNames_;
   std::map<std::string, size_t> columnByName_;
   std::string jointTrajectoryAction_;
+  std::atomic<bool> jpcStreaming_{false};
+  std::atomic<bool> dtcStreaming_{false};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr jpcStreamSub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr dtcStreamSub_;
 
   std::atomic<bool> isNodeActive_{false};
   std::atomic<bool> goalRunning_{false};
@@ -105,6 +110,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<control_msgs::msg::JointJog>::SharedPtr servoNodeResetPub_;
 
   void waitForGoalToFinish();
+  bool waitForAxesFree(std::string & message);
 
   void setRosParameter();
 

@@ -34,6 +34,22 @@ joint_position_controller:
     max_velocity: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
     max_acceleration: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
 
+dynamic_trajectory_controller:
+  ros__parameters:
+    joint_axes: [0, 1, 2, 3, 4, 5]
+    joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+    joint_trajectory_topic: /dynamic_trajectory_controller/joint_trajectory
+    slice_period: 0.01
+    buffer_cycles: 2048
+    cycle_time: 0.001
+    sample_cycles: 1
+    lead_time: 0.025
+    stream_timeout: 0.1
+    stop_deceleration: 2.0
+    interpolation: cubic
+    max_velocity: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+    max_acceleration: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+
 gripper_controller:
   ros__parameters:
     wmx_gripper_topic: /wmx/set_gripper
@@ -54,6 +70,7 @@ wmx_core_motion_node:
     motion_controllers:
       - joint_trajectory_controller
       - joint_position_controller
+      - dynamic_trajectory_controller
     controller_resync_period: 0.2
 
 wmx_lifecycle_manager_node:
@@ -65,5 +82,6 @@ wmx_lifecycle_manager_node:
       - joint_state_broadcaster
       - joint_trajectory_controller
       - joint_position_controller
+      - dynamic_trajectory_controller
       - gripper_controller
     discovery_period: 1.0
