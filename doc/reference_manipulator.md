@@ -129,6 +129,7 @@ sizes the WMX spline buffer allocated at `configure` (channel `kSplineChannel` =
 | `stream_timeout` | double | `0.1` | s | No new point for this long ends the stream with a stop segment. |
 | `stop_deceleration` | double | `2.0` | rad/s² | Sets the stop segment length, `T = max(0.05, 2·|v|/stop_deceleration)`. |
 | `interpolation` | string | `cubic` | – | `cubic` (position, velocity), `quintic` (adds acceleration; needs a Servo smoother that publishes it) or `linear`. |
+| `max_velocity` | double[] | `[2.0]` | rad/s | Per-joint speed cap on the streamed command, in `joint_name` order; one value applies to all joints, `0` disables. The command never runs faster than this, including while it catches up after `max_acceleration` made it lag. |
 | `max_acceleration` | double[] | `[2.0]` | rad/s² | Per-joint limit on the streamed command, in `joint_name` order; one value applies to all joints, `0` disables. Within the limit Servo's motion passes unchanged; beyond it the command lags and catches up without overshoot. |
 
 ### D. `gripper_controller`
@@ -190,7 +191,8 @@ manager discovers each node under its fully-qualified name, and
   | `Float64MultiArray.data` on the Gazebo position topic | **rad**, then the gripper values in **m** |
   | `Float64MultiArray.data` on the Gazebo velocity topic | **rad/s**, no gripper entries |
   | `joint_feedback_rate` | Hz |
-  | `lead_time`, `stream_timeout`, `stop_deceleration` (`joint_position_controller`) | s, s, rad/s² |
+  | `lead_time`, `stream_timeout` (`joint_position_controller`) | s |
+  | `max_velocity`, `max_acceleration`, `stop_deceleration` (`joint_position_controller`) | rad/s, rad/s², rad/s² |
 
   This is why MoveIt, RViz, Isaac Sim and Gazebo all read correctly without a
   conversion step: they expect radians and metres, and the axes deliver them.
@@ -208,7 +210,8 @@ manager discovers each node under its fully-qualified name, and
   `positions` and `velocities` at both ends. Point stamps are
   ignored: Servo publishes on a wall-clock timer but stamps in sim time under
   `use_sim_time`. Segment length is nudged up to ±50 % to hold the buffer at
-  `lead_time`. Each command then passes a per-joint `max_acceleration` limit. A
+  `lead_time`. Each command then passes a per-joint `max_acceleration` and
+  `max_velocity` limit. A
   stream starts from the **commanded** position (`posCmd`) and closes only after the
   limited command has settled on the final point.
 - Gripper state is a single IO **bit**, so feedback is two-valued: the broadcaster
@@ -392,10 +395,11 @@ joint_position_controller:
     cycle_time: 0.001
     sample_cycles: 1
     publish_period: 0.025
-    lead_time: 0.01
+    lead_time: 0.025
     stream_timeout: 0.1
     stop_deceleration: 2.0
     interpolation: cubic
+    max_velocity: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
     max_acceleration: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
 
 gripper_controller:                   # only when there is a gripper
