@@ -10,15 +10,20 @@
 #include <string>
 #include <vector>
 
-// [local 2026-10-13 진단] 마지막 GetStatus 의 축별 상태, 고장 난 축 (스트림은 프로세스에 하나)
+// [local 2026-10-13 diag] Per-axis state from the last GetStatus and the faulted axis
+// (one stream per process).
 static std::string g_last_buffer_diag;
 static int g_fault_axis = -1;
-// [local 2026-10-13] CR3A_R2_VELINT=1: 1 ms 점을 JTC 속도의 구간 안 직선 보간을 적분해 만든다 (위치는 JTC 끝점 쪽으로 천천히 보정).
-// 3차 Hermite (위치·속도 끝점 맞춤) 는 JTC 가 궤적 시각을 넘긴 간격과 여기서 쓰는 구간 시간이 ~15-20 us 만 달라도
-// v x dt 의 위치 어긋남이 끝 가속 +-3..7 rad/s^2 로 커졌다 (3 rad/s 에서 maxAcc 15 도 넘음). 속도 적분은 1 ms 가속이
-// 구간 평균 가속 (|v1 - v0| / h) + 보정분을 넘지 않는다.
-static std::vector<double> g_vi_p;      // 마지막으로 넣은 점의 위치 (축 순서 = cfg_.axes)
-static const double kViGain = 0.2;      // 구간마다 JTC 위치와의 차의 이만큼을 그 구간 동안 보정
+// [local 2026-10-13] CR3A_R2_VELINT=1: build the 1 ms points by integrating the JTC velocity,
+// linearly interpolated inside each segment (position is pulled slowly toward the JTC end point).
+// With a cubic Hermite (end position and velocity matched), a mismatch of only ~15-20 us between
+// the interval by which JTC advanced its trajectory time and the segment time used here turned
+// the v x dt position error into end accelerations of +-3..7 rad/s^2 (above maxAcc 15 at
+// 3 rad/s). With velocity integration the 1 ms acceleration never exceeds the segment's mean
+// acceleration (|v1 - v0| / h) plus the correction term.
+static std::vector<double> g_vi_p;      // last pushed position (axis order = cfg_.axes)
+// Fraction of the gap to the JTC position that is corrected over each segment.
+static const double kViGain = 0.2;
 static bool velIntEnabled()
 {
   static const bool on = [] {
@@ -273,7 +278,7 @@ bool WmxCyclicStream::queryBuffer(
 
   unsigned int free_slots = std::numeric_limits<unsigned int>::max();
   unsigned int depth = std::numeric_limits<unsigned int>::max();
-  g_last_buffer_diag.clear();   // [local 2026-10-13 진단] 거절 때 축별 값을 같이 남김
+  g_last_buffer_diag.clear();   // [local 2026-10-13 diag] keep per-axis values on a rejection
   for (const int axis : cfg_.axes) {
     const auto & axis_status = status.status[axis];
     g_last_buffer_diag += " ax" + std::to_string(axis) + "(st" + std::to_string(static_cast<int>(axis_status.state)) +
@@ -493,10 +498,12 @@ bool WmxCyclicStream::pushSamples(
       const double v0 = seg_v_[i];
       const double v1 = v1_scratch_[i];
       auto vel = [&](double tau) {return v0 + (v1 - v0) * std::min(std::max(tau, 0.0), h) / h;};
-      const double tau0 = taus_[0] - step_tau;        // 지난 점의 시각 (이 구간 시작 기준, 0 아래면 지난 구간)
+      // Time of the previous point, from this segment's start (below 0 = previous segment).
+      const double tau0 = taus_[0] - step_tau;
       const double ta = std::max(tau0, 0.0);
       const double to_end = (tau0 < 0.0 ? v0 * (-tau0) : 0.0) + 0.5 * (vel(ta) + v1) * (h - ta);
-      const double corr = kViGain * (positions[i] - (vi_next[i] + to_end)) / h;   // 보정 속도 (이 구간 동안)
+      // Correction velocity, applied over this segment.
+      const double corr = kViGain * (positions[i] - (vi_next[i] + to_end)) / h;
       double prev = tau0;
       double p = vi_next[i];
       for (unsigned int k = 1; k <= n; ++k) {
