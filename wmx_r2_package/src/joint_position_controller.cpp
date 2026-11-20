@@ -341,6 +341,8 @@ void JointPositionController::setRosParameter()
   streamTimeout_ = this->declare_parameter<double>("stream_timeout", 0.1);
   stopDeceleration_ = this->declare_parameter<double>("stop_deceleration", 2.0);
   interpolationName_ = this->declare_parameter<std::string>("interpolation", "cubic");
+  maxVelocity_ = this->declare_parameter<std::vector<double>>(
+    "max_velocity", std::vector<double>{2.0});
   maxAcceleration_ = this->declare_parameter<std::vector<double>>(
     "max_acceleration", std::vector<double>{2.0});
 
@@ -388,6 +390,15 @@ void JointPositionController::setRosParameter()
     interpolation_ = Interpolation::CUBIC;
   }
 
+  if (maxVelocity_.size() == 1) {
+    maxVelocity_.assign(jointAxes_.size(), maxVelocity_.front());
+  }
+  if (maxVelocity_.size() != jointAxes_.size()) {
+    RCLCPP_WARN(
+      this->get_logger(), "max_velocity has %zu values for %zu axes, disabling the limit",
+      maxVelocity_.size(), jointAxes_.size());
+    maxVelocity_.assign(jointAxes_.size(), 0.0);
+  }
   if (maxAcceleration_.size() == 1) {
     maxAcceleration_.assign(jointAxes_.size(), maxAcceleration_.front());
   }
@@ -424,6 +435,12 @@ void JointPositionController::setRosParameter()
   RCLCPP_INFO(this->get_logger(), "stop_deceleration: %f", stopDeceleration_);
   RCLCPP_INFO(this->get_logger(), "interpolation: %s", interpolationName_.c_str());
   std::string accText;
+  std::string velText;
+  for (size_t i = 0; i < maxVelocity_.size(); ++i) {
+    if (i > 0) {velText += ", ";}
+    velText += std::to_string(maxVelocity_[i]);
+  }
+  RCLCPP_INFO(this->get_logger(), "max_velocity: [%s]", velText.c_str());
   for (size_t i = 0; i < maxAcceleration_.size(); ++i) {
     if (i > 0) {accText += ", ";}
     accText += std::to_string(maxAcceleration_[i]);
@@ -729,7 +746,10 @@ void JointPositionController::limitAcceleration(std::vector<std::vector<double>>
       }
       const double corr = std::copysign(
         std::min(std::fabs(e) / tau, std::sqrt(2.0 * a * std::fabs(e))), e);
-      const double bound = std::sqrt(vRef * vRef + 2.0 * a * std::fabs(e));
+      double bound = std::sqrt(vRef * vRef + 2.0 * a * std::fabs(e));
+      if (maxVelocity_[i] > 0.0) {
+        bound = std::min(bound, maxVelocity_[i]);  // catch-up never exceeds the joint limit
+      }
       const double dv = std::clamp(
         std::clamp(vRef + corr, -bound, bound) - outVel_[i], -a * h, a * h);
       outVel_[i] += dv;

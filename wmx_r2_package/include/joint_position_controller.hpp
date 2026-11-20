@@ -102,6 +102,7 @@ private:
   double leadTime_ = 0.0;
   double streamTimeout_ = 0.0;
   double stopDeceleration_ = 0.0;
+  std::vector<double> maxVelocity_;
   std::vector<double> maxAcceleration_;
   std::string interpolationName_;
   Interpolation interpolation_ = Interpolation::CUBIC;
