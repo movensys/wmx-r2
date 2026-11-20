@@ -11,27 +11,19 @@ using std::placeholders::_1;
 using namespace std::chrono_literals;
 
 using wmx3Api::CoreMotion;
+using wmx3Api::CoreMotionErrorCode;
 using wmx3Api::CoreMotionStatus;
-using wmx3Api::CyclicBuffer;
-using wmx3Api::CyclicBufferCommandType;
-using wmx3Api::CyclicBufferMultiAxisCommands;
-using wmx3Api::CyclicBufferMultiAxisStatus;
-using wmx3Api::CyclicBufferState;
 using wmx3Api::DeviceType;
 using wmx3Api::ErrorCode;
+using wmx3Api::Motion;
+using wmx3Api::ProfileType;
 
 namespace
 {
 std::string errorToString(int err)
 {
   char errString[256] = {};
-  if (err >= wmx3Api::CyclicBufferErrorCode::CreateBufferFailed &&
-    err < wmx3Api::CyclicBufferErrorCode::CreateBufferFailed + 0x1000)
-  {
-    CyclicBuffer::ErrorToString(err, errString, sizeof(errString));
-  } else {
-    CoreMotion::ErrorToString(err, errString, sizeof(errString));
-  }
+  CoreMotion::ErrorToString(err, errString, sizeof(errString));
   return errString;
 }
 
@@ -41,24 +33,16 @@ std::string failure(const char * what, int err)
          errorToString(err) + ")";
 }
 
-const char * stateToString(CyclicBufferState::T state)
-{
-  switch (state) {
-    case CyclicBufferState::Stopped: return "Stopped";
-    case CyclicBufferState::ExecutingCommand: return "ExecutingCommand";
-    case CyclicBufferState::WaitingForCommand: return "WaitingForCommand";
-    case CyclicBufferState::MaxAccError: return "MaxAccError";
-    case CyclicBufferState::CommandModeMismatchError: return "CommandModeMismatchError";
-    case CyclicBufferState::Busy: return "Busy";
-    case CyclicBufferState::ServoOff: return "ServoOff";
-  }
-  return "Unknown";
-}
+// Smallest per-axis velocity handed to the engine. An axis that does not move in this
+// command still needs a positive limit; it does not constrain the composite speed.
+constexpr double kVelocityFloor = 1e-6;
 
+// Servo velocity below this counts as standing still.
+constexpr double kStillVelocity = 1e-4;
 }  // namespace
 
 JointPositionControllerApi::JointPositionControllerApi(const rclcpp::Logger & logger)
-: logger_(logger), cm_(&wmx3Lib_), cyc_(&wmx3Lib_)
+: logger_(logger), cm_(&wmx3Lib_)
 {
 }
 
@@ -93,7 +77,6 @@ int JointPositionControllerApi::createDevice(std::string & message)
   }
 
   cm_ = CoreMotion(&wmx3Lib_);
-  cyc_ = CyclicBuffer(&wmx3Lib_);
 
   message = "Attached to WMX3 device";
   RCLCPP_INFO(logger_, "%s", message.c_str());
@@ -103,9 +86,6 @@ int JointPositionControllerApi::createDevice(std::string & message)
 void JointPositionControllerApi::closeDevice()
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
-
-  std::string message;
-  closeCyclicBufferLocked(message);
 
   const int err = wmx3Lib_.CloseDevice();
   if (err != ErrorCode::None) {
@@ -153,7 +133,7 @@ int JointPositionControllerApi::setAxisSelection(
 }
 
 int JointPositionControllerApi::getStatus(
-  const std::vector<int> & axes, std::vector<double> & posCmd, double & cycleTimeMs,
+  const std::vector<int> & axes, std::vector<double> & posCmd, std::vector<double> & velCmd,
   std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
@@ -165,147 +145,79 @@ int JointPositionControllerApi::getStatus(
     return err;
   }
 
-  cycleTimeMs = status.cycleTimeMilliseconds[0];
-
   posCmd.clear();
-  posCmd.reserve(axes.size());
+  velCmd.clear();
   for (const int axis : axes) {
-    if (!status.axesStatus[axis].servoOn || status.axesStatus[axis].ampAlarm) {
+    const auto & s = status.axesStatus[axis];
+    if (!s.servoOn || s.ampAlarm) {
       message = "Axis " + std::to_string(axis) + " not ready (servoOn=" +
-        std::to_string(status.axesStatus[axis].servoOn) + ", ampAlarm=" +
-        std::to_string(status.axesStatus[axis].ampAlarm) + ")";
+        std::to_string(s.servoOn) + ", ampAlarm=" + std::to_string(s.ampAlarm) + ")";
       return ErrorCode::ArgumentOutOfRange;
     }
-    posCmd.push_back(status.axesStatus[axis].posCmd);
+    posCmd.push_back(s.posCmd);
+    velCmd.push_back(s.velocityCmd);
   }
 
   return ErrorCode::None;
 }
 
-int JointPositionControllerApi::openCyclicBuffer(unsigned int numOfCycles, std::string & message)
+int JointPositionControllerApi::startLinearIntplPos(
+  const std::vector<int> & axes,
+  const std::vector<double> & targets,
+  const std::vector<double> & maxVelocity,
+  const std::vector<double> & maxAcc,
+  std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
 
-  if (bufferOpen_) {
-    return ErrorCode::None;
+  if (axes.empty() || axes.size() > static_cast<size_t>(wmx3Api::constants::maxAxes) ||
+    targets.size() != axes.size() || maxVelocity.size() != axes.size() ||
+    maxAcc.size() != axes.size())
+  {
+    message = "Interpolation argument sizes do not match the axis count.";
+    return ErrorCode::ArgumentOutOfRange;
   }
 
-  const int err = cyc_.OpenCyclicBuffer(&axisSel_, numOfCycles);
+  Motion::LinearIntplCommand intpl;
+  intpl.axisCount = static_cast<unsigned int>(axes.size());
+  for (size_t i = 0; i < axes.size(); ++i) {
+    intpl.axis[i] = axes[i];
+    intpl.target[i] = targets[i];
+    intpl.maxVelocity[i] = maxVelocity[i];
+    intpl.maxAcc[i] = maxAcc[i];
+    intpl.maxDec[i] = maxAcc[i];
+  }
+
+  intpl.profile.type = ProfileType::Trapezoidal;
+  intpl.profile.velocity = 0.0;
+  intpl.profile.acc = 0.0;
+  intpl.profile.dec = 0.0;
+
+  const int err = cm_.motion->StartLinearIntplPos(&intpl);
   if (err != ErrorCode::None) {
-    message = failure("OpenCyclicBuffer", err);
-    return err;
-  }
-
-  bufferOpen_ = true;
-  return ErrorCode::None;
-}
-
-int JointPositionControllerApi::execute(std::string & message)
-{
-  std::lock_guard<std::mutex> lock(deviceMutex_);
-
-  const int err = cyc_.Execute(&axisSel_);
-  if (err != ErrorCode::None) {
-    message = failure("Execute", err);
-    return err;
-  }
-  return ErrorCode::None;
-}
-
-int JointPositionControllerApi::addCommand(
-  const std::vector<int> & axes, const std::vector<std::vector<double>> & samples,
-  unsigned int intervalCycles, std::string & message)
-{
-  std::lock_guard<std::mutex> lock(deviceMutex_);
-
-  if (samples.empty()) {
-    return ErrorCode::None;
-  }
-
-  std::vector<CyclicBufferMultiAxisCommands> cmds(samples.size());
-  for (size_t k = 0; k < samples.size(); ++k) {
-    for (size_t i = 0; i < axes.size(); ++i) {
-      auto & cmd = cmds[k].cmd[axes[i]];
-      cmd.type = CyclicBufferCommandType::AbsolutePos;
-      cmd.command = samples[k][i];
-      cmd.intervalCycles = intervalCycles;
-    }
-  }
-
-  const int err = cyc_.AddCommand(&axisSel_, cmds.data(), static_cast<int>(cmds.size()));
-  if (err != ErrorCode::None) {
-    message = failure("AddCommand", err);
+    message = failure("StartLinearIntplPos", err);
     return err;
   }
   return ErrorCode::None;
 }
 
-int JointPositionControllerApi::getCyclicBufferStatus(
-  const std::vector<int> & axes, unsigned int & remainCount, unsigned int & availableCount,
-  CyclicBufferState::T & state, std::string & message)
+int JointPositionControllerApi::stop(unsigned int waitTimeout, std::string & message)
 {
   std::lock_guard<std::mutex> lock(deviceMutex_);
 
-  CyclicBufferMultiAxisStatus status;
-  const int err = cyc_.GetStatus(&axisSel_, &status);
+  int err = cm_.motion->Stop(&axisSel_);
   if (err != ErrorCode::None) {
-    message = failure("GetStatus", err);
+    message = failure("Stop", err);
     return err;
   }
 
-  remainCount = 0;
-  availableCount = static_cast<unsigned int>(-1);
-  state = CyclicBufferState::WaitingForCommand;
-  for (const int axis : axes) {
-    const auto & s = status.status[axis];
-    remainCount = std::max(remainCount, s.remainCount);
-    availableCount = std::min(availableCount, s.availableCount);
-    const bool healthy = s.state == CyclicBufferState::ExecutingCommand ||
-      s.state == CyclicBufferState::WaitingForCommand;
-    const bool upgrade = s.state == CyclicBufferState::ExecutingCommand &&
-      state == CyclicBufferState::WaitingForCommand;
-    if (!healthy || upgrade) {
-      state = s.state;
-    }
-  }
-  return ErrorCode::None;
-}
-
-int JointPositionControllerApi::abort(std::string & message)
-{
-  std::lock_guard<std::mutex> lock(deviceMutex_);
-
-  if (!bufferOpen_) {
-    return ErrorCode::None;
-  }
-
-  const int err = cyc_.Abort(&axisSel_);
+  err = cm_.motion->Wait(&axisSel_, waitTimeout);
   if (err != ErrorCode::None) {
-    message = failure("Abort", err);
+    message = failure("Wait", err);
     return err;
   }
-  return ErrorCode::None;
-}
 
-int JointPositionControllerApi::closeCyclicBuffer(std::string & message)
-{
-  std::lock_guard<std::mutex> lock(deviceMutex_);
-  return closeCyclicBufferLocked(message);
-}
-
-int JointPositionControllerApi::closeCyclicBufferLocked(std::string & message)
-{
-  if (!bufferOpen_) {
-    return ErrorCode::None;
-  }
-
-  const int err = cyc_.CloseCyclicBuffer(&axisSel_);
-  bufferOpen_ = false;
-  if (err != ErrorCode::None) {
-    message = failure("CloseCyclicBuffer", err);
-    RCLCPP_ERROR(logger_, "%s", message.c_str());
-    return err;
-  }
+  message = "Axes stopped";
   return ErrorCode::None;
 }
 
@@ -326,6 +238,23 @@ JointPositionController::~JointPositionController()
   RCLCPP_INFO(this->get_logger(), "joint_position_controller stopped");
 }
 
+std::vector<double> JointPositionController::perJoint(
+  const std::string & name, std::vector<double> values)
+{
+  if (values.size() == 1) {
+    values.assign(jointAxes_.size(), values.front());
+  }
+  const bool valid = values.size() == jointAxes_.size() &&
+    std::all_of(values.begin(), values.end(), [](double v) {return std::isfinite(v) && v > 0.0;});
+  if (!valid) {
+    RCLCPP_WARN(
+      this->get_logger(), "%s needs one positive value or one per joint (%zu), using 2.0",
+      name.c_str(), jointAxes_.size());
+    values.assign(jointAxes_.size(), 2.0);
+  }
+  return values;
+}
+
 void JointPositionController::setRosParameter()
 {
   jointAxes_ = this->declare_parameter<std::vector<int64_t>>("joint_axes", std::vector<int64_t>{});
@@ -333,103 +262,85 @@ void JointPositionController::setRosParameter()
     "joint_name", {"j1", "j2", "j3", "j4", "j5", "j6"});
   jointTrajectoryTopic_ = this->declare_parameter<std::string>(
     "joint_trajectory_topic", "/joint_trajectory_topic/no_param");
-  bufferCycles_ = this->declare_parameter<int>("buffer_cycles", 2048);
-  cycleTime_ = this->declare_parameter<double>("cycle_time", 0.001);
-  sampleCycles_ = this->declare_parameter<int>("sample_cycles", 1);
   publishPeriod_ = this->declare_parameter<double>("publish_period", 0.025);
-  leadTime_ = this->declare_parameter<double>("lead_time", 0.025);
+  lookaheadTime_ = this->declare_parameter<double>("lookahead_time", 0.05);
+  retryBusy_ = this->declare_parameter<bool>("retry_busy_override", false);
+  minOverrideInterval_ = this->declare_parameter<double>("min_override_interval", 0.0);
   streamTimeout_ = this->declare_parameter<double>("stream_timeout", 0.1);
-  stopDeceleration_ = this->declare_parameter<double>("stop_deceleration", 2.0);
-  interpolationName_ = this->declare_parameter<std::string>("interpolation", "cubic");
-  maxAcceleration_ = this->declare_parameter<std::vector<double>>(
-    "max_acceleration", std::vector<double>{2.0});
+  positionTolerance_ = this->declare_parameter<double>("position_tolerance", 1e-5);
+  maxVelocity_ = perJoint(
+    "max_velocity", this->declare_parameter<std::vector<double>>(
+      "max_velocity", std::vector<double>{2.0}));
+  maxAcceleration_ = perJoint(
+    "max_acceleration", this->declare_parameter<std::vector<double>>(
+      "max_acceleration", std::vector<double>{2.0}));
 
-  if (bufferCycles_ < 64) {
-    RCLCPP_WARN(this->get_logger(), "buffer_cycles %d too small, using 2048", bufferCycles_);
-    bufferCycles_ = 2048;
-  }
-  if (!std::isfinite(cycleTime_) || cycleTime_ <= 0.0) {
-    RCLCPP_WARN(this->get_logger(), "cycle_time %f invalid, using 0.001", cycleTime_);
-    cycleTime_ = 0.001;
-  }
-  if (sampleCycles_ < 1) {
-    RCLCPP_WARN(this->get_logger(), "sample_cycles %d must be >= 1, using 1", sampleCycles_);
-    sampleCycles_ = 1;
-  }
   if (!std::isfinite(publishPeriod_) || publishPeriod_ <= 0.0) {
     RCLCPP_WARN(this->get_logger(), "publish_period %f invalid, using 0.025", publishPeriod_);
     publishPeriod_ = 0.025;
   }
-  if (!std::isfinite(leadTime_) || leadTime_ < 0.0) {
-    RCLCPP_WARN(this->get_logger(), "lead_time %f invalid, using 0.025", leadTime_);
-    leadTime_ = 0.025;
+  acceptInterval_ = publishPeriod_;
+  if (!std::isfinite(lookaheadTime_) || lookaheadTime_ < publishPeriod_) {
+    RCLCPP_WARN(
+      this->get_logger(), "lookahead_time %f must be >= publish_period, using %f",
+      lookaheadTime_, 2.0 * publishPeriod_);
+    lookaheadTime_ = 2.0 * publishPeriod_;
   }
   if (!std::isfinite(streamTimeout_) || streamTimeout_ <= 0.0) {
     RCLCPP_WARN(this->get_logger(), "stream_timeout %f invalid, using 0.1", streamTimeout_);
     streamTimeout_ = 0.1;
   }
-  if (!std::isfinite(stopDeceleration_) || stopDeceleration_ <= 0.0) {
+  if (!std::isfinite(positionTolerance_) || positionTolerance_ < 0.0) {
     RCLCPP_WARN(
-      this->get_logger(), "stop_deceleration %f invalid, using 2.0", stopDeceleration_);
-    stopDeceleration_ = 2.0;
-  }
-
-  if (interpolationName_ == "linear") {
-    interpolation_ = Interpolation::LINEAR;
-  } else if (interpolationName_ == "quintic") {
-    interpolation_ = Interpolation::QUINTIC;
-  } else {
-    if (interpolationName_ != "cubic") {
-      RCLCPP_WARN(
-        this->get_logger(), "interpolation '%s' unknown, using cubic",
-        interpolationName_.c_str());
-    }
-    interpolationName_ = "cubic";
-    interpolation_ = Interpolation::CUBIC;
-  }
-
-  if (maxAcceleration_.size() == 1) {
-    maxAcceleration_.assign(jointAxes_.size(), maxAcceleration_.front());
-  }
-  if (maxAcceleration_.size() != jointAxes_.size()) {
-    RCLCPP_WARN(
-      this->get_logger(), "max_acceleration has %zu values for %zu axes, disabling the limit",
-      maxAcceleration_.size(), jointAxes_.size());
-    maxAcceleration_.assign(jointAxes_.size(), 0.0);
+      this->get_logger(), "position_tolerance %f invalid, using 1e-5", positionTolerance_);
+    positionTolerance_ = 1e-5;
   }
 
   axes_.clear();
-  for (size_t i = 0; i < jointAxes_.size(); ++i) {
-    axes_.push_back(static_cast<int>(jointAxes_[i]));
+  for (const int64_t axis : jointAxes_) {
+    axes_.push_back(static_cast<int>(axis));
   }
   for (size_t i = 0; i < jointNames_.size() && i < jointAxes_.size(); ++i) {
     indexByName_[jointNames_[i]] = i;
   }
 
-  std::string jointAxesText;
-  for (size_t i = 0; i < jointAxes_.size(); ++i) {
-    if (i > 0) {jointAxesText += ", ";}
-    jointAxesText += std::to_string(jointAxes_[i]);
-  }
+  auto join = [](const auto & values) {
+      std::string text;
+      for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) {text += ", ";}
+        text += std::to_string(values[i]);
+      }
+      return text;
+    };
 
   RCLCPP_INFO(this->get_logger(), "===== ROS2 Parameters =====");
-  RCLCPP_INFO(this->get_logger(), "joint_axes: [%s]", jointAxesText.c_str());
+  RCLCPP_INFO(this->get_logger(), "joint_axes: [%s]", join(jointAxes_).c_str());
   RCLCPP_INFO(this->get_logger(), "joint_trajectory_topic: %s", jointTrajectoryTopic_.c_str());
-  RCLCPP_INFO(this->get_logger(), "buffer_cycles: %d", bufferCycles_);
-  RCLCPP_INFO(this->get_logger(), "cycle_time: %f", cycleTime_);
-  RCLCPP_INFO(this->get_logger(), "sample_cycles: %d", sampleCycles_);
   RCLCPP_INFO(this->get_logger(), "publish_period: %f", publishPeriod_);
-  RCLCPP_INFO(this->get_logger(), "lead_time: %f", leadTime_);
+  RCLCPP_INFO(this->get_logger(), "lookahead_time: %f", lookaheadTime_);
+  RCLCPP_INFO(this->get_logger(), "retry_busy_override: %s", retryBusy_ ? "true" : "false");
+  RCLCPP_INFO(this->get_logger(), "min_override_interval: %f", minOverrideInterval_);
   RCLCPP_INFO(this->get_logger(), "stream_timeout: %f", streamTimeout_);
-  RCLCPP_INFO(this->get_logger(), "stop_deceleration: %f", stopDeceleration_);
-  RCLCPP_INFO(this->get_logger(), "interpolation: %s", interpolationName_.c_str());
-  std::string accText;
-  for (size_t i = 0; i < maxAcceleration_.size(); ++i) {
-    if (i > 0) {accText += ", ";}
-    accText += std::to_string(maxAcceleration_[i]);
-  }
-  RCLCPP_INFO(this->get_logger(), "max_acceleration: [%s]", accText.c_str());
+  RCLCPP_INFO(this->get_logger(), "position_tolerance: %f", positionTolerance_);
+  RCLCPP_INFO(this->get_logger(), "max_velocity: [%s]", join(maxVelocity_).c_str());
+  RCLCPP_INFO(this->get_logger(), "max_acceleration: [%s]", join(maxAcceleration_).c_str());
   RCLCPP_INFO(this->get_logger(), "===========================");
+
+  paramCallback_ = this->add_on_set_parameters_callback(
+    [this](const std::vector<rclcpp::Parameter> & params) {
+      rcl_interfaces::msg::SetParametersResult result;
+      result.successful = true;
+      for (const auto & p : params) {
+        if (p.get_name() == "retry_busy_override") {
+          retryBusy_ = p.as_bool();
+        } else if (p.get_name() == "min_override_interval") {
+          minOverrideInterval_ = std::max(0.0, p.as_double());
+        } else if (p.get_name() == "lookahead_time") {
+          lookaheadTime_ = std::max(publishPeriod_, p.as_double());
+        }
+      }
+      return result;
+    });
 }
 
 JointPositionController::CallbackReturn JointPositionController::on_configure(
@@ -447,23 +358,6 @@ JointPositionController::CallbackReturn JointPositionController::on_configure(
     return CallbackReturn::FAILURE;
   }
 
-  std::vector<double> posCmd;
-  double cycleTimeMs = 0.0;
-  api_->getStatus({}, posCmd, cycleTimeMs, message);
-  const double engineCycleTime = cycleTimeMs * 1e-3;
-  if (engineCycleTime <= 0.0) {
-    RCLCPP_WARN(
-      this->get_logger(), "Engine cycle time unavailable, using cycle_time %.3f ms",
-      cycleTime_ * 1e3);
-  } else if (std::fabs(engineCycleTime - cycleTime_) > 1e-6) {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "cycle_time %.3f ms differs from the engine's %.3f ms, using the engine's",
-      cycleTime_ * 1e3, engineCycleTime * 1e3);
-    cycleTime_ = engineCycleTime;
-  }
-  RCLCPP_INFO(this->get_logger(), "Engine cycle time: %.3f ms", cycleTime_ * 1e3);
-
   RCLCPP_INFO(this->get_logger(), "joint_position_controller is configured");
   return CallbackReturn::SUCCESS;
 }
@@ -476,11 +370,18 @@ JointPositionController::CallbackReturn JointPositionController::on_activate(
     std::bind(&JointPositionController::execActiveCallback, this, _1));
 
   jointTrajectorySub_ = this->create_subscription<trajectory_msgs::msg::JointTrajectory>(
-    jointTrajectoryTopic_, 10,
+    jointTrajectoryTopic_, rclcpp::QoS(1).best_effort(),
     std::bind(&JointPositionController::jointTrajectoryCallback, this, _1));
 
   watchdogTimer_ = this->create_wall_timer(
     10ms, std::bind(&JointPositionController::watchdogCallback, this));
+
+  retryTimer_ = this->create_wall_timer(
+    2ms, [this]() {
+      if (pending_ && !inExecution_.load()) {
+        send();
+      }
+    });
 
   LifecycleNode::on_activate(previous_state);
 
@@ -491,11 +392,12 @@ JointPositionController::CallbackReturn JointPositionController::on_activate(
 JointPositionController::CallbackReturn JointPositionController::on_deactivate(
   const rclcpp_lifecycle::State & previous_state)
 {
+  retryTimer_.reset();
   watchdogTimer_.reset();
   jointTrajectorySub_.reset();
   execActiveSub_.reset();
 
-  stopStream("deactivating");
+  haltAxes("deactivating");
 
   LifecycleNode::on_deactivate(previous_state);
 
@@ -529,7 +431,7 @@ void JointPositionController::execActiveCallback(const std_msgs::msg::Bool::Shar
   }
 
   if (msg->data) {
-    stopStream("move_group execution started");
+    haltAxes("move_group execution started");
   }
 
   RCLCPP_INFO(
@@ -537,255 +439,28 @@ void JointPositionController::execActiveCallback(const std_msgs::msg::Bool::Shar
     msg->data ? "blocked" : "allowed", msg->data ? "started" : "finished");
 }
 
-bool JointPositionController::startStream()
+void JointPositionController::haltAxes(const char * reason)
 {
-  std::string message;
-  std::vector<double> posCmd;
-  double cycleTimeMs = 0.0;
-
-  if (draining_) {
-    draining_ = false;
-    streaming_ = true;
-    return true;
-  }
-
-  if (api_->getStatus(axes_, posCmd, cycleTimeMs, message) != ErrorCode::None) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 1000, "Stream not started: %s", message.c_str());
-    return false;
-  }
-
-  if (api_->openCyclicBuffer(static_cast<unsigned int>(bufferCycles_), message) !=
-    ErrorCode::None ||
-    api_->execute(message) != ErrorCode::None)
-  {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 1000, "Stream not started: %s", message.c_str());
-    api_->closeCyclicBuffer(message);
-    return false;
-  }
-
-  last_.position = posCmd;
-  last_.velocity.assign(axes_.size(), 0.0);
-  last_.acceleration.assign(axes_.size(), 0.0);
-  refLast_ = posCmd;
-  outPos_ = posCmd;
-  outVel_.assign(axes_.size(), 0.0);
-
-  const auto holdCount = static_cast<size_t>(
-    std::ceil(leadTime_ / (cycleTime_ * sampleCycles_)));
-  if (holdCount > 0) {
-    std::vector<std::vector<double>> hold(holdCount, posCmd);
-    if (api_->addCommand(axes_, hold, static_cast<unsigned int>(sampleCycles_), message) !=
-      ErrorCode::None)
-    {
-      RCLCPP_WARN(this->get_logger(), "Stream not started: %s", message.c_str());
-      api_->closeCyclicBuffer(message);
-      return false;
-    }
-  }
-
-  streaming_ = true;
-  draining_ = false;
-  RCLCPP_INFO(this->get_logger(), "Servo stream started");
-  return true;
-}
-
-void JointPositionController::stopStream(const char * reason)
-{
-  if (!streaming_ && !draining_) {
+  const bool wasStreaming = streaming_;
+  streaming_ = false;
+  havePrevious_ = false;
+  pending_ = false;
+  if (!wasStreaming) {
     return;
   }
 
   std::string message;
-  if (api_->abort(message) != ErrorCode::None) {
+  if (api_->stop(2000, message) != ErrorCode::None) {
     RCLCPP_WARN(this->get_logger(), "%s", message.c_str());
   }
-  api_->closeCyclicBuffer(message);
-
-  streaming_ = false;
-  draining_ = false;
-  RCLCPP_INFO(this->get_logger(), "Servo stream stopped: %s", reason);
-}
-
-bool JointPositionController::queueSegment(const JointSample & target, double duration)
-{
-  std::string message;
-  unsigned int remainCount = 0;
-  unsigned int availableCount = 0;
-  CyclicBufferState::T state = CyclicBufferState::Stopped;
-
-  if (api_->getCyclicBufferStatus(axes_, remainCount, availableCount, state, message) !=
-    ErrorCode::None)
-  {
-    RCLCPP_WARN(this->get_logger(), "%s", message.c_str());
-    return false;
-  }
-
-  if (state != CyclicBufferState::ExecutingCommand &&
-    state != CyclicBufferState::WaitingForCommand)
-  {
-    RCLCPP_ERROR(this->get_logger(), "Cyclic buffer in state %s", stateToString(state));
-    stopStream(stateToString(state));
-    return false;
-  }
-
-  const double depth = static_cast<double>(remainCount) * sampleCycles_ * cycleTime_;
-  const double corrected = std::clamp(
-    duration - 0.5 * (depth - leadTime_), 0.5 * duration, 1.5 * duration);
-
-  const double sampleTime = cycleTime_ * sampleCycles_;
-  const auto count = static_cast<size_t>(std::max(1.0, std::round(corrected / sampleTime)));
-
-  if (streaming_ && remainCount == 0) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 1000,
-      "Cyclic buffer ran empty, the axes held until this segment");
-  }
-  RCLCPP_DEBUG_THROTTLE(
-    this->get_logger(), *this->get_clock(), 500,
-    "buffer depth %.1f ms, segment %.1f ms (%zu commands)",
-    depth * 1e3, static_cast<double>(count) * sampleTime * 1e3, count);
-
-  if (count > availableCount) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 1000,
-      "Cyclic buffer full (%u free, %zu needed), dropping segment", availableCount, count);
-    return false;
-  }
-
-  const double T = static_cast<double>(count) * sampleTime;
-  const size_t joints = axes_.size();
-  std::vector<std::vector<double>> samples(count, std::vector<double>(joints, 0.0));
-
-  for (size_t i = 0; i < joints; ++i) {
-    const double p0 = last_.position[i];
-    const double p1 = target.position[i];
-    const double d = p1 - p0;
-    const double v0 = last_.velocity[i] * T;
-    const double v1 = target.velocity[i] * T;
-    const double a0 = last_.acceleration[i] * T * T;
-    const double a1 = target.acceleration[i] * T * T;
-
-    double c1 = 0.0, c2 = 0.0, c3 = 0.0, c4 = 0.0, c5 = 0.0;
-    switch (interpolation_) {
-      case Interpolation::LINEAR:
-        c1 = d;
-        break;
-      case Interpolation::CUBIC:
-        c1 = v0;
-        c2 = 3.0 * d - 2.0 * v0 - v1;
-        c3 = -2.0 * d + v0 + v1;
-        break;
-      case Interpolation::QUINTIC:
-        c1 = v0;
-        c2 = 0.5 * a0;
-        c3 = 10.0 * d - 6.0 * v0 - 4.0 * v1 - 1.5 * a0 + 0.5 * a1;
-        c4 = -15.0 * d + 8.0 * v0 + 7.0 * v1 + 1.5 * a0 - a1;
-        c5 = 6.0 * d - 3.0 * v0 - 3.0 * v1 - 0.5 * a0 + 0.5 * a1;
-        break;
-    }
-
-    for (size_t k = 0; k < count; ++k) {
-      const double s = static_cast<double>(k + 1) / static_cast<double>(count);
-      samples[k][i] = p0 + s * (c1 + s * (c2 + s * (c3 + s * (c4 + s * c5))));
-    }
-  }
-
-  const auto refLast = refLast_;
-  const auto outPos = outPos_;
-  const auto outVel = outVel_;
-  limitAcceleration(samples);
-
-  if (api_->addCommand(axes_, samples, static_cast<unsigned int>(sampleCycles_), message) !=
-    ErrorCode::None)
-  {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "%s", message.c_str());
-    refLast_ = refLast;
-    outPos_ = outPos;
-    outVel_ = outVel;
-    return false;
-  }
-
-  last_ = target;
-  return true;
-}
-
-void JointPositionController::limitAcceleration(std::vector<std::vector<double>> & samples)
-{
-  const double h = cycleTime_ * sampleCycles_;
-  const double tau = 5.0 * h;
-  for (auto & sample : samples) {
-    for (size_t i = 0; i < sample.size(); ++i) {
-      const double ref = sample[i];
-      const double vRef = (ref - refLast_[i]) / h;
-      const double e = refLast_[i] - outPos_[i];
-      refLast_[i] = ref;
-      const double a = maxAcceleration_[i];
-      if (a <= 0.0) {
-        outPos_[i] = ref;
-        outVel_[i] = vRef;
-        continue;
-      }
-      const double corr = std::copysign(
-        std::min(std::fabs(e) / tau, std::sqrt(2.0 * a * std::fabs(e))), e);
-      const double bound = std::sqrt(vRef * vRef + 2.0 * a * std::fabs(e));
-      const double dv = std::clamp(
-        std::clamp(vRef + corr, -bound, bound) - outVel_[i], -a * h, a * h);
-      outVel_[i] += dv;
-      outPos_[i] += outVel_[i] * h;
-      sample[i] = outPos_[i];
-    }
-  }
-}
-
-bool JointPositionController::settled() const
-{
-  for (size_t i = 0; i < outPos_.size(); ++i) {
-    if (std::fabs(refLast_[i] - outPos_[i]) > 1e-6 || std::fabs(outVel_[i]) > 1e-5) {
-      return false;
-    }
-  }
-  return true;
-}
-
-// After the stop segment, holds the reference until the limited output has caught up.
-void JointPositionController::queueSettle()
-{
-  std::vector<std::vector<double>> samples(50, refLast_);
-  limitAcceleration(samples);
-  std::string message;
-  if (api_->addCommand(axes_, samples, static_cast<unsigned int>(sampleCycles_), message) !=
-    ErrorCode::None)
-  {
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "%s", message.c_str());
-  }
-}
-
-void JointPositionController::queueStop()
-{
-  double T = 0.05;
-  for (const double v : last_.velocity) {
-    T = std::max(T, 2.0 * std::fabs(v) / stopDeceleration_);
-  }
-
-  JointSample rest;
-  rest.position = last_.position;
-  rest.velocity.assign(axes_.size(), 0.0);
-  rest.acceleration.assign(axes_.size(), 0.0);
-  for (size_t i = 0; i < axes_.size(); ++i) {
-    rest.position[i] += 0.5 * last_.velocity[i] * T;
-  }
-
-  queueSegment(rest, T);
-  streaming_ = false;
-  draining_ = true;
+  RCLCPP_INFO(this->get_logger(), "Servo stream halted: %s", reason);
 }
 
 bool JointPositionController::readPoint(
-  const trajectory_msgs::msg::JointTrajectory & traj, size_t index, JointSample & sample)
+  const trajectory_msgs::msg::JointTrajectory & traj,
+  std::vector<double> & position, std::vector<double> & velocity)
 {
-  const auto & pt = traj.points[index];
+  const auto & pt = traj.points.back();
   const size_t count = pt.positions.size();
 
   if (count != axes_.size() || traj.joint_names.size() != count) {
@@ -797,11 +472,8 @@ bool JointPositionController::readPoint(
   }
 
   const bool hasVelocity = pt.velocities.size() == count;
-  const bool hasAcceleration = pt.accelerations.size() == count;
-
-  sample.position.assign(count, 0.0);
-  sample.velocity.assign(count, 0.0);
-  sample.acceleration.assign(count, 0.0);
+  position.assign(count, 0.0);
+  velocity.assign(count, 0.0);
 
   for (size_t j = 0; j < count; ++j) {
     const auto it = indexByName_.find(traj.joint_names[j]);
@@ -813,13 +485,10 @@ bool JointPositionController::readPoint(
     }
 
     const size_t i = it->second;
-    sample.position[i] = pt.positions[j];
-    sample.velocity[i] = hasVelocity ? pt.velocities[j] : 0.0;
-    sample.acceleration[i] = hasAcceleration ? pt.accelerations[j] : 0.0;
+    position[i] = pt.positions[j];
+    velocity[i] = hasVelocity ? pt.velocities[j] : 0.0;
 
-    if (!std::isfinite(sample.position[i]) || !std::isfinite(sample.velocity[i]) ||
-      !std::isfinite(sample.acceleration[i]))
-    {
+    if (!std::isfinite(position[i]) || !std::isfinite(velocity[i])) {
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 1000,
         "Dropped trajectory: joint '%s' is not finite", traj.joint_names[j].c_str());
@@ -830,6 +499,170 @@ bool JointPositionController::readPoint(
   return true;
 }
 
+// Each Servo point restarts one linear interpolation, aimed at where Servo will be
+// `horizon` from now: target = p + v * horizon. Every axis gets the speed that covers
+// its distance in `horizon`, so the command velocity is v + (p - posCmd) / horizon:
+// Servo's velocity fed forward plus a correction of the remaining gap. The horizon is
+// long enough that the profile never starts braking before the next point arrives, so
+// consecutive points blend into one continuous motion. With Servo at rest the target
+// is p itself and the axes settle there without overshoot.
+void JointPositionController::track(
+  const std::vector<double> & position, const std::vector<double> & velocity)
+{
+  const size_t joints = axes_.size();
+  const auto now = std::chrono::steady_clock::now();
+
+  // Servo advances its position by one publish_period per point, so the difference of
+  // consecutive points is its velocity, already smoothed. A point lost in transit spans
+  // two periods. After a pause, fall back to the velocity in the message.
+  std::vector<double> v = velocity;
+  if (havePrevious_) {
+    const double periods = std::round(
+      std::chrono::duration<double>(now - previousTime_).count() / publishPeriod_);
+    if (periods <= 3.0) {
+      const double dt = std::max(periods, 1.0) * publishPeriod_;
+      for (size_t i = 0; i < joints; ++i) {
+        v[i] = (position[i] - previous_[i]) / dt;
+      }
+    }
+  }
+  previous_ = position;
+  previousTime_ = now;
+  havePrevious_ = true;
+  velocity_ = v;
+  pending_ = true;
+  send();
+}
+
+// The engine refuses a new interpolation override while it is still blending the last
+// one, which takes longer than Servo's period. The newest point therefore stays
+// pending and is resent, extrapolated to the current time, every retry tick until the
+// engine accepts it, so the axes switch to fresh data as soon as they can.
+void JointPositionController::send()
+{
+  const size_t joints = axes_.size();
+  const double age = std::chrono::duration<double>(
+    std::chrono::steady_clock::now() - previousTime_).count();
+  std::vector<double> v = velocity_;
+
+  std::string message;
+  std::vector<double> posCmd;
+  std::vector<double> velCmd;
+  if (api_->getStatus(axes_, posCmd, velCmd, message) != ErrorCode::None) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000, "Dropped point: %s", message.c_str());
+    streaming_ = false;
+    havePrevious_ = false;
+    pending_ = false;
+    return;
+  }
+
+  double horizon = lookaheadTime_;
+  bool moving = false;
+  servoMoving_ = false;
+  for (size_t i = 0; i < joints; ++i) {
+    v[i] = std::clamp(v[i], -maxVelocity_[i], maxVelocity_[i]);
+    horizon = std::max(
+      horizon, publishPeriod_ + std::fabs(v[i]) / (2.0 * maxAcceleration_[i]));
+    moving = moving || std::fabs(velCmd[i]) > kStillVelocity;
+    servoMoving_ = servoMoving_ || std::fabs(v[i]) > kStillVelocity;
+  }
+
+  std::vector<double> target(joints);
+  std::vector<double> speed(joints);
+  double largestStep = 0.0;
+  for (size_t i = 0; i < joints; ++i) {
+    target[i] = previous_[i] + v[i] * (age + horizon);
+    const double step = std::fabs(target[i] - posCmd[i]);
+    largestStep = std::max(largestStep, step);
+    speed[i] = std::clamp(step / horizon, kVelocityFloor, maxVelocity_[i]);
+  }
+
+  if (largestStep <= positionTolerance_ && !moving) {
+    pending_ = false;
+    return;
+  }
+
+  const auto sendTime = std::chrono::steady_clock::now();
+  if (streaming_ && moving &&
+    std::chrono::duration<double>(sendTime - lastAccept_).count() < minOverrideInterval_)
+  {
+    return;  // keep pending; the retry timer sends it once the interval has passed
+  }
+
+  const int err = api_->startLinearIntplPos(axes_, target, speed, maxAcceleration_, message);
+  if (err == CoreMotionErrorCode::ProcessingOverride) {
+    ++retries_;
+    if (!retryBusy_) {
+      pending_ = false;
+    }
+    return;
+  }
+  pending_ = false;
+  if (err != ErrorCode::None) {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "%s", message.c_str());
+    return;
+  }
+  // Average spacing of accepted overrides, never below Servo's period: the profile
+  // must keep moving at least that long before the next one takes over.
+  const auto acceptTime = std::chrono::steady_clock::now();
+  if (streaming_) {
+    const double interval = std::chrono::duration<double>(acceptTime - lastAccept_).count();
+    acceptInterval_ = std::max(
+      publishPeriod_, 0.8 * acceptInterval_ + 0.2 * std::min(interval, 4.0 * publishPeriod_));
+  }
+  lastAccept_ = acceptTime;
+  ++sent_;
+  RCLCPP_INFO_THROTTLE(
+    this->get_logger(), *this->get_clock(), 5000,
+    "overrides accepted %zu, busy retries %zu, accepted every %.1f ms",
+    sent_, retries_, acceptInterval_ * 1e3);
+
+  if (!streaming_) {
+    RCLCPP_INFO(this->get_logger(), "Servo stream started");
+  }
+  streaming_ = true;
+}
+
+// The stream stopped while Servo still had velocity: the last target lies up to one
+// horizon ahead. Brake from the current command velocity at max_acceleration instead,
+// along the current direction so the axes stay on a straight joint-space line.
+void JointPositionController::brake(const char * reason)
+{
+  streaming_ = false;
+  havePrevious_ = false;
+  pending_ = false;
+
+  std::string message;
+  std::vector<double> posCmd;
+  std::vector<double> velCmd;
+  if (api_->getStatus(axes_, posCmd, velCmd, message) != ErrorCode::None) {
+    RCLCPP_WARN(this->get_logger(), "Brake skipped: %s", message.c_str());
+    return;
+  }
+
+  double stopTime = 0.0;
+  for (size_t i = 0; i < axes_.size(); ++i) {
+    stopTime = std::max(stopTime, std::fabs(velCmd[i]) / maxAcceleration_[i]);
+  }
+
+  if (stopTime > 0.0) {
+    std::vector<double> target(axes_.size());
+    std::vector<double> speed(axes_.size());
+    for (size_t i = 0; i < axes_.size(); ++i) {
+      target[i] = posCmd[i] + 0.5 * velCmd[i] * stopTime;
+      speed[i] = std::max(std::fabs(velCmd[i]), kVelocityFloor);
+    }
+    if (api_->startLinearIntplPos(axes_, target, speed, maxAcceleration_, message) !=
+      ErrorCode::None)
+    {
+      RCLCPP_WARN(this->get_logger(), "%s", message.c_str());
+    }
+  }
+
+  RCLCPP_INFO(this->get_logger(), "Servo stream ended: %s", reason);
+}
+
 void JointPositionController::jointTrajectoryCallback(
   const trajectory_msgs::msg::JointTrajectory::SharedPtr msg)
 {
@@ -837,56 +670,36 @@ void JointPositionController::jointTrajectoryCallback(
     return;
   }
 
-  JointSample sample;
-  if (!readPoint(*msg, msg->points.size() - 1, sample)) {
+  std::vector<double> position;
+  std::vector<double> velocity;
+  if (!readPoint(*msg, position, velocity)) {
     return;
   }
 
-  lastReceived_ = std::chrono::steady_clock::now();
-
-  if (!streaming_ && !startStream()) {
-    return;
-  }
-
-  queueSegment(sample, publishPeriod_);
+  track(position, velocity);
 }
 
 void JointPositionController::watchdogCallback()
 {
-  if (streaming_) {
-    const double idle = std::chrono::duration<double>(
-      std::chrono::steady_clock::now() - lastReceived_).count();
-    if (idle > streamTimeout_) {
-      queueStop();
-    }
+  if (!streaming_) {
     return;
   }
 
-  if (!draining_) {
+  const double idle = std::chrono::duration<double>(
+    std::chrono::steady_clock::now() - previousTime_).count();
+  if (idle <= streamTimeout_) {
     return;
   }
 
-  std::string message;
-  unsigned int remainCount = 0;
-  unsigned int availableCount = 0;
-  CyclicBufferState::T state = CyclicBufferState::Stopped;
-  if (api_->getCyclicBufferStatus(axes_, remainCount, availableCount, state, message) !=
-    ErrorCode::None)
-  {
-    stopStream(message.c_str());
+  // With Servo at rest the last command already ends on its final point.
+  if (servoMoving_) {
+    brake("stream timeout while moving");
     return;
   }
-
-  if (!settled()) {
-    if (remainCount < 100) {
-      queueSettle();
-    }
-    return;
-  }
-
-  if (remainCount == 0) {
-    stopStream("stream idle");
-  }
+  streaming_ = false;
+  havePrevious_ = false;
+  pending_ = false;
+  RCLCPP_INFO(this->get_logger(), "Servo stream ended: idle");
 }
 
 int main(int argc, char ** argv)
