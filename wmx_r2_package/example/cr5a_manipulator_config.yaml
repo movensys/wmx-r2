@@ -19,9 +19,16 @@ joint_position_controller:
     joint_axes: [0, 1, 2, 3, 4, 5]
     joint_name: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
     joint_trajectory_topic: /movensys_manipulator_arm_controller/joint_trajectory
-    accel_ratio: 0.3
-    default_velocity: 0.5
-    min_step: 0.001
+    buffer_cycles: 2048
+    cycle_time: 0.001
+    sample_cycles: 1
+    publish_period: 0.025
+    lead_time: 0.025
+    stream_timeout: 0.1
+    stop_deceleration: 1.0
+    interpolation: cubic
+    max_velocity: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    max_acceleration: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
 wmx_engine_node:
   ros__parameters:

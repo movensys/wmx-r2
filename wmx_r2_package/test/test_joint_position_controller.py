@@ -72,9 +72,9 @@ def generate_test_description():
             'joint_axes': [0, 1, 2, 3, 4, 5],
             'joint_name': JOINT_NAMES,
             'joint_trajectory_topic': TRAJECTORY_TOPIC,
-            'accel_ratio': 0.5,
-            'default_velocity': 0.1,
-            'min_step': 0.1,
+            'lead_time': 0.025,
+            'stream_timeout': 0.1,
+            'interpolation': 'cubic',
         }],
         output='screen',
     )
@@ -122,16 +122,16 @@ class TestJointPositionController(unittest.TestCase):
         )
 
         req = GetParameters.Request()
-        req.names = ['accel_ratio', 'default_velocity', 'min_step', 'joint_trajectory_topic']
+        req.names = ['lead_time', 'stream_timeout', 'interpolation', 'joint_trajectory_topic']
         future = client.call_async(req)
         rclpy.spin_until_future_complete(self.node, future, timeout_sec=10)
 
         result = future.result()
         self.assertIsNotNone(result, 'Parameter service call returned no result')
         self.assertEqual(len(result.values), 4, 'Not every parameter was declared')
-        self.assertAlmostEqual(result.values[0].double_value, 0.5)
+        self.assertAlmostEqual(result.values[0].double_value, 0.025)
         self.assertAlmostEqual(result.values[1].double_value, 0.1)
-        self.assertAlmostEqual(result.values[2].double_value, 0.1)
+        self.assertEqual(result.values[2].string_value, 'cubic')
         self.assertEqual(result.values[3].string_value, TRAJECTORY_TOPIC)
 
     def test_subscribes_to_trajectory_topic(self):
