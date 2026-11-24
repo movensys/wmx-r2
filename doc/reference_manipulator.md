@@ -43,8 +43,8 @@ own the engine, not the motion these controllers command.
 | `gripper_controller` | Gripper open/close over a WMX IO output bit | only with `use_gripper:=true` |
 
 "Started" is for `wmx_r2_manipulator.launch.py`.
-`wmx_r2_control_manipulator.launch.py` starts the same trajectory, position and
-gripper nodes, but **not** this `joint_state_broadcaster`: feedback there comes
+`wmx_r2_control_manipulator.launch.py` starts the same trajectory, position,
+dynamic trajectory and gripper nodes, but **not** this `joint_state_broadcaster`: feedback there comes
 from `ros2_control_node` with `WmxSystemHardware` plus a spawned
 `joint_state_broadcaster/JointStateBroadcaster` of the same name, and the
 hardware interface itself clears alarms and switches the servos on at activate
@@ -159,6 +159,8 @@ stream directly; there is no topic between the stages.
   point 0). The ~`lead_time` already queued still plays first. With a non-zero
   `header.stamp` the takeover is placed at `t = now + lead_time − stamp` on the
   trajectory's time axis (cuRobo stamps the time of point 0); with a zero stamp it is `t = 0`.
+  Publisher and DTC must use the same clock (`use_sim_time` on both or neither); see
+  `max_stamp_offset`.
 - **End.** After the last point the end position is held and the stream drains and closes.
   An empty message is ignored; cuRobo stops by sending its own deceleration trajectory.
 
@@ -168,6 +170,7 @@ Takes every JPC parameter above except `publish_period`, plus:
 |---|---|---|---|---|
 | `joint_trajectory_topic` | string | `/joint_trajectory_topic/no_param` | – | cuRobo trajectory topic. Shipped configs: `/dynamic_trajectory_controller/joint_trajectory`. |
 | `slice_period` | double | `0.01` | s | Stage-1 period and nominal segment length. |
+| `max_stamp_offset` | double | `1.0` | s | A `header.stamp` further than this from the node's clock is ignored (treated as zero) with a warning. Catches a `use_sim_time` mismatch between cuRobo and this node, which would otherwise skip the whole trajectory or freeze at its start. |
 
 ### D. `gripper_controller`
 

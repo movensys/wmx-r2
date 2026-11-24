@@ -197,6 +197,7 @@ private:
 
   std::string jointTrajectoryTopic_;
   double slicePeriod_ = 0.01;
+  double maxStampOffset_ = 1.0;
 
   std::vector<Waypoint> trajectory_;
   size_t segment_ = 0;

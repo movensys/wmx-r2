@@ -999,8 +999,14 @@ DynamicTrajectoryController::DynamicTrajectoryController()
     RCLCPP_WARN(this->get_logger(), "slice_period %f invalid, using 0.01", slicePeriod_);
     slicePeriod_ = 0.01;
   }
+  maxStampOffset_ = this->declare_parameter<double>("max_stamp_offset", 1.0);
+  if (!std::isfinite(maxStampOffset_) || maxStampOffset_ <= 0.0) {
+    RCLCPP_WARN(this->get_logger(), "max_stamp_offset %f invalid, using 1.0", maxStampOffset_);
+    maxStampOffset_ = 1.0;
+  }
   RCLCPP_INFO(this->get_logger(), "joint_trajectory_topic: %s", jointTrajectoryTopic_.c_str());
   RCLCPP_INFO(this->get_logger(), "slice_period: %f", slicePeriod_);
+  RCLCPP_INFO(this->get_logger(), "max_stamp_offset: %f", maxStampOffset_);
 }
 
 DynamicTrajectoryController::CallbackReturn DynamicTrajectoryController::on_activate(
@@ -1067,7 +1073,17 @@ void DynamicTrajectoryController::jointTrajectoryCallback(
   double tau0 = 0.0;
   const rclcpp::Time stamp(msg->header.stamp, this->get_clock()->get_clock_type());
   if (stamp.nanoseconds() != 0) {
-    tau0 = (this->now() - stamp).seconds() + leadTime_;
+    const double offset = (this->now() - stamp).seconds();
+    if (std::fabs(offset) <= maxStampOffset_) {
+      tau0 = offset + leadTime_;
+    } else {
+      // Publisher on another clock (one side with use_sim_time, the other without): the
+      // offset is meaningless and would skip the whole trajectory or freeze at its start.
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 2000,
+        "header.stamp is %.3f s from this node's clock (use_sim_time mismatch with the "
+        "publisher?); ignoring the stamp", offset);
+    }
   }
 
   Waypoint start;
