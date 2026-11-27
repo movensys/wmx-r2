@@ -96,6 +96,8 @@ def cases():
              manipulator('cr3a', gripper=True), 7),
         Case('wmx_r2_manipulator.launch.py', 'cr5a',
              manipulator('cr5a', gripper=False), 6),
+        Case('wmx_r2_manipulator.launch.py', 'nachi_mz07',
+             manipulator('nachi_mz07', gripper=False), 6),
         Case('wmx_r2_differential.launch.py', 'diffbot',
              differential(), 5),
         Case('wmx_r2_robot_option.launch.py', 'cr3a', {
@@ -104,6 +106,12 @@ def cases():
             'wmx_param_file': example('cr3a_wmx_parameters.xml'),
             'robot_param_file': example('cr3a_robot_option_parameters.xml'),
         }, 5),
+        Case('wmx_r2_robot_option.launch.py', 'nachi_mz07', {
+            'use_sim_time': 'false',
+            'config_file': example('nachi_mz07_robot_option_config.yaml'),
+            'wmx_param_file': example('nachi_mz07_wmx_parameters_deg.xml'),
+            'robot_param_file': example('nachi_mz07_robot_option_parameters.xml'),
+        }, 5),
 
         Case('wmx_r2_control_manipulator.launch.py', 'cr3a',
              with_control(manipulator('cr3a', gripper=True),
@@ -111,6 +119,9 @@ def cases():
         Case('wmx_r2_control_manipulator.launch.py', 'cr5a',
              with_control(manipulator('cr5a', gripper=False),
                           'cr5a', 'cr5a_controllers.yaml'), 5),
+        Case('wmx_r2_control_manipulator.launch.py', 'nachi_mz07',
+             with_control(manipulator('nachi_mz07', gripper=False),
+                          'nachi_mz07', 'nachi_mz07_controllers.yaml'), 5),
         Case('wmx_r2_control_differential.launch.py', 'diffbot',
              with_control(differential(), 'diffbot', 'diffbot_controllers.yaml'), 3),
     ]
