@@ -104,6 +104,12 @@ def cases():
             'wmx_param_file': example('cr3a_wmx_parameters.xml'),
             'robot_param_file': example('cr3a_robot_option_parameters.xml'),
         }, 5),
+        Case('wmx_r2_robot_option.launch.py', 'ovr6048k1-v', {
+            'use_sim_time': 'false',
+            'config_file': example('ovr6048k1-v_robot_option_config.yaml'),
+            'wmx_param_file': example('ovr6048k1-v_wmx_parameters_deg.xml'),
+            'robot_param_file': example('ovr6048k1-v_robot_option_parameters.xml'),
+        }, 5),
 
         Case('wmx_r2_control_manipulator.launch.py', 'cr3a',
              with_control(manipulator('cr3a', gripper=True),
