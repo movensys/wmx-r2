@@ -9,8 +9,8 @@ from launch_ros.actions import LifecycleNode
 
 PKG_SHARE = get_package_share_directory('wmx_r2_package')
 
-OVR6048_CONFIG = os.path.join(PKG_SHARE, 'config', 'ovr6048k1-v_manipulator_config.yaml')
-OVR6048_WMX_PARAM_FILE = os.path.join(PKG_SHARE, 'config', 'ovr6048k1-v_wmx_parameters.xml')
+OVR6048_CONFIG = os.path.join(PKG_SHARE, 'example', 'ovr6048k1-v_manipulator_config.yaml')
+OVR6048_WMX_PARAM_FILE = os.path.join(PKG_SHARE, 'example', 'ovr6048k1-v_wmx_parameters.xml')
 
 
 def generate_launch_description():
