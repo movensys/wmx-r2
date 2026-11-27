@@ -17,6 +17,7 @@ from launch.actions import (
     GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
+    SetLaunchConfiguration,
 )
 from launch.substitutions import Command, LocalSubstitution
 from launch.utilities import perform_substitutions
@@ -96,6 +97,8 @@ def cases():
              manipulator('cr3a', gripper=True), 7),
         Case('wmx_r2_manipulator.launch.py', 'cr5a',
              manipulator('cr5a', gripper=False), 6),
+        Case('wmx_r2_ovr6048k1-v_manipulator.launch.py', 'ovr6048k1-v',
+             {'use_sim_time': 'false'}, 6),
         Case('wmx_r2_differential.launch.py', 'diffbot',
              differential(), 5),
         Case('wmx_r2_robot_option.launch.py', 'cr3a', {
@@ -103,6 +106,12 @@ def cases():
             'config_file': example('cr3a_robot_option_config.yaml'),
             'wmx_param_file': example('cr3a_wmx_parameters.xml'),
             'robot_param_file': example('cr3a_robot_option_parameters.xml'),
+        }, 5),
+        Case('wmx_r2_robot_option.launch.py', 'ovr6048k1-v', {
+            'use_sim_time': 'false',
+            'config_file': example('ovr6048k1-v_robot_option_config.yaml'),
+            'wmx_param_file': example('ovr6048k1-v_wmx_parameters_deg.xml'),
+            'robot_param_file': example('ovr6048k1-v_robot_option_parameters.xml'),
         }, 5),
 
         Case('wmx_r2_control_manipulator.launch.py', 'cr3a',
@@ -212,7 +221,12 @@ def entities_of(description, context):
             elif isinstance(entity, GroupAction):
                 walk(entity.execute(context) or [])
             elif isinstance(entity, IncludeLaunchDescription):
-                entity.execute(context)
+                # execute() returns the include's launch_arguments as
+                # SetLaunchConfiguration actions; apply them, or a launch file
+                # that hands its paths to an include resolves them as empty.
+                for action in entity.execute(context) or []:
+                    if isinstance(action, SetLaunchConfiguration):
+                        action.visit(context)
                 walk(entity.launch_description_source.get_launch_description(
                     context).entities)
             else:

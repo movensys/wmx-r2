@@ -36,3 +36,21 @@ wros ros2 launch wmx_r2_control wmx_r2_control_manipulator.launch.py \
     'urdf_file:=$(ros2 pkg prefix --share wmx_r2_control)/urdf/cr5a.wmx.urdf.xacro' \
     'controllers_file:=$(ros2 pkg prefix --share wmx_r2_control)/config/cr5a_controllers.yaml'
 ```
+
+## Example: Oriental Motor OVR6048K1-V
+```
+wros ros2 launch wmx_r2_package wmx_r2_manipulator.launch.py \
+    use_sim_time:=false \
+    'config_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/ovr6048k1-v_manipulator_config.yaml' \
+    'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/ovr6048k1-v_wmx_parameters.xml'
+```
+
+## Example: Oriental Motor OVR6048K1-V with ROS2 Control
+```
+wros ros2 launch wmx_r2_control wmx_r2_control_manipulator.launch.py \
+    use_sim_time:=false \
+    'config_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/ovr6048k1-v_manipulator_config.yaml' \
+    'wmx_param_file:=$(ros2 pkg prefix --share wmx_r2_package)/example/ovr6048k1-v_wmx_parameters.xml' \
+    'urdf_file:=$(ros2 pkg prefix --share wmx_r2_control)/urdf/ovr6048k1-v.wmx.urdf.xacro' \
+    'controllers_file:=$(ros2 pkg prefix --share wmx_r2_control)/config/ovr6048k1-v_controllers.yaml'
+```
